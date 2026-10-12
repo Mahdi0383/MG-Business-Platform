@@ -1,0 +1,39 @@
+# Release Gates
+
+A release may not be described as complete until all applicable gates have evidence in CI and a reproducible Windows release build.
+
+## Build and quality
+- Restore, Release build, and tests pass on supported Windows runners.
+- Nullable warnings and compiler warnings are treated as errors.
+- Formatting/analyzers run in CI.
+- Dependency vulnerability checks run and high/critical findings are triaged.
+- Reproducible publish/package artifacts are produced and checksummed.
+
+## Financial correctness
+- Journal debits equal credits for every posted transaction.
+- Currency, precision, rounding, tax, discounts, refunds, and reversals have explicit policies and tests.
+- Closed periods reject unauthorized edits.
+- Voids and corrections preserve audit history.
+- Inventory and accounting updates are atomic and idempotent.
+
+## Data safety
+- Schema migrations upgrade supported versions and fail safely.
+- Backup and restore are tested against real generated databases.
+- A failed update or restore cannot silently destroy the last known-good data.
+- Export/import validation reports rejected records without partial corruption.
+
+## Security
+- Authorization is enforced server-side for every protected operation.
+- Public endpoints cannot reach admin APIs, local files, backups, or secrets.
+- License verification uses a public key only in the main app.
+- Secrets are not logged or committed.
+- Static analysis and dependency scanning are reviewed.
+
+## Storefront publication
+- DNS, HTTPS, reverse proxy, host-header validation, CSRF, rate limits, and public health checks tested.
+- CGNAT/inbound-port-blocked scenarios fail safely and explain alternatives.
+- Certificate renewal, host restart, WAN IP change, and unpublish tested.
+- Never declare online availability based only on a local health check.
+
+## Release evidence
+Publish CI run links, test summary, known limitations, supported Windows versions, installation/upgrade instructions, rollback instructions, and SHA-256 checksums. If a gate has not been tested, mark it NOT VERIFIED; do not imply it passed.
