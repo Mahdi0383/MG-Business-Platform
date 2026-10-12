@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  build-domain:
+  build-and-test:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -25,5 +25,11 @@ jobs:
       - name: Show SDK information
         run: dotnet --info
 
-      - name: Build domain project
-        run: dotnet build src/MG.BusinessPlatform.Domain/MG.BusinessPlatform.Domain.csproj --configuration Release
+      - name: Restore solution
+        run: dotnet restore MG.BusinessPlatform.sln
+
+      - name: Build solution
+        run: dotnet build MG.BusinessPlatform.sln --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test MG.BusinessPlatform.sln --configuration Release --no-build --logger "console;verbosity=normal"
