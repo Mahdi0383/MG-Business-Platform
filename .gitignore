@@ -1,0 +1,43 @@
+# .NET build output
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE
+.idea/
+.vscode/
+
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+secrets.json
+*.pfx
+*.p12
+*.snk
+
+# Local data and backups
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+/backups/
+
+# Generated artifacts
+/artifacts/
+/publish/
+*.msi
+*.exe
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
