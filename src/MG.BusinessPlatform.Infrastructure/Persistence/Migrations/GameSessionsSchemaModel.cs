@@ -42,10 +42,10 @@ internal static class GameSessionsSchemaModel
             b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
             b.Property<decimal>("EntryAmount").HasColumnType("TEXT");
-            b.Property<Guid>("SessionId").HasColumnType("TEXT");
+            b.Property<Guid>("GameSessionId").HasColumnType("TEXT");
             b.Property<decimal>("TimeCharge").HasColumnType("TEXT");
             b.HasKey("Id");
-            b.HasIndex("SessionId", "DisplayName");
+            b.HasIndex("GameSessionId", "DisplayName");
             b.ToTable("GameSessionPlayers", t => t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
                 "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0"));
         });
@@ -53,7 +53,7 @@ internal static class GameSessionsSchemaModel
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionPlayerRecord", b =>
         {
             b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionRecord", "Session")
-                .WithMany("Players").HasForeignKey("SessionId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+                .WithMany("Players").HasForeignKey("GameSessionId").OnDelete(DeleteBehavior.Cascade).IsRequired();
             b.Navigation("Session");
         });
 
