@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "MGBusinessPlatform");
+        var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
