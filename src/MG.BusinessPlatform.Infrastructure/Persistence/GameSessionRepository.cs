@@ -19,14 +19,9 @@ public sealed class GameSessionRepository(BusinessDbContext db)
             .Include(x => x.Players)
             .SingleOrDefaultAsync(x => x.Id == session.Id, cancellationToken);
 
-        var now = DateTimeOffset.UtcNow;
         if (record is null)
         {
-            record = new GameSessionRecord
-            {
-                Id = session.Id,
-                CreatedAtUtc = now
-            };
+            record = new GameSessionRecord { Id = session.Id };
             db.GameSessions.Add(record);
         }
 
@@ -54,8 +49,7 @@ public sealed class GameSessionRepository(BusinessDbContext db)
                 playerRecord = new GameSessionPlayerRecord
                 {
                     Id = player.Id,
-                    SessionId = session.Id,
-                    CreatedAtUtc = now
+                    GameSessionId = session.Id
                 };
                 record.Players.Add(playerRecord);
             }
@@ -65,6 +59,7 @@ public sealed class GameSessionRepository(BusinessDbContext db)
             playerRecord.TimeCharge = player.TimeCharge.Amount;
             playerRecord.AdditionalAmount = player.AdditionalAmount.Amount;
             playerRecord.CurrencyCode = player.EntryAmount.CurrencyCode;
+            playerRecord.GameSessionId = session.Id;
         }
 
         await db.SaveChangesAsync(cancellationToken);
