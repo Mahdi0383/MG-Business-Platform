@@ -59,8 +59,13 @@ Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Gre
 Write-Host "Package: $zipPath"
 Write-Host "SHA-256: $sha"
 
-$iscc = Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"
-if (Test-Path $iscc) {
+$isccCandidates = @(
+    (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
+    (Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Inno Setup 6/ISCC.exe")
+) | Where-Object { $_ -and (Test-Path $_) }
+if ($isccCandidates.Count -gt 0) {
+    New-Item -ItemType Directory -Path (Join-Path $artifactRoot "installer") -Force | Out-Null
+    $iscc = $isccCandidates[0]
     $installerScript = Join-Path $repoRoot "installer/MG-Business-Platform.iss"
     & $iscc $installerScript
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup packaging failed with exit code $LASTEXITCODE." }
