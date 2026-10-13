@@ -10,7 +10,7 @@ internal static class GameSessionsSchemaModel
             .HasAnnotation("Relational:MaxIdentifierLength", 64);
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionRecord", b =>
         {
-            b.Property<Guid>("Id").HasColumnType("TEXT");
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
             b.Property<Guid>("BranchId").HasColumnType("TEXT");
             b.Property<Guid>("DeviceId").HasColumnType("TEXT");
             b.Property<string>("GameName").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
@@ -29,7 +29,7 @@ internal static class GameSessionsSchemaModel
         });
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionPlayerRecord", b =>
         {
-            b.Property<Guid>("Id").HasColumnType("TEXT");
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
             b.Property<Guid>("GameSessionId").HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
