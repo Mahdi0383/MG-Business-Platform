@@ -25,6 +25,8 @@ public sealed record FinancialStatementRow(string Statement, string AccountCode,
 public partial class MainWindow : Window
 {
     private readonly string _databasePath;
+    private readonly string _dataDirectory;
+    private readonly LicenseService _licenseService = new();
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
@@ -39,6 +41,7 @@ public partial class MainWindow : Window
         FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
+        _dataDirectory = dataDirectory;
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
@@ -61,6 +64,7 @@ public partial class MainWindow : Window
             await DatabaseInitializer.InitializeAsync(db);
 
             await LoadSettingsAsync();
+            RefreshLicenseStatus();
             await RefreshAsync();
             _refreshTimer.Start();
             StatusText.Text = "سامانه آماده است. اطلاعات به‌صورت محلی ذخیره می‌شوند.";
@@ -69,6 +73,48 @@ public partial class MainWindow : Window
         {
             StatusText.Text = $"خطا در آماده‌سازی پایگاه داده: {ex.Message}";
         }
+    }
+
+    private void RefreshLicenseStatus_Click(object sender, RoutedEventArgs e) => RefreshLicenseStatus();
+
+    private void RefreshLicenseStatus()
+    {
+        try
+        {
+            var info = _licenseService.LoadOrCreate(_dataDirectory);
+            SoftwareSerialText.Text = info.SoftwareSerial;
+            HardwareSerialText.Text = info.HardwareSerial;
+            LicenseStatusText.Text = $"{LicenseStatusTitle(info.Validation.Status)} — {info.Validation.Message}";
+        }
+        catch (Exception ex)
+        {
+            LicenseStatusText.Text = $"بررسی لایسنس ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private static string LicenseStatusTitle(MG.BusinessPlatform.Licensing.LicenseValidationStatus status) => status switch
+    {
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.Valid => "لایسنس معتبر",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.MissingLicense => "فعال‌سازی انجام نشده",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.MissingPublicKey => "کلید عمومی پیکربندی نشده",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.Expired => "لایسنس منقضی شده",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.WrongHardwareSerial => "سریال سخت‌افزار مطابقت ندارد",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.WrongSoftwareSerial => "سریال نرم‌افزار مطابقت ندارد",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.NotYetValid => "لایسنس هنوز فعال نشده",
+        MG.BusinessPlatform.Licensing.LicenseValidationStatus.InvalidSignature => "امضای لایسنس نامعتبر است",
+        _ => "لایسنس نامعتبر"
+    };
+
+    private void CopySoftwareSerial_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(SoftwareSerialText.Text))
+            Clipboard.SetText(SoftwareSerialText.Text);
+    }
+
+    private void CopyHardwareSerial_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(HardwareSerialText.Text))
+            Clipboard.SetText(HardwareSerialText.Text);
     }
 
     private async Task LoadSettingsAsync()
