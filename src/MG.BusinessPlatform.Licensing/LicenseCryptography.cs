@@ -15,6 +15,57 @@ public static class LicenseCryptography
         DefaultIgnoreCondition = JsonIgnoreCondition.Never
     };
 
+    private const string TrustedPublicKeyResourceName = "MG.BusinessPlatform.Licensing.TrustedLicensePublicKey.pem";
+
+    public static string GetTrustedPublicKeyPem()
+    {
+        using var stream = typeof(LicenseCryptography).Assembly.GetManifestResourceStream(TrustedPublicKeyResourceName)
+            ?? throw new InvalidOperationException("The trusted license public key is not embedded in this build.");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        var pem = reader.ReadToEnd();
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(pem);
+        if (rsa.KeySize < 2048)
+            throw new CryptographicException("The embedded trusted public key is too small.");
+        return pem;
+    }
+
+    public static bool PublicKeysMatch(string candidatePublicKeyPem, string trustedPublicKeyPem)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(candidatePublicKeyPem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(trustedPublicKeyPem);
+        using var candidate = RSA.Create();
+        using var trusted = RSA.Create();
+        candidate.ImportFromPem(candidatePublicKeyPem);
+        trusted.ImportFromPem(trustedPublicKeyPem);
+        return candidate.KeySize >= 2048 && trusted.KeySize >= 2048
+            && CryptographicOperations.FixedTimeEquals(
+                candidate.ExportSubjectPublicKeyInfo(), trusted.ExportSubjectPublicKeyInfo());
+    }
+
+    public static bool PrivateKeyMatchesPublicKey(string privateKeyPem, string expectedPublicKeyPem)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPublicKeyPem);
+        using var privateKey = RSA.Create();
+        using var publicKey = RSA.Create();
+        privateKey.ImportFromPem(privateKeyPem);
+        publicKey.ImportFromPem(expectedPublicKeyPem);
+        // Ensure the selected PEM actually contains private signing material, not
+        // merely a public key with the same identity.
+        var privateMaterial = privateKey.ExportPkcs8PrivateKey();
+        try
+        {
+            return privateKey.KeySize >= 2048 && publicKey.KeySize >= 2048
+                && CryptographicOperations.FixedTimeEquals(
+                    privateKey.ExportSubjectPublicKeyInfo(), publicKey.ExportSubjectPublicKeyInfo());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(privateMaterial);
+        }
+    }
+
     public static (string PrivateKeyPem, string PublicKeyPem) GenerateKeyPair(int keySize = 3072)
     {
         if (keySize is < 2048 or > 8192 || keySize % 256 != 0)

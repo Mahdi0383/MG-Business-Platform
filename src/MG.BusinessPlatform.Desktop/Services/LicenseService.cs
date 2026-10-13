@@ -19,13 +19,21 @@ public sealed class LicenseService
         var softwareSerialPath = Path.Combine(dataDirectory, "software-serial.txt");
         var softwareSerial = LoadOrCreateSoftwareSerial(softwareSerialPath);
         var hardwareSerial = GetHardwareSerial();
-        var publicKeyPath = Path.Combine(dataDirectory, "license-public-key.pem");
         var licensePath = Path.Combine(dataDirectory, "license.json");
-
-        if (!File.Exists(publicKeyPath))
+        string publicKey;
+        try
+        {
+            // Trust is anchored in the signed application assembly, never in a key
+            // that an end user can replace on disk.
+            publicKey = LicenseCryptography.GetTrustedPublicKeyPem();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or CryptographicException or IOException)
+        {
             return new(softwareSerial, hardwareSerial, new(
                 LicenseValidationStatus.MissingPublicKey,
-                "کلید عمومی لایسنس پیکربندی نشده است."));
+                $"کلید عمومی مورد اعتماد در نسخه برنامه موجود نیست: {ex.Message}"));
+        }
+
         if (!File.Exists(licensePath))
             return new(softwareSerial, hardwareSerial, new(
                 LicenseValidationStatus.MissingLicense,
@@ -33,7 +41,6 @@ public sealed class LicenseService
 
         try
         {
-            var publicKey = File.ReadAllText(publicKeyPath);
             var envelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(licensePath));
             var result = LicenseCryptography.Verify(envelope, publicKey, softwareSerial, hardwareSerial, DateTimeOffset.UtcNow);
             return new(softwareSerial, hardwareSerial, result);
