@@ -375,97 +375,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        var accountCode = method switch
-        {
-            "Cash" => "1000",
-            "Card" => "1010",
-            "Bank" => "1020",
-            _ => string.Empty
-        };
-        if (accountCode.Length == 0)
-        {
-            StatusText.Text = "روش دریافت وجه پشتیبانی نمی‌شود.";
-            return;
-        }
-
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await using var transaction = await db.Database.BeginTransactionAsync();
-            var invoice = await db.SalesInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id);
-            if (invoice is null)
-            {
-                StatusText.Text = "فاکتور پیدا نشد؛ فهرست را تازه‌سازی کنید.";
-                return;
-            }
-            var outstanding = checked(invoice.TotalAmount - invoice.PaidAmount);
-            if (invoice.Status == "Voided" || outstanding <= 0m)
-            {
-                StatusText.Text = "این فاکتور مبلغ قابل دریافت ندارد.";
-                return;
-            }
-            if (amount > outstanding)
-            {
-                StatusText.Text = $"مبلغ دریافت از مانده فاکتور بیشتر است. مانده: {outstanding:N2} {invoice.CurrencyCode}.";
-                return;
-            }
-
-            var cashAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == accountCode);
-            var receivableAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == "1100");
-            if (cashAccount is null || receivableAccount is null
-                || !cashAccount.IsActive || !cashAccount.IsPostingAllowed
-                || !receivableAccount.IsActive || !receivableAccount.IsPostingAllowed)
-                throw new InvalidOperationException("حساب صندوق/بانک یا حساب دریافتنی وجود ندارد یا اجازه ثبت سند ندارد.");
-
-            var paymentId = Guid.NewGuid();
-            var journalEntryId = Guid.NewGuid();
-            var entry = new JournalEntryRecord
-            {
-                Id = journalEntryId,
-                EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
-                EntryDate = DateOnly.FromDateTime(DateTime.Today),
-                Description = $"ثبت دریافت فاکتور {invoice.InvoiceNumber}",
-                CurrencyCode = invoice.CurrencyCode,
-                SourceType = "Payment",
-                SourceId = paymentId,
-                CreatedAt = DateTimeOffset.UtcNow,
-                Lines =
-                [
-                    new JournalLineRecord
-                    {
-                        Id = Guid.NewGuid(), AccountId = cashAccount.Id, AccountCode = cashAccount.Code,
-                        AccountName = cashAccount.Name, Side = "Debit", Amount = amount
-                    },
-                    new JournalLineRecord
-                    {
-                        Id = Guid.NewGuid(), AccountId = receivableAccount.Id, AccountCode = receivableAccount.Code,
-                        AccountName = receivableAccount.Name, Side = "Credit", Amount = amount
-                    }
-                ]
-            };
-            db.JournalEntries.Add(entry);
-            db.Payments.Add(new PaymentRecord
-            {
-                Id = paymentId,
-                PaymentNumber = $"PAY-{Guid.NewGuid():N}".ToUpperInvariant(),
-                InvoiceId = invoice.Id,
-                JournalEntryId = journalEntryId,
-                OccurredAt = DateTimeOffset.UtcNow,
-                Method = method,
-                Amount = amount,
-                CurrencyCode = invoice.CurrencyCode,
-                Reference = reference,
-                Notes = notes
-            });
-
-            invoice.PaidAmount = checked(invoice.PaidAmount + amount);
-            invoice.Status = invoice.PaidAmount == invoice.TotalAmount ? "Paid" : "PartiallyPaid";
-            await db.SaveChangesAsync();
-            await transaction.CommitAsync();
+            var accounting = new SalesAccountingService(db);
+            await accounting.RecordPaymentAsync(selected.Id, amount, method, reference, notes,
+                DateTimeOffset.UtcNow, DateOnly.FromDateTime(DateTime.Today));
             PaymentAmountInput.Clear();
             PaymentReferenceInput.Clear();
             PaymentNotesInput.Clear();
-            StatusText.Text = $"دریافت {amount:N2} {invoice.CurrencyCode} ثبت شد و سند دوبل آن ایجاد شد.";
+            StatusText.Text = $"دریافت {amount:N2} {selected.CurrencyCode} ثبت شد و سند دوبل آن ایجاد شد.";
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
         }
@@ -625,129 +544,9 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await using var transaction = await db.Database.BeginTransactionAsync();
-            var order = await db.CustomerOrders.Include(x => x.Lines).SingleOrDefaultAsync(x => x.Id == selected.Id);
-            if (order is null)
-            {
-                StatusText.Text = "سفارش پیدا نشد؛ فهرست را تازه‌سازی کنید.";
-                return;
-            }
-            if (!string.Equals(order.Status, "Received", StringComparison.Ordinal))
-            {
-                StatusText.Text = "فقط سفارش‌های دریافت‌شده و فاکتور‌نشده قابل تکمیل هستند.";
-                return;
-            }
-            if (await db.SalesInvoices.AnyAsync(x => x.OrderId == order.Id))
-            {
-                StatusText.Text = "برای این سفارش قبلاً فاکتور صادر شده است؛ وضعیت سفارش را بررسی کنید.";
-                return;
-            }
-
-            var calculatedTotal = order.Lines.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
-            var costTotal = order.Lines.Aggregate(0m, (sum, line) => checked(sum + line.UnitCost * line.Quantity));
-            if (calculatedTotal != order.TotalAmount)
-                throw new InvalidOperationException("جمع ردیف‌های سفارش با مبلغ کل آن مطابقت ندارد.");
-
-            var requiredCodes = new List<string>();
-            if (order.TotalAmount > 0m) { requiredCodes.Add("1100"); requiredCodes.Add("4000"); }
-            if (costTotal > 0m) { requiredCodes.Add("5000"); requiredCodes.Add("1200"); }
-            var accounts = await db.LedgerAccounts
-                .Where(account => requiredCodes.Contains(account.Code))
-                .ToDictionaryAsync(account => account.Code);
-            foreach (var code in requiredCodes.Distinct(StringComparer.Ordinal))
-            {
-                if (!accounts.TryGetValue(code, out var account) || !account.IsActive || !account.IsPostingAllowed)
-                    throw new InvalidOperationException($"حساب دفتر کل {code} وجود ندارد، غیرفعال است یا اجازه ثبت سند ندارد.");
-            }
-
-            var invoiceId = Guid.NewGuid();
-            var invoiceNumber = $"INV-{order.OrderNumber}";
-            var issueDate = DateOnly.FromDateTime(DateTime.Today);
-            var invoice = new SalesInvoiceRecord
-            {
-                Id = invoiceId,
-                InvoiceNumber = invoiceNumber,
-                OrderId = order.Id,
-                IssueDate = issueDate,
-                CustomerName = order.CustomerName,
-                CustomerPhone = order.CustomerPhone,
-                CurrencyCode = order.CurrencyCode,
-                TotalAmount = order.TotalAmount,
-                CostTotal = costTotal,
-                PaidAmount = 0m,
-                Status = "Issued",
-                CreatedAt = DateTimeOffset.UtcNow,
-                Lines = order.Lines.Select(line => new SalesInvoiceLineRecord
-                {
-                    Id = Guid.NewGuid(),
-                    InvoiceId = invoiceId,
-                    ProductId = line.ProductId,
-                    ProductName = line.ProductName,
-                    Quantity = line.Quantity,
-                    UnitPrice = line.UnitPrice,
-                    UnitCost = line.UnitCost,
-                    LineTotal = line.LineTotal,
-                    CostTotal = checked(line.UnitCost * line.Quantity)
-                }).ToList()
-            };
-            db.SalesInvoices.Add(invoice);
-
-            JournalLineRecord CreateLine(LedgerAccountRecord account, string side, decimal amount) => new()
-            {
-                Id = Guid.NewGuid(),
-                AccountId = account.Id,
-                AccountCode = account.Code,
-                AccountName = account.Name,
-                Side = side,
-                Amount = amount
-            };
-
-            if (order.TotalAmount > 0m)
-            {
-                var salesEntry = new JournalEntryRecord
-                {
-                    Id = Guid.NewGuid(),
-                    EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
-                    EntryDate = issueDate,
-                    Description = $"ثبت فروش فاکتور {invoiceNumber}",
-                    CurrencyCode = order.CurrencyCode,
-                    SourceType = "SalesInvoice",
-                    SourceId = invoiceId,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Lines =
-                    [
-                        CreateLine(accounts["1100"], "Debit", order.TotalAmount),
-                        CreateLine(accounts["4000"], "Credit", order.TotalAmount)
-                    ]
-                };
-                db.JournalEntries.Add(salesEntry);
-            }
-
-            if (costTotal > 0m)
-            {
-                var costEntry = new JournalEntryRecord
-                {
-                    Id = Guid.NewGuid(),
-                    EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
-                    EntryDate = issueDate,
-                    Description = $"ثبت بهای تمام‌شده فاکتور {invoiceNumber}",
-                    CurrencyCode = order.CurrencyCode,
-                    SourceType = "InventoryCOGS",
-                    SourceId = invoiceId,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Lines =
-                    [
-                        CreateLine(accounts["5000"], "Debit", costTotal),
-                        CreateLine(accounts["1200"], "Credit", costTotal)
-                    ]
-                };
-                db.JournalEntries.Add(costEntry);
-            }
-
-            order.Status = "Fulfilled";
-            await db.SaveChangesAsync();
-            await transaction.CommitAsync();
-            StatusText.Text = $"تحویل ثبت شد؛ فاکتور {invoiceNumber} و اسناد حسابداری صادر شدند. دریافت وجه هنوز ثبت نشده است.";
+            var accounting = new SalesAccountingService(db);
+            var invoice = await accounting.FulfillOrderAsync(selected.Id, DateOnly.FromDateTime(DateTime.Today));
+            StatusText.Text = $"تحویل ثبت شد؛ فاکتور {invoice.InvoiceNumber} و اسناد حسابداری صادر شدند. دریافت وجه هنوز ثبت نشده است.";
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
         }
