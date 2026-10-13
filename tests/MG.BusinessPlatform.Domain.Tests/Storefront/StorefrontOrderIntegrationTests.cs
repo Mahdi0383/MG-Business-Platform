@@ -11,6 +11,33 @@ namespace MG.BusinessPlatform.Domain.Tests.Storefront;
 public sealed class StorefrontOrderIntegrationTests
 {
     [Fact]
+    public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.CurrencyCode = "IRR";
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync("/api/storefront");
+        response.EnsureSuccessStatusCode();
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(json.RootElement.GetProperty("onlineOrderingEnabled").GetBoolean());
+        Assert.Equal("IRR", json.RootElement.GetProperty("currencyCode").GetString());
+
+        var html = await client.GetStringAsync("/");
+        Assert.Contains("!info.onlineOrderingEnabled", html, StringComparison.Ordinal);
+        Assert.Contains("fmt(total,info.currencyCode)", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("!info.OnlineOrderingEnabled", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PublicOrder_RecalculatesPriceAndRetryDoesNotDuplicateOrderOrStockDeduction()
     {
         await using var factory = new StorefrontTestFactory();
