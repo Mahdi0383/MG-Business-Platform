@@ -50,6 +50,35 @@ public sealed class SalesAccountingServiceTests
     }
 
     [Fact]
+    public async Task SingleLinePosSale_RejectsNegativeCostBeforeMutation()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-NEGATIVE", Name = "Invalid product",
+            UnitPrice = 10m, UnitCost = -1m, CurrencyCode = "IRR",
+            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new SalesAccountingService(db).CreatePosSaleAsync(
+                product.Id, 1, "Walk-in customer", "", "Cash", "", "",
+                new DateOnly(2026, 10, 13)));
+
+        Assert.Equal(5, (await db.StoreProducts.SingleAsync()).StockQuantity);
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+        Assert.Empty(await db.StockMovements.ToListAsync());
+        Assert.Empty(await db.SalesInvoices.ToListAsync());
+        Assert.Empty(await db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task PosSale_DeductsStockIssuesInvoiceAndPostsFullPaymentAtomically()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
