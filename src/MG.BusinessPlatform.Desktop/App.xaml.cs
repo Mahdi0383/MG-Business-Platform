@@ -52,20 +52,7 @@ public partial class App : System.Windows.Application
             .Options;
 
         await using var db = new BusinessDbContext(options);
-        await db.Database.MigrateAsync();
-        if (!await db.StoreSettings.AnyAsync())
-        {
-            db.StoreSettings.Add(new StoreSettings
-            {
-                Id = 1,
-                StoreName = "فروشگاه شما",
-                CurrencyCode = "IRR",
-                OnlineOrderingEnabled = false,
-                PublicHostname = string.Empty,
-                UpdatedAt = DateTimeOffset.UtcNow
-            });
-            await db.SaveChangesAsync();
-        }
+        await DatabaseInitializer.InitializeAsync(db);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
         if (!settings.OnlineOrderingEnabled)
