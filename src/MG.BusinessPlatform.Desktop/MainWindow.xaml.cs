@@ -57,6 +57,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
+    private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
+    private readonly Guid _sessionBranchId;
+    private readonly Guid _sessionDeviceId;
+    private Guid? _selectedGameSessionId;
     private Process? _storefrontProcess;
     private static readonly HttpClient HealthClient = new() { Timeout = TimeSpan.FromSeconds(1) };
 
@@ -69,6 +73,10 @@ public partial class MainWindow : Window
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
+        _sessionBranchId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
+        _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
+        SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
+        _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
