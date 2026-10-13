@@ -78,6 +78,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         modelBuilder.Entity<StoreSettings>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.StoreName).HasMaxLength(200).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
