@@ -75,17 +75,9 @@ public static class LicenseCryptography
             return new(LicenseValidationStatus.InvalidFormat, $"License payload is invalid: {ex.Message}");
         }
 
-        if (!string.Equals(payload.ProductId, "MG-Business-Platform", StringComparison.Ordinal))
-            return new(LicenseValidationStatus.WrongProduct, "License was issued for a different product.", payload);
-        if (!string.Equals(payload.SoftwareSerial, NormalizeSerial(expectedSoftwareSerial), StringComparison.Ordinal))
-            return new(LicenseValidationStatus.WrongSoftwareSerial, "Software serial does not match this installation.", payload);
-        if (!string.Equals(payload.HardwareSerial, NormalizeSerial(expectedHardwareSerial), StringComparison.Ordinal))
-            return new(LicenseValidationStatus.WrongHardwareSerial, "Hardware serial does not match this computer.", payload);
-        if (nowUtc.ToUniversalTime() < payload.IssuedAtUtc)
-            return new(LicenseValidationStatus.NotYetValid, "License is not active yet.", payload);
-        if (nowUtc.ToUniversalTime() >= payload.ExpiresAtUtc)
-            return new(LicenseValidationStatus.Expired, "License has expired. Business data has not been modified.", payload);
-
+        // Authenticate the complete payload before trusting any of its claims.
+        // In particular, an edited expiry or serial must not be reported as an
+        // authoritative license status unless the signature is valid.
         try
         {
             using var rsa = RSA.Create();
@@ -98,6 +90,17 @@ public static class LicenseCryptography
         {
             return new(LicenseValidationStatus.InvalidSignature, $"License signature could not be verified: {ex.Message}", payload);
         }
+
+        if (!string.Equals(payload.ProductId, "MG-Business-Platform", StringComparison.Ordinal))
+            return new(LicenseValidationStatus.WrongProduct, "License was issued for a different product.", payload);
+        if (!string.Equals(payload.SoftwareSerial, NormalizeSerial(expectedSoftwareSerial), StringComparison.Ordinal))
+            return new(LicenseValidationStatus.WrongSoftwareSerial, "Software serial does not match this installation.", payload);
+        if (!string.Equals(payload.HardwareSerial, NormalizeSerial(expectedHardwareSerial), StringComparison.Ordinal))
+            return new(LicenseValidationStatus.WrongHardwareSerial, "Hardware serial does not match this computer.", payload);
+        if (nowUtc.ToUniversalTime() < payload.IssuedAtUtc)
+            return new(LicenseValidationStatus.NotYetValid, "License is not active yet.", payload);
+        if (nowUtc.ToUniversalTime() >= payload.ExpiresAtUtc)
+            return new(LicenseValidationStatus.Expired, "License has expired. Business data has not been modified.", payload);
 
         return new(LicenseValidationStatus.Valid, "License is valid.", payload);
     }
