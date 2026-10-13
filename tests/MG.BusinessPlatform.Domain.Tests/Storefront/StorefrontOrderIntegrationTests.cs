@@ -6,6 +6,7 @@ using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Storefront;
 
+[Collection("StorefrontIntegration")]
 public sealed class StorefrontOrderIntegrationTests
 {
     [Fact]
@@ -123,3 +124,6 @@ public sealed class StorefrontOrderIntegrationTests
 
     private sealed record OrderResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
 }
+
+[CollectionDefinition("StorefrontIntegration", DisableParallelization = true)]
+public sealed class StorefrontIntegrationCollection { }
