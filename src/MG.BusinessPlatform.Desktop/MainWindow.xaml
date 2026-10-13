@@ -94,6 +94,10 @@
                             <CheckBox x:Name="OnlineOrdersInput" Content="فعال‌سازی ثبت سفارش آنلاین" Margin="8,12"/>
                             <Button Content="ذخیره تنظیمات" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="ایجاد پشتیبان پایگاه داده" Click="CreateBackup_Click"/>
+                                <Button Content="بازیابی پشتیبان" Click="RestoreBackup_Click"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                 <Button Content="راه‌اندازی انتشار HTTPS عمومی" Click="StartPublicHosting_Click"/>
                                 <Button Content="بررسی دسترسی HTTPS" Click="CheckPublicHosting_Click"/>
                                 <Button Content="توقف انتشار عمومی" Click="StopPublicHosting_Click"/>
