@@ -4,6 +4,7 @@ using System.Net;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Desktop.Services;
@@ -280,6 +281,106 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"لغو سفارش ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void CreateBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "ذخیره پشتیبان پایگاه داده",
+            Filter = "SQLite backup (*.db)|*.db|All files (*.*)|*.*",
+            DefaultExt = ".db",
+            AddExtension = true,
+            FileName = $"MG-Business-Platform-{DateTime.Now:yyyyMMdd-HHmmss}.db"
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            var service = new DatabaseMaintenanceService();
+            var result = await service.CreateBackupAsync(_databasePath, dialog.FileName);
+            StatusText.Text = $"پشتیبان ایجاد و بررسی شد: {result.Path} ({result.SizeBytes:N0} بایت).";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ایجاد پشتیبان ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RestoreBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب فایل پشتیبان",
+            Filter = "SQLite backup (*.db;*.bak)|*.db;*.bak|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        if (!ConfirmationDialog.Confirm(this, "بازیابی پایگاه داده",
+            "این کار داده‌های فعلی را با نسخه پشتیبان جایگزین می‌کند. قبل از جایگزینی یک نسخه ایمنی از پایگاه فعلی ساخته می‌شود. ادامه می‌دهید؟",
+            "بازیابی و جایگزینی"))
+            return;
+
+        _refreshTimer.Stop();
+        try
+        {
+            var caddyStop = await _publicHostingManager.StopAsync();
+            if (!caddyStop.Success)
+            {
+                StatusText.Text = caddyStop.Message;
+                return;
+            }
+
+            await TryAttachManagedProcessAsync();
+            if (_storefrontProcess is { HasExited: false })
+            {
+                _storefrontProcess.Kill(entireProcessTree: true);
+                await _storefrontProcess.WaitForExitAsync();
+                _storefrontProcess.Dispose();
+                _storefrontProcess = null;
+                if (File.Exists(_storefrontPidPath)) File.Delete(_storefrontPidPath);
+            }
+            else if (await IsStorefrontRunningAsync())
+            {
+                StatusText.Text = "سرویس وب توسط برنامه دیگری اجرا شده است؛ برای جلوگیری از آسیب به داده‌ها، بازیابی لغو شد.";
+                return;
+            }
+
+            var service = new DatabaseMaintenanceService();
+            var result = await service.RestoreBackupAsync(dialog.FileName, _databasePath);
+            StatusText.Text = $"پایگاه داده بازیابی شد. نسخه ایمنی قبلی نیز در همان پوشه نگهداری می‌شود. فایل: {result.Path}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"بازیابی ناموفق بود؛ نسخه فعلی تا جای ممکن حفظ شده است: {ex.Message}";
+        }
+        finally
+        {
+            try
+            {
+                await LoadSettingsAsync();
+                if (OnlineOrdersInput.IsChecked == true && !await IsStorefrontRunningAsync())
+                {
+                    StartServer_Click(this, new RoutedEventArgs());
+                    for (var attempt = 0; attempt < 10 && !await IsStorefrontRunningAsync(); attempt++)
+                        await Task.Delay(500);
+                }
+
+                await using var db = new BusinessDbContext(CreateOptions());
+                var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+                if (settings.PublicPublicationEnabled && !string.IsNullOrWhiteSpace(settings.PublicHostname))
+                    await _publicHostingManager.StartAsync(settings.PublicHostname);
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text += $" راه‌اندازی مجدد سرویس‌ها پس از بازیابی ناموفق بود: {ex.Message}";
+            }
+            _refreshTimer.Start();
         }
     }
 
