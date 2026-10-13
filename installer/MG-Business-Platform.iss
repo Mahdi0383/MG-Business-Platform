@@ -34,6 +34,7 @@ Source: "..\artifacts\publish\desktop\*"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{userstartup}\MG Business Platform Web Host"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--start-storefront"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
