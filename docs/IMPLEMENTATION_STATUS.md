@@ -14,7 +14,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 - Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, publication status checks and optional Windows firewall configuration. Actual public access still depends on DNS, router/NAT, ISP policy and inbound reachability.
 - RSA-PSS signed offline license payloads, device/software serial binding, expiry and module validation, separate license generation/verification UI and CLI, independent installers/source archives, and desktop module gating based on verified entitlements. The private signing key must remain outside the main app and outside source control.
 - Windows CI pipeline that restores, builds, runs tests, publishes self-contained Windows packages, compiles both installers, verifies package presence and uploads artifacts.
-- Latest completed validation on the storefront concurrency PR: Release build succeeded, all 132 automated tests passed, both installers compiled and artifact checks succeeded. This run predates the later game-session UI merge; the main-branch CI run for that merge must be checked separately before using it as release evidence.
+- Latest completed main-branch validation for commit `0c048d7e827af2b57f4656beabb93f9775d1a4db`: Release build succeeded with zero compiler errors, all 132 automated tests passed, both installers compiled, and required package artifacts were verified. Subsequent hosting-diagnostic and packaging-compression edits are not covered by that run until their own CI completes.
 
 ## Important limitations — not a complete commercial product yet
 
