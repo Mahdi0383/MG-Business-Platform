@@ -377,7 +377,7 @@ public partial class MainWindow : Window
 
     private async Task RefreshGameSessionsAsync(BusinessDbContext db)
     {
-        var sessions = await new GameSessionRepository(db).FindOpenAsync();
+        var sessions = await new GameSessionRepository(db).FindRecentAsync();
         var now = DateTimeOffset.UtcNow;
         var rows = sessions.Select(session => new GameSessionGridRow(
             session.Id,
