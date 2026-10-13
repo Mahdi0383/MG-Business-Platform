@@ -15,8 +15,26 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
         if (e.Args.Any(arg => string.Equals(arg, "--start-storefront", StringComparison.OrdinalIgnoreCase)))
         {
-            try { await StartStorefrontIfEnabledAsync(); }
-            finally { Shutdown(); }
+            try
+            {
+                await StartStorefrontIfEnabledAsync();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
+                    Directory.CreateDirectory(directory);
+                    await File.AppendAllTextAsync(Path.Combine(directory, "publication-startup.log"),
+                        $"{DateTimeOffset.UtcNow:O} Startup error: {ex}{Environment.NewLine}");
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            finally
+            {
+                Shutdown();
+            }
             return;
         }
 
