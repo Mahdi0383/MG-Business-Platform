@@ -13,7 +13,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured.
 - Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
 - Initial profit-and-loss and balance-sheet summaries, trial balance, and accounting posting for single-item POS checkout.
-- Separate offline License Manager executable, RSA-PSS signing/verification, and separate installer/ZIP artifacts. License entitlement enforcement across all protected operations is not yet production-complete.
+- Separate Persian RTL graphical License Manager and command-line tool, RSA-PSS signing/verification, and separate installer/ZIP artifacts. License entitlement enforcement across all protected operations is not yet production-complete.
 - Windows release pipeline that produces the main app installer, separate license-manager installer, and checksummed portable packages.
 - CI workflow designed to restore, build, run tests, publish Windows binaries, bundle Caddy, create a ZIP, and create an Inno Setup installer.
 
