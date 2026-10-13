@@ -398,8 +398,8 @@ public partial class MainWindow : Window
             GameSessionsGrid.SelectedItem = rows.FirstOrDefault(row => row.Id == selectedId);
 
         GameSessionStatusText.Text = rows.Count == 0
-            ? "جلسه بازی فعالی ثبت نشده است."
-            : $"تعداد جلسات فعال: {rows.Count} — هزینه زمان هر بازیکن بر اساس نرخ ساعتی و گردکردن ۱۵ دقیقه‌ای محاسبه می‌شود.";
+            ? "جلسه بازی‌ای ثبت نشده است."
+            : $"تعداد جلسات اخیر: {rows.Count} — جلسه پایان‌یافته را انتخاب کنید تا فاکتور آن صادر شود؛ هزینه زمان بر اساس نرخ ساعتی و گردکردن ۱۵ دقیقه‌ای محاسبه می‌شود.";
     }
 
     private void AddSessionPlayer_Click(object sender, RoutedEventArgs e)
