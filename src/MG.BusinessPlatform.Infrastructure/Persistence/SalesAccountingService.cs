@@ -94,6 +94,11 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         if (affected != 1)
             throw new InvalidOperationException("Stock or price changed during checkout. Refresh the product and retry.");
 
+        // ExecuteUpdate bypasses EF's change tracker. Synchronize the tracked entity so
+        // subsequent reads through this DbContext observe the committed checkout quantity.
+        product.StockQuantity -= quantity;
+        product.UpdatedAt = updatedAt;
+
         db.CustomerOrders.Add(order);
         db.StockMovements.Add(new StockMovementRecord
         {
