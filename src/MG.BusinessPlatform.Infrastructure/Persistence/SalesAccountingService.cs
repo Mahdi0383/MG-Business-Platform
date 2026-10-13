@@ -84,8 +84,17 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             ]
         };
 
-        product.StockQuantity -= quantity;
-        product.UpdatedAt = DateTimeOffset.UtcNow;
+        var updatedAt = DateTimeOffset.UtcNow;
+        var affected = await db.StoreProducts
+            .Where(x => x.Id == product.Id && x.IsAvailable && x.StockQuantity >= quantity
+                && x.UnitPrice == product.UnitPrice && x.UnitCost == product.UnitCost
+                && x.CurrencyCode == product.CurrencyCode)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
+                .SetProperty(x => x.UpdatedAt, updatedAt), cancellationToken);
+        if (affected != 1)
+            throw new InvalidOperationException("Stock or price changed during checkout. Refresh the product and retry.");
+
         db.CustomerOrders.Add(order);
         db.StockMovements.Add(new StockMovementRecord
         {
