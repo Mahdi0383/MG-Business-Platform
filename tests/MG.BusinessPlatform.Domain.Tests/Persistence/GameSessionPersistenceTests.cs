@@ -1,11 +1,42 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Domain.Finance;
+using MG.BusinessPlatform.Domain.GameCafe;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
 
 public sealed class GameSessionPersistenceTests
 {
+    [Fact]
+    public async Task Repository_RestoresDomainTimerAndPlayerAmountsAfterRestart()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        var start = DateTimeOffset.Parse("2026-10-13T08:00:00+00:00");
+        var player = new GameSessionPlayer(Guid.NewGuid(), "Sara",
+            new Money(100m, "IRR"), new Money(200m, "IRR"), new Money(50m, "IRR"));
+        var session = new GameSession(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+            "Tekken 8", start, new Money(600m, "IRR"), [player]);
+        session.Pause(start.AddMinutes(25));
+
+        await using (var db = new BusinessDbContext(options))
+        {
+            await db.Database.MigrateAsync();
+            await new GameSessionRepository(db).SaveAsync(session);
+        }
+
+        await using (var reopened = new BusinessDbContext(options))
+        {
+            var restored = await new GameSessionRepository(reopened).FindAsync(session.Id);
+            Assert.NotNull(restored);
+            Assert.Equal(GameSessionStatus.Paused, restored.Status);
+            Assert.Equal(TimeSpan.FromMinutes(25), restored.ElapsedAt(start.AddHours(2)));
+            Assert.Equal(new Money(350m, "IRR"), restored.TotalPlayerCharges);
+        }
+    }
+
     [Fact]
     public async Task Migration_PersistsPausedSessionAndPlayerAcrossContextRestart()
     {
