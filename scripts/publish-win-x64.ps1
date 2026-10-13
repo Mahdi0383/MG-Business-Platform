@@ -121,7 +121,7 @@ Set-Content -Path "${licenseToolZipPath}.sha256" -Value "$licenseToolSha  $(Spli
 
 Write-Host "== Package source archives ==" -ForegroundColor Cyan
 $mainSourceItems = @(
-    "src", "tests", "docs", "scripts", "installer", "LICENSES",
+    "src", "tests", "docs", "scripts", "installer", "LICENSES", ".github", ".gitignore", ".editorconfig",
     "MG.BusinessPlatform.sln", "MG-License-Manager.sln", "global.json",
     "README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.md"
 ) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
