@@ -130,7 +130,13 @@ public partial class MainWindow : Window
             StatusText.Text = "قیمت واردشده معتبر نیست.";
             return;
         }
-        if (price < 0m || !int.TryParse(StockInput.Text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out var stock)
+        if (!decimal.TryParse(UnitCostInput.Text.Trim(), NumberStyles.Number, CultureInfo.CurrentCulture, out var unitCost)
+            && !decimal.TryParse(UnitCostInput.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out unitCost))
+        {
+            StatusText.Text = "بهای واحد واردشده معتبر نیست.";
+            return;
+        }
+        if (price < 0m || unitCost < 0m || !int.TryParse(StockInput.Text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out var stock)
             && !int.TryParse(StockInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out stock))
         {
             StatusText.Text = "قیمت یا موجودی معتبر نیست.";
@@ -153,15 +159,33 @@ public partial class MainWindow : Window
                 Name = name,
                 Description = string.Empty,
                 UnitPrice = price,
+                UnitCost = unitCost,
                 CurrencyCode = settings.CurrencyCode,
                 IsAvailable = true,
                 StockQuantity = stock,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
+            if (stock > 0)
+            {
+                db.StockMovements.Add(new StockMovementRecord
+                {
+                    Id = Guid.NewGuid(),
+                    ProductId = db.StoreProducts.Local.Single().Id,
+                    OccurredAt = DateTimeOffset.UtcNow,
+                    MovementType = "OpeningBalance",
+                    Quantity = stock,
+                    SignedQuantity = stock,
+                    UnitCost = unitCost,
+                    CurrencyCode = settings.CurrencyCode,
+                    Reference = $"OPENING-{sku.ToUpperInvariant()}",
+                    Note = "Initial stock on product creation"
+                });
+            }
             await db.SaveChangesAsync();
             SkuInput.Clear();
             NameInput.Clear();
             PriceInput.Clear();
+            UnitCostInput.Clear();
             StockInput.Clear();
             StatusText.Text = "محصول ذخیره شد.";
             await RefreshAsync();
@@ -232,6 +256,77 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره تنظیمات ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void AdjustStock_Click(object sender, RoutedEventArgs e)
+    {
+        if (ProductsGrid.SelectedItem is not StoreProduct selected)
+        {
+            StatusText.Text = "ابتدا کالا را از فهرست انتخاب کنید.";
+            return;
+        }
+        var rawDelta = StockAdjustmentInput.Text.Trim();
+        var note = StockAdjustmentNoteInput.Text.Trim();
+        if ((!int.TryParse(rawDelta, NumberStyles.Integer, CultureInfo.CurrentCulture, out var delta)
+            && !int.TryParse(rawDelta, NumberStyles.Integer, CultureInfo.InvariantCulture, out delta))
+            || delta == 0 || delta == int.MinValue)
+        {
+            StatusText.Text = "مقدار اصلاح باید یک عدد صحیح غیرصفر باشد.";
+            return;
+        }
+        if (note.Length is < 1 or > 500)
+        {
+            StatusText.Text = "علت اصلاح موجودی را وارد کنید (حداکثر ۵۰۰ نویسه).";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (product is null)
+            {
+                StatusText.Text = "کالا پیدا نشد؛ فهرست را تازه‌سازی کنید.";
+                return;
+            }
+            var updatedStock = checked(product.StockQuantity + delta);
+            if (updatedStock < 0)
+            {
+                StatusText.Text = "اصلاح موجودی نمی‌تواند موجودی کالا را منفی کند.";
+                return;
+            }
+
+            product.StockQuantity = updatedStock;
+            product.UpdatedAt = DateTimeOffset.UtcNow;
+            db.StockMovements.Add(new StockMovementRecord
+            {
+                Id = Guid.NewGuid(),
+                ProductId = product.Id,
+                OccurredAt = DateTimeOffset.UtcNow,
+                MovementType = delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
+                Quantity = Math.Abs(delta),
+                SignedQuantity = delta,
+                UnitCost = product.UnitCost,
+                CurrencyCode = product.CurrencyCode,
+                Reference = "MANUAL",
+                Note = note
+            });
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            StockAdjustmentInput.Clear();
+            StockAdjustmentNoteInput.Clear();
+            StatusText.Text = "اصلاح موجودی ثبت و در دفتر گردش انبار ذخیره شد.";
+            await RefreshAsync();
+        }
+        catch (OverflowException)
+        {
+            StatusText.Text = "عدد واردشده خارج از محدوده قابل پشتیبانی است.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"اصلاح موجودی ناموفق بود: {ex.Message}";
         }
     }
 
