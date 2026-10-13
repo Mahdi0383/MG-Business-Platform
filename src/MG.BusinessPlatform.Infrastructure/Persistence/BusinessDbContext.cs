@@ -21,6 +21,7 @@ public sealed class StoreSettings
     public string StoreName { get; set; } = "فروشگاه شما";
     public string CurrencyCode { get; set; } = "IRR";
     public bool OnlineOrderingEnabled { get; set; }
+    public bool PublicPublicationEnabled { get; set; }
     public string PublicHostname { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; }
 }
