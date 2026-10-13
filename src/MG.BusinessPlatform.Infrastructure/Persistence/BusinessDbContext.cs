@@ -15,6 +15,16 @@ public sealed class StoreProduct
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class StoreSettings
+{
+    public int Id { get; set; } = 1;
+    public string StoreName { get; set; } = "فروشگاه شما";
+    public string CurrencyCode { get; set; } = "IRR";
+    public bool OnlineOrderingEnabled { get; set; }
+    public string PublicHostname { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class CustomerOrder
 {
     public Guid Id { get; set; }
@@ -46,6 +56,7 @@ public sealed class CustomerOrderLine
 public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> options) : DbContext(options)
 {
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
+    public DbSet<StoreSettings> StoreSettings => Set<StoreSettings>();
     public DbSet<CustomerOrder> CustomerOrders => Set<CustomerOrder>();
     public DbSet<CustomerOrderLine> CustomerOrderLines => Set<CustomerOrderLine>();
 
@@ -61,6 +72,15 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "UnitPrice >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
+        });
+
+        modelBuilder.Entity<StoreSettings>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.StoreName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
+            entity.ToTable(t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
 
         modelBuilder.Entity<CustomerOrder>(entity =>
