@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using MG.BusinessPlatform.Domain.GameCafe;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -118,6 +119,9 @@ public sealed class SalesAccountingServiceTests
             ]
         });
         await db.SaveChangesAsync();
+
+        var recentSessions = await new GameSessionRepository(db).FindRecentAsync();
+        Assert.Contains(recentSessions, session => session.Id == sessionId && session.Status == GameSessionStatus.Completed);
 
         var service = new SalesAccountingService(db);
         var issueDate = new DateOnly(2026, 10, 13);
