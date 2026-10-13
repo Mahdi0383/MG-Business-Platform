@@ -205,8 +205,17 @@ app.MapPost("/api/storefront/orders", async (
             var product = products[id];
             var lineTotal = checked(product.UnitPrice * quantity);
             total = checked(total + lineTotal);
-            product.StockQuantity -= quantity;
-            product.UpdatedAt = DateTimeOffset.UtcNow;
+            var updatedAt = DateTimeOffset.UtcNow;
+            var affected = await db.StoreProducts
+                .Where(x => x.Id == id && x.IsAvailable && x.StockQuantity >= quantity
+                    && x.UnitPrice == product.UnitPrice && x.UnitCost == product.UnitCost
+                    && x.CurrencyCode == product.CurrencyCode)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
+                    .SetProperty(x => x.UpdatedAt, updatedAt), ct);
+            if (affected != 1)
+                return Results.Conflict(new { error = $"Stock or price changed for {product.Name}. Refresh the catalog and retry." });
+
             order.Lines.Add(new CustomerOrderLine
             {
                 Id = Guid.NewGuid(),
