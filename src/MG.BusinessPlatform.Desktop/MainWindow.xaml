@@ -64,6 +64,56 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="مشتریان">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1.4*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="CustomerNameInput" Grid.Column="0" ToolTip="نام مشتری"/>
+                            <TextBox x:Name="CustomerPhoneInput" Grid.Column="1" ToolTip="شماره تماس"/>
+                            <TextBox x:Name="CustomerEmailInput" Grid.Column="2" ToolTip="ایمیل (اختیاری)"/>
+                            <TextBox x:Name="CustomerAddressInput" Grid.Column="3" ToolTip="نشانی (اختیاری)"/>
+                            <Button Grid.Column="4" Content="ثبت مشتری" Click="AddCustomer_Click"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="CustomersGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="نام مشتری" Binding="{Binding DisplayName}" Width="2*"/>
+                            <DataGridTextColumn Header="شماره تماس" Binding="{Binding Phone}" Width="*"/>
+                            <DataGridTextColumn Header="ایمیل" Binding="{Binding Email}" Width="2*"/>
+                            <DataGridTextColumn Header="نشانی" Binding="{Binding Address}" Width="3*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsActive}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <TabItem Header="تأمین‌کنندگان">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1.4*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="1.4*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="SupplierNameInput" Grid.Column="0" ToolTip="نام تأمین‌کننده"/>
+                            <TextBox x:Name="SupplierPhoneInput" Grid.Column="1" ToolTip="شماره تماس"/>
+                            <TextBox x:Name="SupplierEmailInput" Grid.Column="2" ToolTip="ایمیل (اختیاری)"/>
+                            <TextBox x:Name="SupplierTaxInput" Grid.Column="3" ToolTip="شناسه مالیاتی (اختیاری)"/>
+                            <TextBox x:Name="SupplierTermsInput" Grid.Column="4" ToolTip="شرایط پرداخت (اختیاری)"/>
+                            <Button Grid.Column="5" Content="ثبت تأمین‌کننده" Click="AddSupplier_Click"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="SuppliersGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="نام تأمین‌کننده" Binding="{Binding DisplayName}" Width="2*"/>
+                            <DataGridTextColumn Header="شماره تماس" Binding="{Binding Phone}" Width="*"/>
+                            <DataGridTextColumn Header="ایمیل" Binding="{Binding Email}" Width="2*"/>
+                            <DataGridTextColumn Header="شناسه مالیاتی" Binding="{Binding TaxIdentifier}" Width="*"/>
+                            <DataGridTextColumn Header="شرایط پرداخت" Binding="{Binding PaymentTerms}" Width="2*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsActive}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
