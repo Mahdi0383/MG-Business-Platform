@@ -49,6 +49,20 @@ if (-not (Test-Path (Join-Path $storefrontOutput "MG.BusinessPlatform.Storefront
     throw "Storefront executable was not produced."
 }
 
+Write-Host "== Package Caddy HTTPS reverse proxy ==" -ForegroundColor Cyan
+$caddyDirectory = Join-Path $desktopOutput "caddy"
+New-Item -ItemType Directory -Path $caddyDirectory -Force | Out-Null
+$caddyPath = Join-Path $caddyDirectory "caddy.exe"
+$caddyUri = "https://caddyserver.com/api/download?os=windows&arch=amd64"
+Invoke-WebRequest -Uri $caddyUri -OutFile $caddyPath -UseBasicParsing
+if (-not (Test-Path $caddyPath) -or (Get-Item $caddyPath).Length -lt 1MB) {
+    throw "Caddy download failed or returned an invalid file."
+}
+$caddyVersion = & $caddyPath version
+if ($LASTEXITCODE -ne 0) { throw "Downloaded Caddy binary failed its version check." }
+Set-Content -Path (Join-Path $caddyDirectory "VERSION.txt") -Value $caddyVersion -Encoding UTF8
+Write-Host "Bundled Caddy: $caddyVersion"
+
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path (Join-Path $desktopOutput "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
