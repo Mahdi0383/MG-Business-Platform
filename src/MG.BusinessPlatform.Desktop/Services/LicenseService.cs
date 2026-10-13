@@ -103,4 +103,4 @@ public sealed class LicenseService
             throw new InvalidDataException("The saved software serial is invalid; it was not regenerated to avoid invalidating an existing license.");
         return serial;
     }
-}}
+}
