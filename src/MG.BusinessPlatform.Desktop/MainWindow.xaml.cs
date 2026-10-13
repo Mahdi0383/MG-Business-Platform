@@ -479,6 +479,40 @@ public partial class MainWindow : Window
     private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e) =>
         await RefreshAsync();
 
+    private async void CreateGameSessionInvoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("GameCafe") || !HasLicensedModule("Accounting"))
+        {
+            GameSessionStatusText.Text = "برای صدور فاکتور جلسه، لایسنس معتبر دارای ماژول‌های GameCafe و Accounting لازم است.";
+            return;
+        }
+        if (GameSessionsGrid.SelectedItem is not GameSessionGridRow row)
+        {
+            GameSessionStatusText.Text = "ابتدا جلسه پایان‌یافته را از فهرست انتخاب کنید.";
+            return;
+        }
+
+        if (!ConfirmationDialog.Confirm(this, "صدور فاکتور جلسه بازی",
+            $"برای جلسه «{row.GameName}» فاکتور از مبالغ نهایی بازیکنان صادر می‌شود. دریافت وجه در مرحله جداگانه ثبت خواهد شد.",
+            "صدور فاکتور"))
+            return;
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await new SalesAccountingService(db).CreateGameSessionInvoiceAsync(
+                row.Id, DateOnly.FromDateTime(DateTime.Today));
+            GameSessionStatusText.Text =
+                $"فاکتور {invoice.InvoiceNumber} با مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode} صادر شد. برای ثبت دریافت وجه، فاکتور را در بخش فاکتورها انتخاب کنید.";
+            await RefreshAsync();
+            await RefreshTrialBalanceAsync();
+        }
+        catch (Exception ex)
+        {
+            GameSessionStatusText.Text = $"صدور فاکتور جلسه ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async Task ChangeSelectedGameSessionAsync(GameSessionTransition transition)
     {
         if (GameSessionsGrid.SelectedItem is not GameSessionGridRow row)
