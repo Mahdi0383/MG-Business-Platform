@@ -44,13 +44,15 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
                         <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBox x:Name="SkuInput" Grid.Column="0" ToolTip="کد کالا" />
                             <TextBox x:Name="NameInput" Grid.Column="1" ToolTip="نام محصول"/>
                             <TextBox x:Name="PriceInput" Grid.Column="2" ToolTip="قیمت فروش"/>
                             <TextBox x:Name="UnitCostInput" Grid.Column="3" ToolTip="بهای واحد"/>
                             <TextBox x:Name="StockInput" Grid.Column="4" ToolTip="موجودی"/>
-                            <Button Grid.Column="5" Content="افزودن محصول" Click="AddProduct_Click"/>
+                            <CheckBox x:Name="ProductAvailableInput" Grid.Column="5" Content="فعال" IsChecked="True" VerticalAlignment="Center" Margin="6,0"/>
+                            <Button Grid.Column="6" Content="افزودن محصول" Click="AddProduct_Click"/>
+                            <Button Grid.Column="7" Content="ذخیره تغییرات کالا" Click="UpdateSelectedProduct_Click"/>
                         </Grid>
                     </Border>
                     <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="8" Margin="0,0,0,10">
@@ -69,6 +71,7 @@
                             <DataGridTextColumn Header="بهای واحد" Binding="{Binding UnitCost}" Width="*"/>
                             <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
                             <DataGridTextColumn Header="موجودی" Binding="{Binding StockQuantity}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
                             <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
