@@ -6,16 +6,16 @@ public static class DatabaseInitializer
 {
     private static readonly (string Code, string Name, string Type)[] DefaultAccounts =
     [
-        ("1000", "Cash", "Asset"),
-        ("1010", "Card Clearing", "Asset"),
-        ("1020", "Bank", "Asset"),
-        ("1100", "Accounts Receivable", "Asset"),
-        ("1200", "Inventory", "Asset"),
-        ("2000", "Accounts Payable", "Liability"),
-        ("3000", "Owner Equity", "Equity"),
-        ("4000", "Sales Revenue", "Revenue"),
-        ("5000", "Cost of Goods Sold", "Expense"),
-        ("6000", "Operating Expenses", "Expense")
+        ("1000", "صندوق", "Asset"),
+        ("1010", "وجوه در راه کارت‌خوان", "Asset"),
+        ("1020", "بانک", "Asset"),
+        ("1100", "حساب‌های دریافتنی", "Asset"),
+        ("1200", "موجودی کالا", "Asset"),
+        ("2000", "حساب‌های پرداختنی", "Liability"),
+        ("3000", "سرمایه مالک", "Equity"),
+        ("4000", "درآمد فروش", "Revenue"),
+        ("5000", "بهای تمام‌شده کالای فروش‌رفته", "Expense"),
+        ("6000", "هزینه‌های عملیاتی", "Expense")
     ];
 
     public static async Task InitializeAsync(BusinessDbContext db, CancellationToken cancellationToken = default)
