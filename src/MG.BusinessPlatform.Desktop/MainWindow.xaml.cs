@@ -181,7 +181,7 @@ public partial class MainWindow : Window
                 UnitPrice = price,
                 UnitCost = unitCost,
                 CurrencyCode = settings.CurrencyCode,
-                IsAvailable = true,
+                IsAvailable = ProductAvailableInput.IsChecked == true,
                 StockQuantity = stock,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
@@ -207,6 +207,8 @@ public partial class MainWindow : Window
             PriceInput.Clear();
             UnitCostInput.Clear();
             StockInput.Clear();
+            ProductAvailableInput.IsChecked = true;
+            ProductsGrid.SelectedItem = null;
             StatusText.Text = "محصول ذخیره شد.";
             await RefreshAsync();
         }
@@ -276,6 +278,84 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره تنظیمات ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void ProductsGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (ProductsGrid.SelectedItem is not StoreProduct product)
+            return;
+        SkuInput.Text = product.Sku;
+        NameInput.Text = product.Name;
+        PriceInput.Text = product.UnitPrice.ToString(CultureInfo.CurrentCulture);
+        UnitCostInput.Text = product.UnitCost.ToString(CultureInfo.CurrentCulture);
+        StockInput.Text = product.StockQuantity.ToString(CultureInfo.CurrentCulture);
+        ProductAvailableInput.IsChecked = product.IsAvailable;
+    }
+
+    private async void UpdateSelectedProduct_Click(object sender, RoutedEventArgs e)
+    {
+        if (ProductsGrid.SelectedItem is not StoreProduct selected)
+        {
+            StatusText.Text = "برای ویرایش، ابتدا کالا را از فهرست انتخاب کنید.";
+            return;
+        }
+        var sku = SkuInput.Text.Trim().ToUpperInvariant();
+        var name = NameInput.Text.Trim();
+        if (sku.Length is < 1 or > 80 || name.Length is < 1 or > 200)
+        {
+            StatusText.Text = "کد کالا و نام محصول معتبر نیست.";
+            return;
+        }
+        if ((!decimal.TryParse(PriceInput.Text.Trim(), NumberStyles.Number, CultureInfo.CurrentCulture, out var price)
+            && !decimal.TryParse(PriceInput.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out price))
+            || price < 0m)
+        {
+            StatusText.Text = "قیمت فروش معتبر نیست.";
+            return;
+        }
+        if ((!decimal.TryParse(UnitCostInput.Text.Trim(), NumberStyles.Number, CultureInfo.CurrentCulture, out var unitCost)
+            && !decimal.TryParse(UnitCostInput.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out unitCost))
+            || unitCost < 0m)
+        {
+            StatusText.Text = "بهای واحد معتبر نیست.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var duplicateSku = await db.StoreProducts.AnyAsync(x => x.Id != selected.Id && x.Sku == sku);
+            if (duplicateSku)
+            {
+                StatusText.Text = "این کد کالا قبلاً استفاده شده است.";
+                return;
+            }
+            var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (product is null)
+            {
+                StatusText.Text = "کالا پیدا نشد؛ فهرست را تازه‌سازی کنید.";
+                return;
+            }
+
+            product.Sku = sku;
+            product.Name = name;
+            product.UnitPrice = price;
+            product.UnitCost = unitCost;
+            product.IsAvailable = ProductAvailableInput.IsChecked == true;
+            product.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            ProductsGrid.SelectedItem = null;
+            StatusText.Text = "تغییرات کالا ذخیره شد؛ سوابق گردش انبار بدون تغییر باقی ماندند.";
+            await RefreshAsync();
+        }
+        catch (DbUpdateException)
+        {
+            StatusText.Text = "ذخیره تغییرات ناموفق بود؛ کد کالا ممکن است تکراری باشد.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ذخیره تغییرات کالا ناموفق بود: {ex.Message}";
         }
     }
 
