@@ -27,6 +27,28 @@ public sealed record TrialBalanceRow(string AccountCode, string AccountName, str
 public sealed record FinancialStatementRow(string Statement, string AccountCode, string AccountName,
     string AccountType, decimal Balance);
 
+public sealed record GameSessionGridRow(Guid Id, string GameName, string StatusText, string StartedAtText,
+    string PlayerNames, decimal ElapsedMinutes, decimal PerPlayerTimeCharge);
+
+public sealed class GameSessionPlayerDraft : INotifyPropertyChanged
+{
+    private string _displayName = string.Empty;
+    private decimal _entryAmount;
+    private decimal _timeCharge;
+    private decimal _additionalAmount;
+
+    public string DisplayName { get => _displayName; set { if (_displayName == value) return; _displayName = value; OnChanged(); } }
+    public decimal EntryAmount { get => _entryAmount; set { if (_entryAmount == value) return; _entryAmount = value; OnChanged(); OnChanged(nameof(FinalAmount)); } }
+    public decimal TimeCharge { get => _timeCharge; set { if (_timeCharge == value) return; _timeCharge = value; OnChanged(); OnChanged(nameof(FinalAmount)); } }
+    public decimal AdditionalAmount { get => _additionalAmount; set { if (_additionalAmount == value) return; _additionalAmount = value; OnChanged(); OnChanged(nameof(FinalAmount)); } }
+    public decimal FinalAmount => EntryAmount + TimeCharge + AdditionalAmount;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
 public partial class MainWindow : Window
 {
     private readonly string _databasePath;
