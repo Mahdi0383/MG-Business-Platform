@@ -1,7 +1,5 @@
 using System.Net;
-using System.Text.Json;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
@@ -46,18 +44,19 @@ app.Use(async (context, next) =>
     await next();
 });
 
-var publicHostname = Environment.GetEnvironmentVariable("MG_PUBLIC_HOSTNAME");
 app.Use(async (context, next) =>
 {
     var host = context.Request.Host.Host;
     var isLocal = host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
         || IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
-    var configured = !string.IsNullOrWhiteSpace(publicHostname)
-        && host.Equals(publicHostname, StringComparison.OrdinalIgnoreCase);
+    var db = context.RequestServices.GetRequiredService<BusinessDbContext>();
+    var settings = await db.StoreSettings.AsNoTracking().SingleOrDefaultAsync(x => x.Id == 1, context.RequestAborted);
+    var configured = settings is not null && !string.IsNullOrWhiteSpace(settings.PublicHostname)
+        && host.Equals(settings.PublicHostname, StringComparison.OrdinalIgnoreCase);
     if (!isLocal && !configured)
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await context.Response.WriteAsJsonAsync(new { error = "Unrecognized host name." });
+        await context.Response.WriteAsJsonAsync(new { error = "Unrecognized host name." }, context.RequestAborted);
         return;
     }
 
@@ -70,6 +69,11 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
     await db.Database.EnsureCreatedAsync();
+    if (!await db.StoreSettings.AnyAsync())
+    {
+        db.StoreSettings.Add(new StoreSettings { Id = 1, StoreName = "فروشگاه شما", CurrencyCode = "IRR", OnlineOrderingEnabled = false, PublicHostname = string.Empty, UpdatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+    }
 }
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
@@ -81,12 +85,11 @@ app.MapGet("/health/ready", async (BusinessDbContext db, CancellationToken ct) =
         : Results.Problem("Database is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
 }).RequireRateLimiting("public");
 
-app.MapGet("/api/storefront", (IConfiguration config) =>
-    Results.Ok(new StorefrontInfo(
-        config["Storefront:PublicStoreName"] ?? "فروشگاه",
-        config["Storefront:CurrencyCode"] ?? "IRR",
-        bool.TryParse(config["Storefront:AllowOnlineOrders"], out var enabled) && enabled)))
-    .RequireRateLimiting("public");
+app.MapGet("/api/storefront", async (BusinessDbContext db, CancellationToken ct) =>
+{
+    var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
+    return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode, settings.OnlineOrderingEnabled));
+}).RequireRateLimiting("public");
 
 app.MapGet("/api/storefront/products", async (BusinessDbContext db, CancellationToken ct) =>
 {
@@ -106,7 +109,8 @@ app.MapPost("/api/storefront/orders", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!bool.TryParse(config["Storefront:AllowOnlineOrders"], out var onlineEnabled) || !onlineEnabled)
+    var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
+    if (!storeSettings.OnlineOrderingEnabled)
         return Results.Problem("Online ordering is not enabled by the store.", statusCode: StatusCodes.Status503ServiceUnavailable);
 
     var key = context.Request.Headers["Idempotency-Key"].ToString().Trim();
