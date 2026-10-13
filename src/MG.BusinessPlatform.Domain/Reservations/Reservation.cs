@@ -67,8 +67,8 @@ public sealed record Reservation
         ArgumentNullException.ThrowIfNull(other);
         if (BranchId != other.BranchId || ResourceId != other.ResourceId || ResourceType != other.ResourceType)
             return false;
-        if (Status is ReservationStatus.Cancelled or ReservationStatus.NoShow
-            || other.Status is ReservationStatus.Cancelled or ReservationStatus.NoShow)
+        if (Status is not (ReservationStatus.Requested or ReservationStatus.Confirmed or ReservationStatus.CheckedIn)
+            || other.Status is not (ReservationStatus.Requested or ReservationStatus.Confirmed or ReservationStatus.CheckedIn))
             return false;
         return StartsAt < other.EndsAt && other.StartsAt < EndsAt;
     }
