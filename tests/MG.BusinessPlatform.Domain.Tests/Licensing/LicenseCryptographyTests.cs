@@ -37,6 +37,40 @@ public sealed class LicenseCryptographyTests
     }
 
     [Fact]
+    public void Verify_RejectsTamperedExpiryBeforeTrustingExpiryClaim()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30));
+        var signed = LicenseCryptography.Sign(payload, keys.PrivateKeyPem);
+        var tampered = signed with
+        {
+            Payload = signed.Payload with { ExpiresAtUtc = payload.ExpiresAtUtc.AddYears(10) }
+        };
+
+        var result = LicenseCryptography.Verify(tampered, keys.PublicKeyPem,
+            payload.SoftwareSerial, payload.HardwareSerial, DateTimeOffset.UtcNow);
+
+        Assert.Equal(LicenseValidationStatus.InvalidSignature, result.Status);
+    }
+
+    [Fact]
+    public void Verify_RejectsTamperedSerialBeforeTrustingSerialClaim()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30));
+        var signed = LicenseCryptography.Sign(payload, keys.PrivateKeyPem);
+        var tampered = signed with
+        {
+            Payload = signed.Payload with { HardwareSerial = "MGH-ATTACKER-EDITED" }
+        };
+
+        var result = LicenseCryptography.Verify(tampered, keys.PublicKeyPem,
+            payload.SoftwareSerial, payload.HardwareSerial, DateTimeOffset.UtcNow);
+
+        Assert.Equal(LicenseValidationStatus.InvalidSignature, result.Status);
+    }
+
+    [Fact]
     public void Verify_RejectsWrongHardwareSerial()
     {
         var keys = LicenseCryptography.GenerateKeyPair(2048);
