@@ -950,27 +950,18 @@ public partial class MainWindow : Window
 
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
-        if (PosProductInput.SelectedItem is not StoreProduct product)
+        var cart = _posCartLines.ToArray();
+        if (cart.Length == 0)
         {
-            StatusText.Text = "ابتدا کالای فروش حضوری را انتخاب کنید.";
+            StatusText.Text = "سبد فروش خالی است؛ ابتدا کالا اضافه کنید.";
             return;
         }
-        var rawQuantity = PosQuantityInput.Text.Trim();
-        if ((!int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
-            && !int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
-            || quantity < 1 || quantity > 10000)
-        {
-            StatusText.Text = "تعداد باید عدد صحیح بین ۱ تا ۱۰۰۰۰ باشد.";
-            return;
-        }
-        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string method)
+        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string paymentMethod)
         {
             StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
             return;
         }
-
-        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text)
-            ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
+        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text) ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
         var customerPhone = PosCustomerPhoneInput.Text.Trim();
         if (customerName.Length > 160 || customerPhone.Length > 40)
         {
@@ -978,16 +969,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        decimal estimatedTotal;
-        try { estimatedTotal = checked(product.UnitPrice * quantity); }
+        decimal total;
+        try { total = cart.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal)); }
         catch (OverflowException)
         {
-            StatusText.Text = "مبلغ فروش خارج از محدوده قابل پشتیبانی است.";
+            StatusText.Text = "مجموع سبد خارج از محدوده مجاز است.";
             return;
         }
-
+        var summary = string.Join(Environment.NewLine, cart.Select(x => $"{x.ProductName} × {x.Quantity} = {x.LineTotal:N2} {x.CurrencyCode}"));
         if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
-            $"فروش {quantity} عدد از «{product.Name}» با مبلغ {estimatedTotal:N2} {product.CurrencyCode} ثبت می‌شود. موجودی کم، فاکتور صادر و دریافت وجه در حسابداری ثبت خواهد شد.",
+            $"{summary}{Environment.NewLine}مجموع: {total:N2} {cart[0].CurrencyCode}{Environment.NewLine}موجودی، فاکتور و دریافت وجه به‌صورت تراکنشی ثبت می‌شوند.",
             "ثبت فروش"))
             return;
 
@@ -995,8 +986,12 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
-            var invoice = await accounting.CreatePosSaleAsync(product.Id, quantity, customerName, customerPhone,
-                method, string.Empty, "POS checkout", DateOnly.FromDateTime(DateTime.Today));
+            var invoice = await accounting.CreatePosSaleAsync(
+                cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
+                customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
+                DateOnly.FromDateTime(DateTime.Today));
+            _posCartLines.Clear();
+            UpdatePosCartTotal();
             StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
