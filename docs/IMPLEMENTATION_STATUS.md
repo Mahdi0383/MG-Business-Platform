@@ -14,7 +14,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 - Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, publication status checks and optional Windows firewall configuration. Settings can display the customer HTTPS URL, preview a generated QR code and save it as PNG. Actual public access still depends on DNS, router/NAT, ISP policy and inbound reachability.
 - RSA-PSS signed offline license payloads, device/software serial binding, expiry and module validation, separate license generation/verification UI and CLI, independent installers/source archives, and desktop module gating based on verified entitlements. The private signing key must remain outside the main app and outside source control.
 - Windows CI pipeline that restores, builds, runs tests, publishes self-contained Windows packages, compiles both installers, verifies package presence and uploads artifacts. Latest verified run passed 146/146 tests.
-- Latest completed main-branch validation for commit `7632bbcc9d2f583fb5f440d30e49f787c3e9f29c`: Release build succeeded with zero compiler errors, all 146 automated tests passed, both Windows installers compiled, and required package artifacts were verified. The run includes multi-line POS validation, hardened license key handling, and storefront QR generation/export.
+- Latest completed main-branch validation for commit `a092659fcb142b655a6966dd83686c1e9bf7852d`: Release build succeeded with zero compiler errors, all 146 automated tests passed, both Windows installers compiled, and required package artifacts were verified. The run includes multi-line POS validation, hardened license key handling, and storefront QR generation/export.
 
 ## Important limitations — not a complete commercial product yet
 
@@ -31,7 +31,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Verification status
 
-- Automated Windows build/test/package pipeline is configured. The latest verified main commit is `7632bbcc9d2f583fb5f440d30e49f787c3e9f29c`; always check CI on the exact commit intended for release and do not reuse results from an earlier commit as proof for later changes.
+- Automated Windows build/test/package pipeline is configured. The latest verified main commit is `a092659fcb142b655a6966dd83686c1e9bf7852d`; always check CI on the exact commit intended for release and do not reuse results from an earlier commit as proof for later changes.
 - Local .NET SDK execution was not available in the authoring environment; build/test evidence comes from GitHub Actions.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability.
 - Licensing currently gates desktop tabs and local/public storefront startup. This is not a substitute for server-side authorization on every administrative API; the public storefront must remain isolated from administrative operations.
