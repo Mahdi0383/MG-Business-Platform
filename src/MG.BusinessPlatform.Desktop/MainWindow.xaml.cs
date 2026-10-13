@@ -175,6 +175,7 @@ public partial class MainWindow : Window
                 "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات فروشگاه" => null,
+                "جلسات بازی" => "GameCafe",
                 _ => "Core"
             };
             tab.IsEnabled = module is null || payload.Modules.Contains(module, StringComparer.Ordinal);
