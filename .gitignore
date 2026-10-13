@@ -20,6 +20,11 @@ secrets.json
 *.pfx
 *.p12
 *.snk
+*.pem
+*.key
+license.json
+license-private.*
+license-public.*
 
 # Local data and backups
 *.db
