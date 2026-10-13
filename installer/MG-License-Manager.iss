@@ -1,7 +1,7 @@
 #define MyAppName "MG Business Platform License Manager"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "MG"
-#define MyAppExeName "MG.BusinessPlatform.LicenseTool.exe"
+#define MyAppExeName "MG.BusinessPlatform.LicenseManager.exe"
 
 [Setup]
 AppId={{C3C2A0B4-4B5F-48D2-9E52-2D7B37A88D4C}
@@ -30,11 +30,12 @@ Source: "..\artifacts\publish\license-tool\*"; DestDir: "{app}"; Flags: ignoreve
 Source: "..\docs\LICENSE_MANAGER.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName} - Usage"; Filename: "{app}\{#MyAppExeName}"; Parameters: "help"; WorkingDir: "{app}"
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autoprograms}\{#MyAppName} - Command line"; Filename: "{app}\MG.BusinessPlatform.LicenseTool.exe"; Parameters: "help"; WorkingDir: "{app}"
 Name: "{autoprograms}\{#MyAppName} - Documentation"; Filename: "{app}\LICENSE_MANAGER.md"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "help"; Description: "Show license manager commands"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
 ; Signing-key files and license data are intentionally not stored or deleted by the installer.
