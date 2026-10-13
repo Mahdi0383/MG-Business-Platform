@@ -15,6 +15,8 @@ A release may not be described as complete until all applicable gates have evide
 - Closed periods reject unauthorized edits.
 - Voids and corrections preserve audit history.
 - Inventory and accounting updates are atomic and idempotent.
+- POS stock deductions are reflected consistently in both the database and EF Core tracked entities.
+- Successful POS sales record stock movement, invoice, sales/COGS journals, and payment exactly once; invalid payment rolls back all changes.
 
 ## Data safety
 - Schema migrations upgrade supported versions and fail safely.
