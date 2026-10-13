@@ -32,10 +32,18 @@ public sealed class DatabaseMigrationTests
             Sku = "MIGRATION-1",
             Name = "Migration test",
             UnitPrice = 123.45m,
+            UnitCost = 80m,
             CurrencyCode = "IRR",
             IsAvailable = true,
             StockQuantity = 8,
             UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.StockMovements.Add(new StockMovementRecord
+        {
+            Id = Guid.NewGuid(), ProductId = db.StoreProducts.Local.Single().Id,
+            OccurredAt = DateTimeOffset.UtcNow, MovementType = "OpeningBalance",
+            Quantity = 8, SignedQuantity = 8, UnitCost = 80m, CurrencyCode = "IRR",
+            Reference = "MIGRATION", Note = string.Empty
         });
         db.Customers.Add(new CustomerRecord
         {
@@ -51,12 +59,16 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         Assert.Equal("Test Store", (await db.StoreSettings.SingleAsync()).StoreName);
-        Assert.Equal(123.45m, (await db.StoreProducts.SingleAsync()).UnitPrice);
+        var product = await db.StoreProducts.SingleAsync();
+        Assert.Equal(123.45m, product.UnitPrice);
+        Assert.Equal(80m, product.UnitCost);
+        Assert.Equal(8, (await db.StockMovements.SingleAsync()).Quantity);
         Assert.Equal("Test Customer", (await db.Customers.SingleAsync()).DisplayName);
         Assert.Equal("Test Supplier", (await db.Suppliers.SingleAsync()).DisplayName);
         var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
         Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
         Assert.Contains("20261013010000_AddCustomerSupplierTables", appliedMigrations);
+        Assert.Contains("20261013020000_AddStockMovementLedger", appliedMigrations);
     }
 
     [Fact]
