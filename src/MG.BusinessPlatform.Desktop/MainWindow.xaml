@@ -41,22 +41,32 @@
             </TabItem>
             <TabItem Header="محصولات">
                 <Grid Margin="12">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
                         <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBox x:Name="SkuInput" Grid.Column="0" ToolTip="کد کالا" />
                             <TextBox x:Name="NameInput" Grid.Column="1" ToolTip="نام محصول"/>
-                            <TextBox x:Name="PriceInput" Grid.Column="2" ToolTip="قیمت به واحد پول فروشگاه"/>
-                            <TextBox x:Name="StockInput" Grid.Column="3" ToolTip="موجودی"/>
-                            <Button Grid.Column="4" Content="افزودن محصول" Click="AddProduct_Click"/>
+                            <TextBox x:Name="PriceInput" Grid.Column="2" ToolTip="قیمت فروش"/>
+                            <TextBox x:Name="UnitCostInput" Grid.Column="3" ToolTip="بهای واحد"/>
+                            <TextBox x:Name="StockInput" Grid.Column="4" ToolTip="موجودی"/>
+                            <Button Grid.Column="5" Content="افزودن محصول" Click="AddProduct_Click"/>
                         </Grid>
                     </Border>
-                    <DataGrid x:Name="ProductsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
+                    <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="8" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="StockAdjustmentInput" Grid.Column="0" ToolTip="تغییر موجودی با علامت + یا -"/>
+                            <TextBox x:Name="StockAdjustmentNoteInput" Grid.Column="1" ToolTip="علت اصلاح موجودی"/>
+                            <Button Grid.Column="2" Content="اعمال اصلاح موجودی برای کالای انتخاب‌شده" Click="AdjustStock_Click"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="ProductsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="کد کالا" Binding="{Binding Sku}" Width="1.1*"/>
                             <DataGridTextColumn Header="نام محصول" Binding="{Binding Name}" Width="2*"/>
-                            <DataGridTextColumn Header="قیمت" Binding="{Binding UnitPrice}" Width="*"/>
+                            <DataGridTextColumn Header="قیمت فروش" Binding="{Binding UnitPrice}" Width="*"/>
+                            <DataGridTextColumn Header="بهای واحد" Binding="{Binding UnitCost}" Width="*"/>
                             <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
                             <DataGridTextColumn Header="موجودی" Binding="{Binding StockQuantity}" Width="*"/>
                             <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
