@@ -12,6 +12,7 @@ The desktop app can start the customer storefront, generate a Caddy reverse-prox
 6. In the router, forward TCP 80 and 443 to the Windows computer's reserved LAN IP address. The exact steps differ by router and are not safely automatable for every router model.
 7. Select **Start public HTTPS hosting**. Caddy validates its config, listens on the public web ports, obtains/renews certificates automatically, and proxies requests to the loopback-only storefront.
 8. Use **Check HTTPS** and test the URL from a phone using mobile data, not only from the same Wi-Fi.
+9. After the public URL works externally, open **Store Settings → Link and QR**, generate the storefront QR, and save the PNG for printing. The QR contains the saved HTTPS hostname; it does not configure DNS or make an unreachable site public.
 
 ## Failure conditions
 
