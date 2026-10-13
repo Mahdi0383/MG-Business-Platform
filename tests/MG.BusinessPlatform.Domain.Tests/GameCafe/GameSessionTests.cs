@@ -78,6 +78,22 @@ public sealed class GameSessionTests
     }
 
     [Fact]
+    public void Restore_RehydratesPausedSessionWithFrozenElapsedTime()
+    {
+        var player = Player(Guid.NewGuid(), "Ali", entry: 10m, time: 20m);
+        var pausedAt = Start.AddMinutes(30);
+        var restored = GameSession.Restore(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+            "Tekken 8", Start, new Money(600m, "IRR"), [player],
+            GameSessionStatus.Paused, pausedAt, null, TimeSpan.FromMinutes(10), pausedAt);
+
+        Assert.Equal(TimeSpan.FromMinutes(20), restored.ElapsedAt(Start.AddHours(3)));
+        Assert.Equal(new Money(30m, "IRR"), restored.TotalPlayerCharges);
+        Assert.Throws<ArgumentException>(() => GameSession.Restore(Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid(), "Tekken 8", Start, new Money(600m, "IRR"), [player],
+            GameSessionStatus.Active, pausedAt, null, TimeSpan.Zero, pausedAt));
+    }
+
+    [Fact]
     public void CancelledSession_HasNoTimeChargeAndCannotResume()
     {
         var session = CreateSession(ratePerHour: 900m);
