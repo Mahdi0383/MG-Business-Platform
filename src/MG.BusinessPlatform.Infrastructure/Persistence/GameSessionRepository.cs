@@ -92,16 +92,24 @@ public sealed class GameSessionRepository(BusinessDbContext db)
         if (limit is < 1 or > 1000)
             throw new ArgumentOutOfRangeException(nameof(limit), "The recent-session limit must be between 1 and 1000.");
 
-        var records = await db.GameSessions.AsNoTracking()
+        var openRecords = await db.GameSessions.AsNoTracking()
             .Include(x => x.Players)
             .Where(x => x.Status == nameof(GameSessionStatus.Active)
-                || x.Status == nameof(GameSessionStatus.Paused)
-                || x.Status == nameof(GameSessionStatus.Completed))
+                || x.Status == nameof(GameSessionStatus.Paused))
+            .OrderByDescending(x => x.StartedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        var completedRecords = await db.GameSessions.AsNoTracking()
+            .Include(x => x.Players)
+            .Where(x => x.Status == nameof(GameSessionStatus.Completed))
             .OrderByDescending(x => x.StartedAtUtc)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-        return records.Select(Restore).ToArray();
+        return openRecords.Concat(completedRecords)
+            .OrderByDescending(x => x.StartedAtUtc)
+            .Select(Restore)
+            .ToArray();
     }
 
     private static GameSession Restore(GameSessionRecord record)
