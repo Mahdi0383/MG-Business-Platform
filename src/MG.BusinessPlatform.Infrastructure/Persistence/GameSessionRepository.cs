@@ -97,15 +97,16 @@ public sealed class GameSessionRepository(BusinessDbContext db)
                 || x.Status == nameof(GameSessionStatus.Paused))
             .ToListAsync(cancellationToken);
 
-        // SQLite's EF provider cannot translate DateTimeOffset ordering. Sort these
-        // persisted UTC instants in memory instead of failing on real session data.
-        var completedRecords = (await db.GameSessions.AsNoTracking()
-                .Include(x => x.Players)
-                .Where(x => x.Status == nameof(GameSessionStatus.Completed))
-                .ToListAsync(cancellationToken))
-            .OrderByDescending(x => x.StartedAtUtc)
-            .Take(limit)
-            .ToArray();
+        // SQLite's EF provider cannot translate DateTimeOffset ordering. Use the
+        // stored UTC ISO-8601 text for bounded SQL ordering, then order the merged list
+        // in memory. App-created session timestamps are always normalized to UTC.
+        var completedRecords = await db.GameSessions
+            .FromSqlInterpolated($@"SELECT * FROM GameSessions
+                WHERE Status = {nameof(GameSessionStatus.Completed)}
+                ORDER BY StartedAtUtc DESC LIMIT {limit}")
+            .AsNoTracking()
+            .Include(x => x.Players)
+            .ToListAsync(cancellationToken);
 
         return openRecords.Concat(completedRecords)
             .OrderByDescending(x => x.StartedAtUtc)
