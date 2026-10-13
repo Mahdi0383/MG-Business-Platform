@@ -89,6 +89,28 @@ public sealed class LicenseCryptographyTests
         Assert.Throws<ArgumentException>(() => LicenseCryptography.Sign(payload, keys.PrivateKeyPem));
     }
 
+    [Fact]
+    public void Verify_RejectsEnvelopeWithoutPayload()
+    {
+        var result = LicenseCryptography.Verify(
+            new LicenseEnvelope(null!, "AA=="), "not-used", "MGS-SOFTWARE", "MGH-HARDWARE", DateTimeOffset.UtcNow);
+
+        Assert.Equal(LicenseValidationStatus.InvalidFormat, result.Status);
+    }
+
+    [Fact]
+    public void Verify_ReportsMalformedPublicKeyWithoutThrowing()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30));
+        var envelope = LicenseCryptography.Sign(payload, keys.PrivateKeyPem);
+
+        var result = LicenseCryptography.Verify(envelope, "not-a-valid-pem",
+            payload.SoftwareSerial, payload.HardwareSerial, DateTimeOffset.UtcNow);
+
+        Assert.Equal(LicenseValidationStatus.InvalidSignature, result.Status);
+    }
+
     private static LicensePayload CreatePayload(DateTimeOffset expiry) => new()
     {
         LicenseId = Guid.NewGuid(),
