@@ -43,6 +43,9 @@ jobs:
           if (-not (Test-Path "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe")) {
             throw "Installer EXE was not produced."
           }
+          if (-not (Test-Path "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256")) {
+            throw "Main installer SHA-256 checksum was not produced."
+          }
           if (-not (Test-Path "artifacts/MG-Business-Platform-win-x64.zip")) {
             throw "Portable ZIP package was not produced."
           }
@@ -70,13 +73,18 @@ jobs:
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe")) {
             throw "Separate license manager installer EXE was not produced."
           }
+          if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256")) {
+            throw "License manager installer SHA-256 checksum was not produced."
+          }
 
       - name: Upload main application installer
         uses: actions/upload-artifact@v4
         with:
           name: MG-Business-Platform-Installer-win-x64
           if-no-files-found: error
-          path: artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
+          path: |
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
 
       - name: Upload main portable package
         uses: actions/upload-artifact@v4
@@ -92,7 +100,9 @@ jobs:
         with:
           name: MG-License-Manager-Installer-win-x64
           if-no-files-found: error
-          path: artifacts/installer/MG-License-Manager-Setup-win-x64.exe
+          path: |
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
 
       - name: Upload separate license manager portable package
         uses: actions/upload-artifact@v4
