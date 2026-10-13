@@ -23,6 +23,11 @@ namespace MG.BusinessPlatform.Desktop;
 public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string CustomerName, string CustomerPhone,
     DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
 
+public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, string CurrencyCode)
+{
+    public decimal LineTotal => checked(UnitPrice * Quantity);
+}
+
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
     decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
 
@@ -61,6 +66,7 @@ public partial class MainWindow : Window
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
+    private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
@@ -79,7 +85,9 @@ public partial class MainWindow : Window
         _sessionBranchId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
         _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
         SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
+        PosCartGrid.ItemsSource = _posCartLines;
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
+        UpdatePosCartTotal();
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
