@@ -318,5 +318,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         {
             b.Navigation("Lines");
         });
+
+        GameSessionsSchemaModel.BuildModel(modelBuilder);
     }
 }
