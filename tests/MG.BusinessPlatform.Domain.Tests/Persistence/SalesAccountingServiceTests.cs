@@ -155,6 +155,49 @@ public sealed class SalesAccountingServiceTests
     }
 
     [Fact]
+    public async Task ActiveGameSession_CannotBeInvoicedBeforeCompletion()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var now = DateTimeOffset.UtcNow;
+        var sessionId = Guid.NewGuid();
+        db.GameSessions.Add(new GameSessionRecord
+        {
+            Id = sessionId,
+            BranchId = Guid.NewGuid(),
+            DeviceId = Guid.NewGuid(),
+            GameName = "FIFA",
+            RatePerHour = 600000m,
+            CurrencyCode = "IRR",
+            StartedAtUtc = now,
+            LastTransitionAtUtc = now,
+            Status = "Active",
+            Players =
+            [
+                new GameSessionPlayerRecord
+                {
+                    Id = Guid.NewGuid(), GameSessionId = sessionId, CreatedAtUtc = now,
+                    DisplayName = "Ali", EntryAmount = 50000m, TimeCharge = 0m,
+                    AdditionalAmount = 0m, CurrencyCode = "IRR"
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new SalesAccountingService(db).CreateGameSessionInvoiceAsync(
+                sessionId, new DateOnly(2026, 10, 13)));
+
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+        Assert.Empty(await db.SalesInvoices.ToListAsync());
+        Assert.Empty(await db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task PosSale_DeductsStockIssuesInvoiceAndPostsFullPaymentAtomically()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
