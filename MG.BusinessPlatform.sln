@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Licensi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.LicenseTool", "src\MG.BusinessPlatform.LicenseTool\MG.BusinessPlatform.LicenseTool.csproj", "{7DBD82C1-727E-4390-A5B9-8DE097B7F107}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.LicenseManager", "src\MG.BusinessPlatform.LicenseManager\MG.BusinessPlatform.LicenseManager.csproj", "{8ECE93D2-8385-45B4-BCA6-8E0AA8C1D209}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,5 +52,9 @@ Global
 		{7DBD82C1-727E-4390-A5B9-8DE097B7F107}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7DBD82C1-727E-4390-A5B9-8DE097B7F107}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7DBD82C1-727E-4390-A5B9-8DE097B7F107}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8ECE93D2-8385-45B4-BCA6-8E0AA8C1D209}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8ECE93D2-8385-45B4-BCA6-8E0AA8C1D209}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8ECE93D2-8385-45B4-BCA6-8E0AA8C1D209}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8ECE93D2-8385-45B4-BCA6-8E0AA8C1D209}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
