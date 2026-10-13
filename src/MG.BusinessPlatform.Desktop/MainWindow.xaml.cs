@@ -334,10 +334,9 @@ public partial class MainWindow : Window
                 .OrderBy(x => x.DisplayName).ToListAsync();
             SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
-            StockMovementsGrid.ItemsSource = await (
+            var stockMovementRows = await (
                 from movement in db.StockMovements.AsNoTracking()
                 join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
-                orderby movement.OccurredAt descending
                 select new
                 {
                     movement.OccurredAt,
@@ -349,22 +348,33 @@ public partial class MainWindow : Window
                     movement.CurrencyCode,
                     movement.Reference,
                     movement.Note
-                }).Take(500).ToListAsync();
-            var invoiceRows = await db.SalesInvoices.AsNoTracking()
-                .OrderByDescending(x => x.IssueDate).ThenByDescending(x => x.CreatedAt).Take(500)
+                }).ToListAsync();
+            // EF Core's SQLite provider cannot translate DateTimeOffset ordering.
+            // Sort the already-projected local rows in memory to keep refresh reliable.
+            StockMovementsGrid.ItemsSource = stockMovementRows
+                .OrderByDescending(x => x.OccurredAt).Take(500).ToList();
+
+            var invoiceRecords = await db.SalesInvoices.AsNoTracking().ToListAsync();
+            var invoiceRows = invoiceRecords
+                .OrderByDescending(x => x.IssueDate)
+                .ThenByDescending(x => x.CreatedAt)
+                .Take(500)
                 .Select(x => new InvoiceListItem(x.Id, x.InvoiceNumber, x.CustomerName, x.CustomerPhone,
                     x.IssueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
-                .ToListAsync();
+                .ToList();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
-            var onlineOrders = db.CustomerOrders.AsNoTracking()
-                .Where(x => !x.OrderNumber.StartsWith("GAME-"));
-            OrdersGrid.ItemsSource = await onlineOrders
-                .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
+
+            var orderRecords = await db.CustomerOrders.AsNoTracking().ToListAsync();
+            var onlineOrders = orderRecords
+                .Where(x => !x.OrderNumber.StartsWith("GAME-", StringComparison.Ordinal))
+                .ToArray();
+            OrdersGrid.ItemsSource = onlineOrders
+                .OrderByDescending(x => x.CreatedAt).Take(500).ToList();
             await RefreshGameSessionsAsync(db);
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
-            OrderCountText.Text = (await db.CustomerOrders.CountAsync(x => !x.OrderNumber.StartsWith("GAME-")))
+            OrderCountText.Text = onlineOrders.Length
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
             var running = await IsStorefrontRunningAsync();
             ServerStatusText.Text = running ? "در حال اجرا" : "متوقف";
