@@ -13,7 +13,9 @@ public partial class MainWindow : Window
 {
     private readonly string _databasePath;
     private readonly DispatcherTimer _refreshTimer;
+    private readonly string _storefrontPidPath;
     private Process? _storefrontProcess;
+    private static readonly HttpClient HealthClient = new() { Timeout = TimeSpan.FromSeconds(1) };
 
     public MainWindow()
     {
@@ -21,6 +23,7 @@ public partial class MainWindow : Window
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
+        _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _refreshTimer.Tick += async (_, _) => await RefreshAsync();
         Loaded += MainWindow_Loaded;
@@ -89,9 +92,10 @@ public partial class MainWindow : Window
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
             OrderCountText.Text = (await db.CustomerOrders.CountAsync())
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
-            ServerStatusText.Text = _storefrontProcess is { HasExited: false } ? "در حال اجرا" : "متوقف";
-            StartServerButton.IsEnabled = _storefrontProcess is not { HasExited: false };
-            StopServerButton.IsEnabled = _storefrontProcess is { HasExited: false };
+            var running = await IsStorefrontRunningAsync();
+            ServerStatusText.Text = running ? "در حال اجرا" : "متوقف";
+            StartServerButton.IsEnabled = !running;
+            StopServerButton.IsEnabled = running;
         }
         catch (Exception ex)
         {
@@ -262,9 +266,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void StartServer_Click(object sender, RoutedEventArgs e)
+    private async void StartServer_Click(object sender, RoutedEventArgs e)
     {
-        if (_storefrontProcess is { HasExited: false })
+        if (await IsStorefrontRunningAsync())
         {
             StatusText.Text = "سرویس وب از قبل در حال اجراست.";
             return;
@@ -294,8 +298,11 @@ public partial class MainWindow : Window
             start.Environment["MG_BUSINESS_DB_PATH"] = _databasePath;
             start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:8080";
             _storefrontProcess = Process.Start(start);
+            if (_storefrontProcess is not null)
+                await File.WriteAllTextAsync(_storefrontPidPath, _storefrontProcess.Id.ToString(CultureInfo.InvariantCulture));
             StatusText.Text = _storefrontProcess is null ? "راه‌اندازی سرویس وب ناموفق بود." : "درخواست راه‌اندازی سرویس وب ارسال شد.";
-            _ = RefreshAsync();
+            await Task.Delay(500);
+            await RefreshAsync();
         }
         catch (Exception ex)
         {
@@ -307,13 +314,23 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_storefrontProcess is { HasExited: false })
+            await TryAttachManagedProcessAsync();
+            if (_storefrontProcess is not { HasExited: false })
+            {
+                if (await IsStorefrontRunningAsync())
+                {
+                    StatusText.Text = "سرویس وب فعال است اما مالکیت پردازش تأیید نشد؛ برای جلوگیری از بستن پردازش نامرتبط، متوقف نشد.";
+                    return;
+                }
+            }
+            else
             {
                 _storefrontProcess.Kill(entireProcessTree: true);
                 await _storefrontProcess.WaitForExitAsync();
             }
             _storefrontProcess?.Dispose();
             _storefrontProcess = null;
+            if (File.Exists(_storefrontPidPath)) File.Delete(_storefrontPidPath);
             ServerStatusText.Text = "متوقف";
             StatusText.Text = "سرویس وب متوقف شد.";
             await RefreshAsync();
