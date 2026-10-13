@@ -56,6 +56,8 @@ app.Use(async (context, next) =>
     context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
     context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
     context.Response.Headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    context.Response.Headers.TryAdd("Content-Security-Policy",
+        "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'");
     await next();
 });
 
