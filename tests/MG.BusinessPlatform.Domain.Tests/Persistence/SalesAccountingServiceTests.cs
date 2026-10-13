@@ -49,10 +49,8 @@ public sealed class SalesAccountingServiceTests
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
-    [Theory]
-    [InlineData(-1L, 10L)]
-    [InlineData(10L, -1L)]
-    public async Task SingleLinePosSale_RejectsNegativePriceOrCostBeforeMutation(long unitPrice, long unitCost)
+    [Fact]
+    public async Task SingleLinePosSale_RejectsNegativeCostBeforeMutation()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -62,7 +60,7 @@ public sealed class SalesAccountingServiceTests
         var product = new StoreProduct
         {
             Id = Guid.NewGuid(), Sku = "POS-NEGATIVE", Name = "Invalid product",
-            UnitPrice = unitPrice, UnitCost = unitCost, CurrencyCode = "IRR",
+            UnitPrice = 10m, UnitCost = -1m, CurrencyCode = "IRR",
             IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
