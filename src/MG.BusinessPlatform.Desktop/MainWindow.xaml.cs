@@ -1315,6 +1315,26 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void DiagnosePublicHosting_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            PublicHostingStatusText.Text = "برای عیب‌یابی انتشار فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        try
+        {
+            var hostname = HostnameInput.Text.Trim();
+            var result = await _publicHostingManager.DiagnoseAsync(hostname);
+            PublicHostingStatusText.Text = result.Message;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Net.Sockets.SocketException)
+        {
+            PublicHostingStatusText.Text = $"عیب‌یابی دامنه ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void StartPublicHosting_Click(object sender, RoutedEventArgs e)
     {
         if (!HasLicensedModule("Storefront"))
