@@ -33,7 +33,7 @@
                             <StackPanel>
                                 <TextBlock Text="نشانی فروشگاه" FontWeight="SemiBold" FontSize="16"/>
                                 <TextBlock x:Name="StoreUrlText" Text="http://127.0.0.1:8080" Margin="0,8" FontSize="15"/>
-                                <TextBlock Text="برای انتشار عمومی دامنه، اتصال اینترنت قابل‌دسترسی و HTTPS معتبر لازم است. این نسخه وضعیت سرویس محلی را مدیریت می‌کند؛ انتشار عمومی تا تکمیل تنظیمات DNS، گواهی و تونل تأییدشده اعلام نمی‌شود." TextWrapping="Wrap" Foreground="#64748B"/>
+                                <TextBlock Text="این رایانه میزبان فروشگاه آنلاین است. برنامه DNS و IP عمومی را بررسی می‌کند و Caddy گواهی HTTPS را خودکار دریافت و تمدید می‌کند؛ تنظیم DNS در پنل دامنه و انتقال درگاه روتر در صورت نیاز باید انجام شود." TextWrapping="Wrap" Foreground="#64748B"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -302,6 +302,7 @@
                                 <Button Content="بازیابی پشتیبان" Click="RestoreBackup_Click"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="عیب‌یابی دامنه و شبکه" Click="DiagnosePublicHosting_Click"/>
                                 <Button Content="راه‌اندازی انتشار HTTPS عمومی" Click="StartPublicHosting_Click"/>
                                 <Button Content="بررسی دسترسی HTTPS" Click="CheckPublicHosting_Click"/>
                                 <Button Content="توقف انتشار عمومی" Click="StopPublicHosting_Click"/>

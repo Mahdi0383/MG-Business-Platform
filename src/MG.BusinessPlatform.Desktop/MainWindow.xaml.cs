@@ -175,6 +175,7 @@ public partial class MainWindow : Window
                 "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات فروشگاه" => null,
+                "جلسات بازی" => "GameCafe",
                 _ => "Core"
             };
             tab.IsEnabled = module is null || payload.Modules.Contains(module, StringComparer.Ordinal);
@@ -1311,6 +1312,26 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             PublicHostingStatusText.Text = $"تنظیم فایروال ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void DiagnosePublicHosting_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            PublicHostingStatusText.Text = "برای عیب‌یابی انتشار فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        try
+        {
+            var hostname = HostnameInput.Text.Trim();
+            var result = await _publicHostingManager.DiagnoseAsync(hostname);
+            PublicHostingStatusText.Text = result.Message;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Net.Sockets.SocketException)
+        {
+            PublicHostingStatusText.Text = $"عیب‌یابی دامنه ناموفق بود: {ex.Message}";
         }
     }
 

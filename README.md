@@ -2,18 +2,18 @@
 
 MG Business Platform is a Windows-first, offline-first business management platform under active development. The repository contains a WPF management client, a local SQLite database, a customer storefront API, an initial HTTPS reverse-proxy integration, finance/inventory domain models, signed-license verification and a separate license manager, and automated tests.
 
-> **Release status: NOT PRODUCTION-READY.** The project has not yet completed a verified Windows build, end-to-end release test, or the full accounting/POS/module scope. Do not use it as the sole accounting record for a live business until the release gates pass.
+> **Release status: NOT PRODUCTION-READY.** The Windows CI pipeline has completed successful build/test/package runs on recent commits, but full accounting/POS/module scope, external-network publication tests, security review and operator acceptance remain incomplete. Do not use it as the sole accounting record for a live business until the release gates pass.
 
 ## Current implementation
 
-- Windows WPF management UI with product creation, storefront settings, online order list, order cancellation with stock restoration, and local web-host controls.
+- Windows WPF management UI with product creation/editing, inventory movement history, customer/supplier records, single-item POS, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
 - Local SQLite persistence with versioned EF Core migrations, an inventory movement ledger, customers/suppliers, sales invoices, journal entries and payment records.
 - Consistent online SQLite backups, integrity checks and guarded restore with an automatic safety backup.
 - Customer-facing Persian RTL storefront, public product catalog, server-side price calculation, stock checks, order idempotency, request throttling, and basic security headers.
-- Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured.
+- Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured; in-app diagnostics show DNS A/AAAA records, detected public IPv4 and local 80/443 port availability.
 - Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
 - Initial profit-and-loss and balance-sheet summaries, trial balance, and accounting posting for single-item POS checkout.
-- Separate Persian RTL graphical License Manager and command-line tool, RSA-PSS signing/verification, and separate installer/ZIP artifacts. License entitlement enforcement across all protected operations is not yet production-complete.
+- Separate Persian RTL graphical License Manager and command-line tool, RSA-PSS signing/verification, device/software serial binding, expiry checks, desktop module gating and separate installer/ZIP artifacts. Server-side authorization across every protected operation still needs completion.
 - Windows release pipeline that produces the main app installer, separate license-manager installer, and checksummed portable packages.
 - CI workflow designed to restore, build, run tests, publish Windows binaries, bundle Caddy, create a ZIP, and create an Inno Setup installer.
 
@@ -22,7 +22,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Router port forwarding is model-specific and currently requires the operator. CGNAT or blocked inbound ports requires a separate outbound tunnel/relay or public host; no universal tunnel is included.
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
 - The current POS supports single-item walk-in checkout with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Advanced carts/discounts, barcode workflows, purchase invoices/payables, refunds, cash-flow statements, tax policies, receipt printing, multi-branch operation, and full cafe/game-center workflows remain unfinished.
-- Schema migration and order flow tests are committed, but their success must be confirmed from the actual Windows CI run. No build or test is claimed as passed until verified.
+- Latest main-branch Windows CI run for the game-session UI merge succeeded: Release build had zero compiler errors, all 132 automated tests passed, both installers compiled and required artifacts were verified. Always verify CI on the exact commit being released; this evidence does not imply the unfinished product scope or external network path has been fully accepted.
 
 ## Build and test on Windows
 
