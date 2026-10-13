@@ -93,7 +93,13 @@
                             <TextBox x:Name="HostnameInput"/>
                             <CheckBox x:Name="OnlineOrdersInput" Content="فعال‌سازی ثبت سفارش آنلاین" Margin="8,12"/>
                             <Button Content="ذخیره تنظیمات" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
-                            <TextBlock Text="ذخیره دامنه در این قسمت به‌تنهایی دامنه را در اینترنت منتشر نمی‌کند. راه‌اندازی DNS، گواهی HTTPS، دسترسی عمومی و در صورت نیاز تونل امن باید جداگانه با بررسی اتصال تأیید شود." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="راه‌اندازی انتشار HTTPS عمومی" Click="StartPublicHosting_Click"/>
+                                <Button Content="بررسی دسترسی HTTPS" Click="CheckPublicHosting_Click"/>
+                                <Button Content="توقف انتشار عمومی" Click="StopPublicHosting_Click"/>
+                            </StackPanel>
+                            <TextBlock x:Name="PublicHostingStatusText" Text="انتشار عمومی راه‌اندازی نشده است." TextWrapping="Wrap" Margin="4,8" Foreground="#334155"/>
+                            <TextBlock Text="برای HTTPS عمومی، دامنه باید به IP عمومی این رایانه/روتر اشاره کند و TCP 80 و 443 باید از اینترنت به این رایانه هدایت شوند. Caddy گواهی معتبر را خودکار دریافت و تمدید می‌کند؛ شبکه‌های CGNAT یا محدودکننده ممکن است به تونل خروجی نیاز داشته باشند." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
