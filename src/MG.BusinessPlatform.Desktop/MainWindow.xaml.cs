@@ -357,12 +357,14 @@ public partial class MainWindow : Window
                 .ToListAsync();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
-            OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
+            var onlineOrders = db.CustomerOrders.AsNoTracking()
+                .Where(x => !x.OrderNumber.StartsWith("GAME-"));
+            OrdersGrid.ItemsSource = await onlineOrders
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
             await RefreshGameSessionsAsync(db);
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
-            OrderCountText.Text = (await db.CustomerOrders.CountAsync())
+            OrderCountText.Text = (await db.CustomerOrders.CountAsync(x => !x.OrderNumber.StartsWith("GAME-")))
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
             var running = await IsStorefrontRunningAsync();
             ServerStatusText.Text = running ? "در حال اجرا" : "متوقف";
