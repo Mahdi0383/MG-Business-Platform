@@ -224,8 +224,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Status).HasMaxLength(30).IsRequired();
             entity.HasIndex(x => x.InvoiceNumber).IsUnique();
             entity.HasIndex(x => x.OrderId).IsUnique();
-            entity.ToTable(t => t.HasCheckConstraint("CK_SalesInvoice_Amounts", "CAST(TotalAmount AS NUMERIC) >= 0 AND CAST(CostTotal AS NUMERIC) >= 0 AND CAST(PaidAmount AS NUMERIC) >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_SalesInvoice_Amounts", "CAST(TotalAmount AS NUMERIC) >= 0 AND CAST(CostTotal AS NUMERIC) >= 0 AND CAST(PaidAmount AS NUMERIC) >= 0 AND CAST(PaidAmount AS NUMERIC) <= CAST(TotalAmount AS NUMERIC)"));
             entity.HasMany(x => x.Lines).WithOne(x => x.Invoice).HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<CustomerOrder>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SalesInvoiceLineRecord>(entity =>
