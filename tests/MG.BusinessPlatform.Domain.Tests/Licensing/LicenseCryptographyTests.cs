@@ -124,6 +124,15 @@ public sealed class LicenseCryptographyTests
     }
 
     [Fact]
+    public void Sign_RejectsLicenseWithoutCoreModule()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30)) with { Modules = ["POS"] };
+
+        Assert.Throws<ArgumentException>(() => LicenseCryptography.Sign(payload, keys.PrivateKeyPem));
+    }
+
+    [Fact]
     public void Verify_RejectsEnvelopeWithoutPayload()
     {
         var result = LicenseCryptography.Verify(
