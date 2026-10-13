@@ -209,6 +209,59 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void CancelOrder_Click(object sender, RoutedEventArgs e)
+    {
+        if (OrdersGrid.SelectedItem is not CustomerOrder selected)
+        {
+            StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            var order = await db.CustomerOrders.Include(x => x.Lines)
+                .SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (order is null)
+            {
+                StatusText.Text = "سفارش پیدا نشد؛ فهرست را تازه‌سازی کنید.";
+                return;
+            }
+            if (!string.Equals(order.Status, "Received", StringComparison.Ordinal))
+            {
+                StatusText.Text = "فقط سفارش‌های دریافت‌شده و لغونشده قابل لغو هستند.";
+                return;
+            }
+
+            foreach (var line in order.Lines)
+            {
+                var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == line.ProductId);
+                if (product is null)
+                {
+                    StatusText.Text = $"کالای سفارش «{line.ProductName}» پیدا نشد؛ برای جلوگیری از مغایرت، لغو انجام نشد.";
+                    return;
+                }
+                product.StockQuantity = checked(product.StockQuantity + line.Quantity);
+                product.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+
+            order.Status = "Cancelled";
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            StatusText.Text = "سفارش لغو شد و موجودی به‌صورت تراکنشی بازگردانده شد.";
+            await RefreshAsync();
+        }
+        catch (OverflowException)
+        {
+            StatusText.Text = "بازگرداندن موجودی به دلیل سرریز عددی انجام نشد.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"لغو سفارش ناموفق بود: {ex.Message}";
+        }
+    }
+
     private void StartServer_Click(object sender, RoutedEventArgs e)
     {
         if (_storefrontProcess is { HasExited: false })
