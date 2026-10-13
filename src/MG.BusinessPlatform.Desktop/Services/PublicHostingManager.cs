@@ -120,7 +120,7 @@ public sealed class PublicHostingManager
                 ? await File.ReadAllTextAsync(_configPath, cancellationToken)
                 : string.Empty;
             var hasExactHostnameBlock = existingConfig
-                .Split(['\\r', '\\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
                 .Any(line => string.Equals(line.Trim(), $"{hostname} {{", StringComparison.Ordinal));
             if (hasExactHostnameBlock)
                 return new(true, "سرویس انتشار HTTPS همین دامنه از قبل در حال اجراست.");
