@@ -227,6 +227,30 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="صورت‌های مالی">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="از تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <DatePicker x:Name="FinancialFromDateInput" Width="150" Margin="0,0,12,0"/>
+                            <TextBlock Text="تا تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <DatePicker x:Name="FinancialToDateInput" Width="150" Margin="0,0,12,0"/>
+                            <Button Content="محاسبه صورت‌های مالی" Click="CalculateFinancialStatements_Click"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock x:Name="FinancialStatementTotalsText" Grid.Row="1" Text="صورت‌های مالی هنوز محاسبه نشده‌اند." TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <DataGrid x:Name="FinancialStatementsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="صورت" Binding="{Binding Statement}" Width="1.2*"/>
+                            <DataGridTextColumn Header="کد حساب" Binding="{Binding AccountCode}" Width="*"/>
+                            <DataGridTextColumn Header="حساب" Binding="{Binding AccountName}" Width="2*"/>
+                            <DataGridTextColumn Header="نوع" Binding="{Binding AccountType}" Width="*"/>
+                            <DataGridTextColumn Header="مبلغ" Binding="{Binding Balance}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
