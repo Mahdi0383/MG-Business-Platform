@@ -204,7 +204,7 @@ public partial class MainWindow : Window
     {
         var dialog = new OpenFileDialog
         {
-            Title = "انتخاب کلید عمومی لایسنس",
+            Title = "انتخاب کلید عمومی برای تطبیق با کلید مورد اعتماد برنامه",
             Filter = "PEM public key (*.pem)|*.pem|All files (*.*)|*.*",
             CheckFileExists = true,
             Multiselect = false
@@ -214,42 +214,21 @@ public partial class MainWindow : Window
 
         try
         {
-            var publicKey = File.ReadAllText(dialog.FileName);
-            if (!publicKey.Contains("-----BEGIN PUBLIC KEY-----", StringComparison.Ordinal)
-                || publicKey.Contains("PRIVATE KEY", StringComparison.Ordinal))
-                throw new ArgumentException("فقط کلید عمومی PEM را وارد کنید؛ فایل کلید خصوصی پذیرفته نمی‌شود.");
+            var candidate = File.ReadAllText(dialog.FileName);
+            var trusted = LicenseCryptography.GetTrustedPublicKeyPem();
+            if (!LicenseCryptography.PublicKeysMatch(candidate, trusted))
+                throw new ArgumentException("این کلید متعلق به ناشر مورد اعتماد این نسخه نیست. کلید عمومی دلخواه قابل نصب نیست.");
 
-            using (var rsa = RSA.Create())
-            {
-                rsa.ImportFromPem(publicKey);
-                if (rsa.KeySize < 2048)
-                {
-                    LicenseStatusText.Text = "کلید عمومی باید حداقل ۲۰۴۸ بیت باشد.";
-                    return;
-                }
-            }
-
-            var currentLicensePath = Path.Combine(_dataDirectory, "license.json");
-            if (File.Exists(currentLicensePath))
-            {
-                var info = _licenseService.LoadOrCreate(_dataDirectory);
-                var currentEnvelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(currentLicensePath));
-                var currentResult = LicenseCryptography.Verify(currentEnvelope, publicKey,
-                    info.SoftwareSerial, info.HardwareSerial, DateTimeOffset.UtcNow);
-                if (!currentResult.IsValid && !ConfirmationDialog.Confirm(this, "تغییر کلید عمومی",
-                    "کلید انتخابی با لایسنس فعلی مطابقت ندارد. پس از جایگزینی، لایسنس فعلی معتبر نخواهد بود تا لایسنس متناظر وارد شود. ادامه می‌دهید؟",
-                    "جایگزینی کلید"))
-                    return;
-            }
-
-            WriteFileAtomically(Path.Combine(_dataDirectory, "license-public-key.pem"), publicKey);
+            // Store only a convenience copy. Verification always uses the embedded
+            // trust anchor, so editing/deleting this file cannot bypass licensing.
+            WriteFileAtomically(Path.Combine(_dataDirectory, "license-public-key.pem"), trusted);
             RefreshLicenseStatus();
-            StatusText.Text = "کلید عمومی وارد شد. کلید خصوصی هرگز به این برنامه وارد نکنید.";
+            StatusText.Text = "کلید عمومی با کلید ثابت ناشر تطبیق دارد؛ اعتبارسنجی برنامه به این فایل وابسته نیست.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or ArgumentException or CryptographicException or System.Text.Json.JsonException)
+            or ArgumentException or CryptographicException or InvalidOperationException)
         {
-            LicenseStatusText.Text = $"وارد کردن کلید عمومی ناموفق بود: {ex.Message}";
+            LicenseStatusText.Text = $"کلید عمومی پذیرفته نشد: {ex.Message}";
         }
     }
 
@@ -267,16 +246,10 @@ public partial class MainWindow : Window
 
         try
         {
-            var publicKeyPath = Path.Combine(_dataDirectory, "license-public-key.pem");
-            if (!File.Exists(publicKeyPath))
-            {
-                LicenseStatusText.Text = "ابتدا کلید عمومی مورد اعتماد را وارد کنید.";
-                return;
-            }
-
             var info = _licenseService.LoadOrCreate(_dataDirectory);
+            var trustedPublicKey = LicenseCryptography.GetTrustedPublicKeyPem();
             var envelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(dialog.FileName));
-            var result = LicenseCryptography.Verify(envelope, File.ReadAllText(publicKeyPath),
+            var result = LicenseCryptography.Verify(envelope, trustedPublicKey,
                 info.SoftwareSerial, info.HardwareSerial, DateTimeOffset.UtcNow);
             if (!result.IsValid)
             {
