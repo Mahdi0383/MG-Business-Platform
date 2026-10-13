@@ -313,6 +313,46 @@
                     </Border>
                 </ScrollViewer>
             </TabItem>
+            <TabItem Header="جلسات بازی">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="3*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="GameSessionNameInput" Grid.Column="0" Margin="4" ToolTip="نام بازی"/>
+                            <TextBox x:Name="GameSessionRateInput" Grid.Column="1" Margin="4" Text="600000" ToolTip="نرخ ساعتی هر بازیکن (ریال)"/>
+                            <Button Grid.Column="2" Margin="4" Content="افزودن بازیکن" Click="AddSessionPlayer_Click"/>
+                            <Button Grid.Column="3" Margin="4" Content="شروع جلسه" Click="StartGameSession_Click"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="SessionPlayersGrid" Grid.Row="1" Margin="0,0,0,10" AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="نام بازیکن" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="2*"/>
+                            <DataGridTextColumn Header="ورودی" Binding="{Binding EntryAmount, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            <DataGridTextColumn Header="هزینه زمان" Binding="{Binding TimeCharge, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            <DataGridTextColumn Header="هزینه اضافی" Binding="{Binding AdditionalAmount, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            <DataGridTextColumn Header="مبلغ نهایی" Binding="{Binding FinalAmount, Mode=OneWay, StringFormat=N0}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Content="توقف موقت" Click="PauseGameSession_Click" Margin="3"/>
+                        <Button Content="ادامه جلسه" Click="ResumeGameSession_Click" Margin="3"/>
+                        <Button Content="پایان جلسه" Click="CompleteGameSession_Click" Margin="3"/>
+                        <Button Content="به‌روزرسانی" Click="RefreshGameSessions_Click" Margin="3"/>
+                    </StackPanel>
+                    <DataGrid x:Name="GameSessionsGrid" Grid.Row="3" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="بازی" Binding="{Binding GameName}" Width="1.5*"/>
+                            <DataGridTextColumn Header="وضعیت" Binding="{Binding StatusText}" Width="*"/>
+                            <DataGridTextColumn Header="شروع" Binding="{Binding StartedAtText}" Width="1.5*"/>
+                            <DataGridTextColumn Header="بازیکنان" Binding="{Binding PlayerNames}" Width="2*"/>
+                            <DataGridTextColumn Header="زمان (دقیقه)" Binding="{Binding ElapsedMinutes}" Width="*"/>
+                            <DataGridTextColumn Header="هزینه زمان هر نفر" Binding="{Binding PerPlayerTimeCharge, StringFormat=N0}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock x:Name="GameSessionStatusText" Grid.Row="4" Margin="4,10" Text="جلسه بازی فعالی ثبت نشده است." TextWrapping="Wrap" Foreground="#334155"/>
+                </Grid>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </Window>
