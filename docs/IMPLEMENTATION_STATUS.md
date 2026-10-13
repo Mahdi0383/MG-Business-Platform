@@ -6,6 +6,7 @@ This file distinguishes committed code from validated behavior. "Implemented" me
 
 - .NET 10 solution with Domain, Infrastructure, Storefront, WPF Desktop, signed-license verification, and separate License Manager projects.
 - Money value object with currency-safe arithmetic.
+- Game-cafe session domain aggregate with pause/resume/completion/cancellation transitions, recoverable pause accounting, exact billable-minute rounding, and per-player charge validation; persistence and desktop UI integration are not yet complete.
 - Validated chart-of-accounts definitions, double-entry journal balancing, financial-period boundaries/closure metadata.
 - Invoice line arithmetic, payment allocations, catalog item rules, stock movement direction rules, business/branch identities.
 - SQLite persistence entities and versioned migrations for storefront products, store settings, web orders, customers, suppliers, costed stock movements, sales invoices, journal entries/lines, chart of accounts and payments.
@@ -14,7 +15,7 @@ This file distinguishes committed code from validated behavior. "Implemented" me
 - Public storefront UI and API with server-side price lookup, stock checks, transaction-bound order creation, idempotency keys, rate limits, host allow-listing, request limits, and basic security headers.
 - Caddy-based TLS reverse proxy lifecycle management and opt-in Windows firewall rule setup.
 - Unit, persistence, migration, backup/restore and storefront integration tests, plus sales accounting service tests for balanced journals, partial payments and overpayment rejection.
-- Windows CI and packaging scripts that build the main app, storefront and separate license-manager executable; create the main app installer and standalone license-manager installer; and emit ZIP packages with SHA-256 checksums.
+- Windows CI and packaging scripts that build the main app, storefront and separate license-manager executable; create the main app installer and standalone license-manager installer; and emit portable/source ZIP packages with SHA-256 checksums.
 - Separate Persian RTL WPF License Manager GUI plus command-line tool, RSA-PSS signed offline license payload generation/verification, independent installer/ZIP packages, and automated tests for signatures, tampering, expiry, hardware binding and malformed documents.
 
 ## Not yet implemented to product scope

@@ -55,6 +55,18 @@ jobs:
           if (-not (Test-Path "artifacts/MG-License-Manager-win-x64.zip")) {
             throw "Separate license manager ZIP package was not produced."
           }
+          if (-not (Test-Path "artifacts/MG-Business-Platform-SOURCE.zip")) {
+            throw "Main source ZIP package was not produced."
+          }
+          if (-not (Test-Path "artifacts/MG-License-Manager-SOURCE.zip")) {
+            throw "Separate license manager source ZIP package was not produced."
+          }
+          if (-not (Test-Path "artifacts/MG-Business-Platform-SOURCE.zip.sha256")) {
+            throw "Main source ZIP checksum was not produced."
+          }
+          if (-not (Test-Path "artifacts/MG-License-Manager-SOURCE.zip.sha256")) {
+            throw "License manager source ZIP checksum was not produced."
+          }
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe")) {
             throw "Separate license manager installer EXE was not produced."
           }
@@ -70,4 +82,8 @@ jobs:
             artifacts/MG-Business-Platform-win-x64.zip.sha256
             artifacts/MG-License-Manager-win-x64.zip
             artifacts/MG-License-Manager-win-x64.zip.sha256
+            artifacts/MG-Business-Platform-SOURCE.zip
+            artifacts/MG-Business-Platform-SOURCE.zip.sha256
+            artifacts/MG-License-Manager-SOURCE.zip
+            artifacts/MG-License-Manager-SOURCE.zip.sha256
             artifacts/installer/MG-License-Manager-Setup-win-x64.exe
