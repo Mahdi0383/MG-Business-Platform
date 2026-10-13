@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 64 * 1024);
 
 var configuredPath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH")
     ?? builder.Configuration["Storefront:DatabasePath"]
@@ -246,8 +247,7 @@ app.MapPost("/api/storefront/orders", async (
         });
     }
 })
-    .RequireRateLimiting("public")
-    .WithRequestSizeLimit(64 * 1024);
+    .RequireRateLimiting("public");
 
 app.MapGet("/", () => Results.Content(StorefrontHtml.Content, "text/html; charset=utf-8"))
     .RequireRateLimiting("public");
