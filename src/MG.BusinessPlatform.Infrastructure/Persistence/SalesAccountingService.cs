@@ -103,6 +103,9 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         CancellationToken cancellationToken = default)
     {
         if (invoiceId == Guid.Empty) throw new ArgumentException("Invoice ID is required.", nameof(invoiceId));
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(notes);
         if (amount <= 0m) throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
         if (reference.Length > 100) throw new ArgumentOutOfRangeException(nameof(reference));
         if (notes.Length > 500) throw new ArgumentOutOfRangeException(nameof(notes));
