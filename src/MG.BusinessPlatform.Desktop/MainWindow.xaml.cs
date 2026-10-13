@@ -446,15 +446,16 @@ public partial class MainWindow : Window
             StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
             return;
         }
-        if (!ConfirmationDialog.Confirm(this, "ثبت تحویل سفارش",
-            "با ثبت تحویل، سفارش از فهرست سفارش‌های در انتظار خارج می‌شود. این عملیات پرداخت یا سند حسابداری ثبت نمی‌کند.",
-            "ثبت تحویل"))
+        if (!ConfirmationDialog.Confirm(this, "ثبت تحویل و صدور فاکتور",
+            "با تأیید، فاکتور فروش صادر می‌شود و اسناد دوبل درآمد و بهای تمام‌شده به‌صورت تراکنشی ثبت می‌شوند. دریافت وجه در مرحله جداگانه انجام می‌شود.",
+            "صدور فاکتور و تحویل"))
             return;
 
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            var order = await db.CustomerOrders.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            var order = await db.CustomerOrders.Include(x => x.Lines).SingleOrDefaultAsync(x => x.Id == selected.Id);
             if (order is null)
             {
                 StatusText.Text = "سفارش پیدا نشد؛ فهرست را تازه‌سازی کنید.";
@@ -462,17 +463,125 @@ public partial class MainWindow : Window
             }
             if (!string.Equals(order.Status, "Received", StringComparison.Ordinal))
             {
-                StatusText.Text = "فقط سفارش‌های دریافت‌شده و تحویل‌نشده قابل تکمیل هستند.";
+                StatusText.Text = "فقط سفارش‌های دریافت‌شده و فاکتور‌نشده قابل تکمیل هستند.";
                 return;
             }
+            if (await db.SalesInvoices.AnyAsync(x => x.OrderId == order.Id))
+            {
+                StatusText.Text = "برای این سفارش قبلاً فاکتور صادر شده است؛ وضعیت سفارش را بررسی کنید.";
+                return;
+            }
+
+            var calculatedTotal = order.Lines.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
+            var costTotal = order.Lines.Aggregate(0m, (sum, line) => checked(sum + line.UnitCost * line.Quantity));
+            if (calculatedTotal != order.TotalAmount)
+                throw new InvalidOperationException("جمع ردیف‌های سفارش با مبلغ کل آن مطابقت ندارد.");
+
+            var requiredCodes = new List<string>();
+            if (order.TotalAmount > 0m) { requiredCodes.Add("1100"); requiredCodes.Add("4000"); }
+            if (costTotal > 0m) { requiredCodes.Add("5000"); requiredCodes.Add("1200"); }
+            var accounts = await db.LedgerAccounts
+                .Where(account => requiredCodes.Contains(account.Code))
+                .ToDictionaryAsync(account => account.Code);
+            foreach (var code in requiredCodes.Distinct(StringComparer.Ordinal))
+            {
+                if (!accounts.TryGetValue(code, out var account) || !account.IsActive || !account.IsPostingAllowed)
+                    throw new InvalidOperationException($"حساب دفتر کل {code} وجود ندارد، غیرفعال است یا اجازه ثبت سند ندارد.");
+            }
+
+            var invoiceId = Guid.NewGuid();
+            var invoiceNumber = $"INV-{order.OrderNumber}";
+            var issueDate = DateOnly.FromDateTime(DateTime.Today);
+            var invoice = new SalesInvoiceRecord
+            {
+                Id = invoiceId,
+                InvoiceNumber = invoiceNumber,
+                OrderId = order.Id,
+                IssueDate = issueDate,
+                CustomerName = order.CustomerName,
+                CustomerPhone = order.CustomerPhone,
+                CurrencyCode = order.CurrencyCode,
+                TotalAmount = order.TotalAmount,
+                CostTotal = costTotal,
+                PaidAmount = 0m,
+                Status = "Issued",
+                CreatedAt = DateTimeOffset.UtcNow,
+                Lines = order.Lines.Select(line => new SalesInvoiceLineRecord
+                {
+                    Id = Guid.NewGuid(),
+                    InvoiceId = invoiceId,
+                    ProductId = line.ProductId,
+                    ProductName = line.ProductName,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    UnitCost = line.UnitCost,
+                    LineTotal = line.LineTotal,
+                    CostTotal = checked(line.UnitCost * line.Quantity)
+                }).ToList()
+            };
+            db.SalesInvoices.Add(invoice);
+
+            JournalLineRecord CreateLine(LedgerAccountRecord account, string side, decimal amount) => new()
+            {
+                Id = Guid.NewGuid(),
+                AccountId = account.Id,
+                AccountCode = account.Code,
+                AccountName = account.Name,
+                Side = side,
+                Amount = amount
+            };
+
+            if (order.TotalAmount > 0m)
+            {
+                var salesEntry = new JournalEntryRecord
+                {
+                    Id = Guid.NewGuid(),
+                    EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
+                    EntryDate = issueDate,
+                    Description = $"ثبت فروش فاکتور {invoiceNumber}",
+                    CurrencyCode = order.CurrencyCode,
+                    SourceType = "SalesInvoice",
+                    SourceId = invoiceId,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Lines =
+                    [
+                        CreateLine(accounts["1100"], "Debit", order.TotalAmount),
+                        CreateLine(accounts["4000"], "Credit", order.TotalAmount)
+                    ]
+                };
+                db.JournalEntries.Add(salesEntry);
+            }
+
+            if (costTotal > 0m)
+            {
+                var costEntry = new JournalEntryRecord
+                {
+                    Id = Guid.NewGuid(),
+                    EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
+                    EntryDate = issueDate,
+                    Description = $"ثبت بهای تمام‌شده فاکتور {invoiceNumber}",
+                    CurrencyCode = order.CurrencyCode,
+                    SourceType = "InventoryCOGS",
+                    SourceId = invoiceId,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Lines =
+                    [
+                        CreateLine(accounts["5000"], "Debit", costTotal),
+                        CreateLine(accounts["1200"], "Credit", costTotal)
+                    ]
+                };
+                db.JournalEntries.Add(costEntry);
+            }
+
             order.Status = "Fulfilled";
             await db.SaveChangesAsync();
-            StatusText.Text = "تحویل سفارش ثبت شد. پرداخت و حسابداری باید جداگانه ثبت شوند.";
+            await transaction.CommitAsync();
+            StatusText.Text = $"تحویل ثبت شد؛ فاکتور {invoiceNumber} و اسناد حسابداری صادر شدند. دریافت وجه هنوز ثبت نشده است.";
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"ثبت تحویل سفارش ناموفق بود: {ex.Message}";
+            StatusText.Text = $"ثبت تحویل و صدور فاکتور ناموفق بود: {ex.Message}";
         }
     }
 
