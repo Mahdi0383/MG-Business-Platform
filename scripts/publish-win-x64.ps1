@@ -119,6 +119,41 @@ Compress-Archive -Path (Join-Path $licenseToolOutput "*") -DestinationPath $lice
 $licenseToolSha = (Get-FileHash $licenseToolZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${licenseToolZipPath}.sha256" -Value "$licenseToolSha  $(Split-Path $licenseToolZipPath -Leaf)" -Encoding ASCII
 
+function New-SourceArchive {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    $stagingRoot = Join-Path $env:TEMP ("mg-source-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+    try {
+        foreach ($relativePath in $RelativePaths) {
+            $sourcePath = Join-Path $repoRoot $relativePath
+            if (-not (Test-Path $sourcePath)) { continue }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            if (Test-Path $sourcePath -PathType Container) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-Item $sourcePath $stagedPath -Recurse -Force
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-Item $sourcePath $stagedPath -Force
+            }
+        }
+
+        if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $stagingRoot,
+            $DestinationPath,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false)
+    } finally {
+        if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
+    }
+}
+
 Write-Host "== Package source archives ==" -ForegroundColor Cyan
 $mainSourceItems = @(
     "src", "tests", "docs", "scripts", "installer", "LICENSES", ".github", ".gitignore", ".editorconfig",
@@ -137,15 +172,8 @@ $licenseSourceItems = @(
     "THIRD_PARTY_NOTICES.md"
 ) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
 
-Push-Location $repoRoot
-try {
-    if (Test-Path $mainSourceZipPath) { Remove-Item $mainSourceZipPath -Force }
-    Compress-Archive -Path $mainSourceItems -DestinationPath $mainSourceZipPath -CompressionLevel Optimal
-    if (Test-Path $licenseSourceZipPath) { Remove-Item $licenseSourceZipPath -Force }
-    Compress-Archive -Path $licenseSourceItems -DestinationPath $licenseSourceZipPath -CompressionLevel Optimal
-} finally {
-    Pop-Location
-}
+New-SourceArchive -RelativePaths $mainSourceItems -DestinationPath $mainSourceZipPath
+New-SourceArchive -RelativePaths $licenseSourceItems -DestinationPath $licenseSourceZipPath
 
 $mainSourceSha = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${mainSourceZipPath}.sha256" -Value "$mainSourceSha  $(Split-Path $mainSourceZipPath -Leaf)" -Encoding ASCII
@@ -175,6 +203,15 @@ if ($isccCandidates.Count -gt 0) {
     $licenseInstallerScript = Join-Path $repoRoot "installer/MG-License-Manager.iss"
     & $iscc $licenseInstallerScript
     if ($LASTEXITCODE -ne 0) { throw "License manager installer packaging failed with exit code $LASTEXITCODE." }
+
+    $mainInstallerPath = Join-Path $artifactRoot "installer/MG-Business-Platform-Setup-win-x64.exe"
+    $licenseInstallerPath = Join-Path $artifactRoot "installer/MG-License-Manager-Setup-win-x64.exe"
+    foreach ($installerPath in @($mainInstallerPath, $licenseInstallerPath)) {
+        if (-not (Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
+        $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+        Set-Content -Path "$installerPath.sha256" -Value "$installerHash  $(Split-Path $installerPath -Leaf)" -Encoding ASCII
+        Write-Host "Installer SHA-256 ($([System.IO.Path]::GetFileName($installerPath))): $installerHash"
+    }
     Write-Host "Main application and separate license manager installers completed." -ForegroundColor Green
 } else {
     Write-Warning "Inno Setup is not installed. ZIP package is ready; installer EXE was not produced."
