@@ -27,13 +27,15 @@ public sealed record StockMovement
     public decimal Quantity { get; }
     public string UnitCode { get; }
     public string? Reference { get; }
+    public MG.BusinessPlatform.Domain.Finance.Money? UnitCost { get; }
     public decimal SignedQuantity => Type is StockMovementType.SaleIssue
         or StockMovementType.SupplierReturn
         or StockMovementType.NegativeAdjustment
         or StockMovementType.TransferOut ? -Quantity : Quantity;
 
     public StockMovement(Guid id, Guid itemId, Guid locationId, DateTimeOffset occurredAt,
-        StockMovementType type, decimal quantity, string unitCode, string? reference = null)
+        StockMovementType type, decimal quantity, string unitCode, string? reference = null,
+        MG.BusinessPlatform.Domain.Finance.Money? unitCost = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Movement ID is required.", nameof(id));
         if (itemId == Guid.Empty) throw new ArgumentException("Item ID is required.", nameof(itemId));
@@ -41,6 +43,7 @@ public sealed record StockMovement
         if (!Enum.IsDefined(type)) throw new ArgumentOutOfRangeException(nameof(type));
         if (quantity <= 0m) throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive; movement type determines direction.");
         if (string.IsNullOrWhiteSpace(unitCode)) throw new ArgumentException("A unit code is required.", nameof(unitCode));
+        if (unitCost is { Amount: < 0m }) throw new ArgumentOutOfRangeException(nameof(unitCost));
 
         Id = id;
         ItemId = itemId;
@@ -50,5 +53,6 @@ public sealed record StockMovement
         Quantity = quantity;
         UnitCode = unitCode.Trim().ToUpperInvariant();
         Reference = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
+        UnitCost = unitCost;
     }
 }
