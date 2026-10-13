@@ -318,8 +318,16 @@ public partial class MainWindow : Window
                 return;
             }
 
-            product.StockQuantity = updatedStock;
-            product.UpdatedAt = DateTimeOffset.UtcNow;
+            var updatedAt = DateTimeOffset.UtcNow;
+            var affected = await db.StoreProducts
+                .Where(x => x.Id == product.Id && x.StockQuantity == product.StockQuantity
+                    && x.UnitCost == product.UnitCost && x.CurrencyCode == product.CurrencyCode)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.StockQuantity, updatedStock)
+                    .SetProperty(x => x.UpdatedAt, updatedAt));
+            if (affected != 1)
+                throw new InvalidOperationException("موجودی یا بهای کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی کنید.");
+
             db.StockMovements.Add(new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
