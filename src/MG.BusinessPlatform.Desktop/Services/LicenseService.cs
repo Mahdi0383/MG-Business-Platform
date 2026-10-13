@@ -52,7 +52,7 @@ public sealed class LicenseService
         string machineId;
         try
         {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWAREMicrosoftCryptography", writable: false);
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography", writable: false);
             machineId = key?.GetValue("MachineGuid")?.ToString() ?? Environment.MachineName;
         }
         catch (UnauthorizedAccessException)
