@@ -215,6 +215,10 @@ public partial class MainWindow : Window
         try
         {
             var publicKey = File.ReadAllText(dialog.FileName);
+            if (!publicKey.Contains("-----BEGIN PUBLIC KEY-----", StringComparison.Ordinal)
+                || publicKey.Contains("PRIVATE KEY", StringComparison.Ordinal))
+                throw new ArgumentException("فقط کلید عمومی PEM را وارد کنید؛ فایل کلید خصوصی پذیرفته نمی‌شود.");
+
             using (var rsa = RSA.Create())
             {
                 rsa.ImportFromPem(publicKey);
