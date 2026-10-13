@@ -71,24 +71,36 @@ public sealed class LicenseService
     private static string LoadOrCreateSoftwareSerial(string path)
     {
         if (File.Exists(path))
-        {
-            var existing = File.ReadAllText(path).Trim();
-            if (existing.StartsWith("MGS-", StringComparison.Ordinal) && existing.Length == 36)
-                return existing;
-        }
+            return ValidateSoftwareSerial(File.ReadAllText(path));
 
         var serial = "MGS-" + Guid.NewGuid().ToString("N").ToUpperInvariant();
         var temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
         {
             File.WriteAllText(temporaryPath, serial);
-            File.Move(temporaryPath, path, overwrite: true);
+            try
+            {
+                File.Move(temporaryPath, path, overwrite: false);
+                return serial;
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                return ValidateSoftwareSerial(File.ReadAllText(path));
+            }
         }
         finally
         {
             if (File.Exists(temporaryPath))
                 File.Delete(temporaryPath);
         }
+    }
+
+    private static string ValidateSoftwareSerial(string value)
+    {
+        var serial = value.Trim().ToUpperInvariant();
+        if (!serial.StartsWith("MGS-", StringComparison.Ordinal) || serial.Length != 36
+            || !Guid.TryParseExact(serial[4..], "N", out _))
+            throw new InvalidDataException("The saved software serial is invalid; it was not regenerated to avoid invalidating an existing license.");
         return serial;
     }
-}
+}}
