@@ -11,6 +11,26 @@ namespace MG.BusinessPlatform.Domain.Tests.Storefront;
 public sealed class StorefrontOrderIntegrationTests
 {
     [Fact]
+    public async Task PublicHealthEndpoint_IsRateLimitedPerClient()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        var responses = await Task.WhenAll(
+            Enumerable.Range(0, 40).Select(_ => client.GetAsync("/health/live")));
+        try
+        {
+            Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.TooManyRequests);
+            Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
+        }
+        finally
+        {
+            foreach (var response in responses)
+                response.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
     {
         await using var factory = new StorefrontTestFactory();

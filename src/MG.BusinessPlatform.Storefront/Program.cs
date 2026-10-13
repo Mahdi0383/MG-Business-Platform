@@ -61,6 +61,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Apply endpoint rate limits before the host allow-list performs a database lookup.
+app.UseRateLimiter();
+
 app.Use(async (context, next) =>
 {
     var host = context.Request.Host.Host;
@@ -80,15 +83,13 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseRateLimiter();
-
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
     await DatabaseInitializer.InitializeAsync(db);
 }
 
-app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
+app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous().RequireRateLimiting("public");
 app.MapGet("/health/ready", async (BusinessDbContext db, CancellationToken ct) =>
 {
     var canConnect = await db.Database.CanConnectAsync(ct);
