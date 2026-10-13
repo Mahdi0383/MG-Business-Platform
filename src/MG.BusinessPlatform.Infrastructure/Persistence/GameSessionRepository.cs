@@ -49,7 +49,8 @@ public sealed class GameSessionRepository(BusinessDbContext db)
                 playerRecord = new GameSessionPlayerRecord
                 {
                     Id = player.Id,
-                    GameSessionId = session.Id
+                    GameSessionId = session.Id,
+                    CreatedAtUtc = DateTimeOffset.UtcNow
                 };
                 record.Players.Add(playerRecord);
             }
