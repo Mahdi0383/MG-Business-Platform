@@ -55,6 +55,8 @@ public partial class MainWindow : Window
             var hardwareSerial = RequireText(HardwareSerialInput.Text, "سریال سخت‌افزار");
             var customerName = RequireText(CustomerNameInput.Text, "نام مشتری");
             var outputPath = Path.GetFullPath(RequireText(LicenseOutputPathInput.Text, "مسیر خروجی لایسنس"));
+            if (string.Equals(outputPath, privateKeyPath, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("مسیر خروجی لایسنس نمی‌تواند همان فایل کلید خصوصی باشد.");
             var expiryDate = DateOnly.ParseExact(ExpiryDateInput.Text.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
             if (!int.TryParse(MaxBranchesInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var maxBranches))
                 throw new ArgumentException("تعداد شعبه باید عدد صحیح مثبت باشد.");
@@ -83,10 +85,24 @@ public partial class MainWindow : Window
             if (!LicenseCryptography.PrivateKeyMatchesPublicKey(privateKeyPem, trustedPublicKeyPem))
                 throw new CryptographicException("کلید خصوصی انتخاب‌شده با کلید ناشر تعبیه‌شده در برنامه مطابقت ندارد.");
             var envelope = LicenseCryptography.Sign(payload, privateKeyPem);
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            using (var stream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            using (var writer = new StreamWriter(stream))
-                writer.Write(LicenseCryptography.SerializeEnvelope(envelope));
+            var outputDirectory = Path.GetDirectoryName(outputPath)!;
+            Directory.CreateDirectory(outputDirectory);
+            var temporaryPath = Path.Combine(outputDirectory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
+            try
+            {
+                using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                    writer.Write(LicenseCryptography.SerializeEnvelope(envelope));
+
+                // Replace atomically only after a complete signed license has been written.
+                // SaveFileDialog already asks the user before an existing file is overwritten.
+                File.Move(temporaryPath, outputPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
             LicenseToVerifyPathInput.Text = outputPath;
             SetStatus($"لایسنس صادر شد. شناسه: {payload.LicenseId}\nمشتری: {payload.CustomerName}\nانقضا (UTC): {payload.ExpiresAtUtc:yyyy-MM-dd}\nماژول‌ها: {string.Join(", ", payload.Modules)}", true);
         }
