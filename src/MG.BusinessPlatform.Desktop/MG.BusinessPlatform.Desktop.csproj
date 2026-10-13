@@ -10,5 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MG.BusinessPlatform.Infrastructure\MG.BusinessPlatform.Infrastructure.csproj" />
+    <ProjectReference Include="..\MG.BusinessPlatform.Licensing\MG.BusinessPlatform.Licensing.csproj" />
   </ItemGroup>
 </Project>
