@@ -18,7 +18,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 - Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Router port forwarding is model-specific and currently requires the operator. CGNAT or blocked inbound ports requires a separate outbound tunnel/relay or public host; no universal tunnel is included.
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
-- The desktop app is not yet a full POS/accounting suite. The current ledger covers web-order invoice fulfillment, COGS, cash/card/bank receipts and trial balance; full balance sheet/P&L/cash-flow statements, purchasing/payables, refunds, tax policies, receipt printing, multi-branch operation, full cafe/game-center workflows, and the separate license manager remain unfinished.
+- The current POS supports single-item walk-in checkout with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Advanced carts/discounts, barcode workflows, purchase invoices/payables, refunds, full balance sheet/P&L/cash-flow statements, tax policies, receipt printing, multi-branch operation, full cafe/game-center workflows, and the separate license manager remain unfinished.
 - Schema migration and order flow tests are committed, but their success must be confirmed from the actual Windows CI run. No build or test is claimed as passed until verified.
 
 ## Build and test on Windows
