@@ -71,6 +71,20 @@ public sealed class LicenseCryptographyTests
     }
 
     [Fact]
+    public void Verify_RejectsPrivateKeyWherePublicKeyIsRequired()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30));
+        var envelope = LicenseCryptography.Sign(payload, keys.PrivateKeyPem);
+
+        var result = LicenseCryptography.Verify(envelope, keys.PrivateKeyPem,
+            payload.SoftwareSerial, payload.HardwareSerial, DateTimeOffset.UtcNow);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(LicenseValidationStatus.InvalidSignature, result.Status);
+    }
+
+    [Fact]
     public void Verify_RejectsWrongHardwareSerial()
     {
         var keys = LicenseCryptography.GenerateKeyPair(2048);
