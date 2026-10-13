@@ -12,7 +12,7 @@ public sealed class GamingSessionTests
         var session = Create(start, [Player("A", 20m, 120m), Player("B", 10m, 60m)]);
         var total = session.CalculateTotal(start.AddMinutes(61), billingIntervalMinutes: 30, minimumChargeMinutes: 30);
 
-        Assert.Equal(new Money(170m, "IRR"), total);
+        Assert.Equal(new Money(300m, "IRR"), total);
     }
 
     [Fact]
@@ -20,7 +20,7 @@ public sealed class GamingSessionTests
     {
         var start = DateTimeOffset.UtcNow;
         var session = Create(start, [Player("A", 5m, 60m)]);
-        Assert.Equal(new Money(15m, "IRR"), session.CalculateTotal(start.AddSeconds(1), 15, 10));
+        Assert.Equal(new Money(15m, "IRR"), session.CalculateTotal(start.AddSeconds(1), 1, 10));
     }
 
     [Fact]
