@@ -23,7 +23,7 @@ The main application verifies a digitally signed entitlement containing, as appr
 - license identifier and schema/version;
 - optional trial or subscription terms.
 
-The exact format and key algorithm must be selected and tested before implementation. The main app ships with public verification material only. Private signing material belongs in the separate License Manager or a protected issuing service and must not be committed to the repository.
+The current implementation uses a JSON payload signed with RSA-PSS/SHA-256. The main app reads a public verification key only; the separate License Manager holds the private signing key at issuance time. This is a signed-entitlement foundation, not production enforcement: each protected operation must still check the license status and module entitlement. Never commit a private signing key.
 
 ## Offline behavior
 
@@ -36,6 +36,7 @@ The exact format and key algorithm must be selected and tested before implementa
 ## Online service baseline
 
 - HTTPS, authentication, authorization, rate limits and request validation.
+- Behind the bundled Caddy reverse proxy, trust forwarded host/protocol/client-IP headers only from loopback proxy addresses; never trust arbitrary internet-supplied forwarded headers. Per-client rate limits must use the validated client IP.
 - No direct internet exposure of database files or database administration ports.
 - Secrets and signing keys are server-side only.
 - Idempotency and replay protection for payment/order endpoints.
