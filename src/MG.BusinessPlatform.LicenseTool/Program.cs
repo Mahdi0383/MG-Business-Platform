@@ -89,8 +89,8 @@ internal static class LicenseTool
 
         Console.WriteLine($"Private signing key: {privatePath}");
         Console.WriteLine($"Public verification key: {publicPath}");
-        Console.WriteLine("IMPORTANT: keep the private key offline and never place it in the application folder or source repository.");
-        Console.WriteLine("The public key must be provisioned to each licensed installation as license-public-key.pem.");
+        Console.WriteLine("IMPORTANT: this creates a NEW trust anchor for a future app build; this key pair will NOT issue licenses accepted by the currently pinned production build.");
+        Console.WriteLine("Keep the private key offline. A trust-anchor rotation requires rebuilding and distributing the desktop app with the matching public key.");
         return 0;
     }
 
@@ -100,6 +100,9 @@ internal static class LicenseTool
             throw new ArgumentException("Usage: issue <private-key.pem> <output.json> <software-serial> <hardware-serial> <customer-name> <expiry-yyyy-MM-dd> <modules-csv> [max-branches] [max-users]");
 
         var privateKey = File.ReadAllText(args[1]);
+        var trustedPublicKey = LicenseCryptography.GetTrustedPublicKeyPem();
+        if (!LicenseCryptography.PrivateKeyMatchesPublicKey(privateKey, trustedPublicKey))
+            throw new CryptographicException("The private key does not match this build's pinned production trust anchor.");
         var expiryDate = DateOnly.ParseExact(args[6], "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(TimeSpan.TicksPerDay - 1), DateTimeKind.Utc));
         var modules = args[7].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
@@ -140,10 +143,13 @@ internal static class LicenseTool
         if (args.Length != 5)
             throw new ArgumentException("Usage: verify <public-key.pem> <license.json> <software-serial> <hardware-serial>");
 
-        var publicKey = await File.ReadAllTextAsync(args[1]);
+        var candidatePublicKey = await File.ReadAllTextAsync(args[1]);
+        var trustedPublicKey = LicenseCryptography.GetTrustedPublicKeyPem();
+        if (!LicenseCryptography.PublicKeysMatch(candidatePublicKey, trustedPublicKey))
+            throw new CryptographicException("The supplied public key is not this build's pinned production trust anchor.");
         var json = await File.ReadAllTextAsync(args[2]);
         var envelope = LicenseCryptography.DeserializeEnvelope(json);
-        var result = LicenseCryptography.Verify(envelope, publicKey, args[3], args[4], DateTimeOffset.UtcNow);
+        var result = LicenseCryptography.Verify(envelope, trustedPublicKey, args[3], args[4], DateTimeOffset.UtcNow);
         Console.WriteLine($"{result.Status}: {result.Message}");
         if (result.Payload is not null)
         {
