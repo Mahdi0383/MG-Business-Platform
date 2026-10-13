@@ -41,6 +41,8 @@ The expected Windows artifacts are:
 - `artifacts/installer/MG-Business-Platform-Setup-win-x64.exe`
 - `artifacts/MG-License-Manager-win-x64.zip` and `artifacts/MG-License-Manager-win-x64.zip.sha256`
 - `artifacts/installer/MG-License-Manager-Setup-win-x64.exe`
+- `artifacts/MG-Business-Platform-SOURCE.zip` and its `.sha256` checksum
+- `artifacts/MG-License-Manager-SOURCE.zip` and its `.sha256` checksum
 
 ## Documentation
 
