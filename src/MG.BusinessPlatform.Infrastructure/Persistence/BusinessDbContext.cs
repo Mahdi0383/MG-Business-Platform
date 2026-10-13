@@ -15,6 +15,30 @@ public sealed class StoreProduct
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class CustomerRecord
+{
+    public Guid Id { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class SupplierRecord
+{
+    public Guid Id { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string TaxIdentifier { get; set; } = string.Empty;
+    public string PaymentTerms { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class StoreSettings
 {
     public int Id { get; set; } = 1;
@@ -57,6 +81,8 @@ public sealed class CustomerOrderLine
 public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> options) : DbContext(options)
 {
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
+    public DbSet<CustomerRecord> Customers => Set<CustomerRecord>();
+    public DbSet<SupplierRecord> Suppliers => Set<SupplierRecord>();
     public DbSet<StoreSettings> StoreSettings => Set<StoreSettings>();
     public DbSet<CustomerOrder> CustomerOrders => Set<CustomerOrder>();
     public DbSet<CustomerOrderLine> CustomerOrderLines => Set<CustomerOrderLine>();
@@ -73,6 +99,30 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "CAST(UnitPrice AS NUMERIC) >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
+        });
+
+        modelBuilder.Entity<CustomerRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Phone).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Email).HasMaxLength(254).IsRequired();
+            entity.Property(x => x.Address).HasMaxLength(1000).IsRequired();
+            entity.HasIndex(x => x.DisplayName);
+            entity.HasIndex(x => x.Phone);
+        });
+
+        modelBuilder.Entity<SupplierRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Phone).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Email).HasMaxLength(254).IsRequired();
+            entity.Property(x => x.Address).HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.TaxIdentifier).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.PaymentTerms).HasMaxLength(500).IsRequired();
+            entity.HasIndex(x => x.DisplayName);
+            entity.HasIndex(x => x.Phone);
         });
 
         modelBuilder.Entity<StoreSettings>(entity =>
