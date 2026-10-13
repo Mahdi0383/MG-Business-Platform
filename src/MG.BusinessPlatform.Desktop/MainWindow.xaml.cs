@@ -97,6 +97,22 @@ public partial class MainWindow : Window
                 .OrderBy(x => x.DisplayName).ToListAsync();
             SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
+            StockMovementsGrid.ItemsSource = await (
+                from movement in db.StockMovements.AsNoTracking()
+                join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
+                orderby movement.OccurredAt descending
+                select new
+                {
+                    movement.OccurredAt,
+                    ProductSku = product.Sku,
+                    ProductName = product.Name,
+                    movement.MovementType,
+                    movement.SignedQuantity,
+                    movement.UnitCost,
+                    movement.CurrencyCode,
+                    movement.Reference,
+                    movement.Note
+                }).Take(500).ToListAsync();
             OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
