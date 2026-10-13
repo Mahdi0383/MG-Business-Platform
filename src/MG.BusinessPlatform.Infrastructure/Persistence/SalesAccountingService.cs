@@ -52,6 +52,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             throw new InvalidOperationException("The selected product is unavailable.");
         if (product.StockQuantity < quantity)
             throw new InvalidOperationException($"Insufficient stock. Available quantity: {product.StockQuantity}.");
+        if (product.UnitPrice < 0m || product.UnitCost < 0m)
+            throw new InvalidOperationException("The selected product has a negative price or cost.");
 
         var total = checked(product.UnitPrice * quantity);
         var orderId = Guid.NewGuid();
