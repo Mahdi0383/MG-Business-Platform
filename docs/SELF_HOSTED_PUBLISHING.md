@@ -6,11 +6,12 @@ The desktop app can start the customer storefront, generate a Caddy reverse-prox
 
 1. Add products and verify the local storefront at `http://127.0.0.1:8080`.
 2. Enter the hostname (for example, `shop.example.com`) in Store Settings and enable online orders.
-3. At the domain registrar/DNS provider, configure an A record to the public IPv4 address of the store's internet connection; configure AAAA only if public IPv6 routing is actually available.
-4. Use the app's firewall action to add Windows Firewall inbound rules for TCP ports 80 and 443. This asks for Windows administrator consent.
-5. In the router, forward TCP 80 and 443 to the Windows computer's reserved LAN IP address. The exact steps differ by router and are not safely automatable for every router model.
-6. Select **Start public HTTPS hosting**. Caddy validates its config, listens on the public web ports, obtains/renews certificates automatically, and proxies requests to the loopback-only storefront.
-7. Use **Check HTTPS** and test the URL from a phone using mobile data, not only from the same Wi-Fi.
+3. Select **Diagnose domain and network**. The app reports the resolved A/AAAA records, the detected public IPv4 address, whether DNS matches that address, and whether local ports 80/443 are available.
+4. At the domain registrar/DNS provider, configure an A record to the public IPv4 address of the store's internet connection; configure AAAA only if public IPv6 routing is actually available. The app does not need your registrar password and does not silently modify DNS.
+5. Use the app's firewall action to add Windows Firewall inbound rules for TCP ports 80 and 443. This asks for Windows administrator consent.
+6. In the router, forward TCP 80 and 443 to the Windows computer's reserved LAN IP address. The exact steps differ by router and are not safely automatable for every router model.
+7. Select **Start public HTTPS hosting**. Caddy validates its config, listens on the public web ports, obtains/renews certificates automatically, and proxies requests to the loopback-only storefront.
+8. Use **Check HTTPS** and test the URL from a phone using mobile data, not only from the same Wi-Fi.
 
 ## Failure conditions
 
