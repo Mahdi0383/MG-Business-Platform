@@ -56,14 +56,14 @@ public sealed class GameSessionPersistenceTests
                 Id = sessionId, BranchId = Guid.NewGuid(), DeviceId = Guid.NewGuid(),
                 GameName = "Tekken 8", Status = "Paused", CurrencyCode = "IRR",
                 RatePerHour = 600000m, StartedAtUtc = startedAt, PausedAtUtc = pausedAt,
-                LastTransitionAtUtc = pausedAt, AccumulatedPauseTicks = 0, CreatedAtUtc = startedAt,
+                LastTransitionAtUtc = pausedAt, AccumulatedPauseTicks = 0,
                 Players =
                 [
                     new GameSessionPlayerRecord
                     {
                         Id = playerId, DisplayName = "Ali", EntryAmount = 50000m,
                         TimeCharge = 250000m, AdditionalAmount = 20000m,
-                        CurrencyCode = "IRR", CreatedAtUtc = startedAt
+                        CurrencyCode = "IRR"
                     }
                 ]
             });
