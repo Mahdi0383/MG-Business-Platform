@@ -6,11 +6,11 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 ## Current implementation
 
-- Windows WPF management UI with product creation/editing, inventory movement history, customer/supplier records, single-item POS, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
+- Windows WPF management UI with product creation/editing, inventory movement history, customer/supplier records, multi-line POS cart, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
 - Local SQLite persistence with versioned EF Core migrations, an inventory movement ledger, customers/suppliers, sales invoices, journal entries and payment records.
 - Consistent online SQLite backups, integrity checks and guarded restore with an automatic safety backup.
 - Customer-facing Persian RTL storefront, public product catalog, server-side price calculation, stock checks, order idempotency, request throttling, and basic security headers.
-- Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured; in-app diagnostics show DNS A/AAAA records, detected public IPv4 and local 80/443 port availability.
+- Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured; in-app diagnostics show DNS A/AAAA records, detected public IPv4 and local 80/443 port availability. Store settings can preview the customer HTTPS URL, generate a QR code and export it as PNG after the hostname and online ordering are configured.
 - Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
 - Initial profit-and-loss and balance-sheet summaries, trial balance, and accounting posting for single-item POS checkout.
 - Separate Persian RTL graphical License Manager and command-line tool, RSA-PSS signing/verification, device/software serial binding, expiry checks, desktop module gating and separate installer/ZIP artifacts. Server-side authorization across every protected operation still needs completion.
@@ -21,8 +21,8 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 - Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Router port forwarding is model-specific and currently requires the operator. CGNAT or blocked inbound ports requires a separate outbound tunnel/relay or public host; no universal tunnel is included.
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
-- The current POS supports single-item walk-in checkout with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Advanced carts/discounts, barcode workflows, purchase invoices/payables, refunds, cash-flow statements, tax policies, receipt printing, multi-branch operation, and full cafe/game-center workflows remain unfinished.
-- Latest main-branch Windows CI run for the game-session UI merge succeeded: Release build had zero compiler errors, all 132 automated tests passed, both installers compiled and required artifacts were verified. Always verify CI on the exact commit being released; this evidence does not imply the unfinished product scope or external network path has been fully accepted.
+- The current POS supports a multi-line walk-in cart with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Advanced discounts, barcode workflows, returns/refunds, purchase invoices/payables, cash-flow statements, tax policies, receipt printing, multi-branch operation, and full cafe/game-center workflows remain unfinished.
+- Latest verified main-branch Windows CI for commit a092659fcb142b655a6966dd83686c1e9bf7852d succeeded: Release build had zero compiler errors, all 146 automated tests passed, both Windows installers compiled, and required package artifacts were verified. This does not imply unfinished product scope, public internet reachability, physical hardware, or operator acceptance has been verified.
 
 ## Build and test on Windows
 
