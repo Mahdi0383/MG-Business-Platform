@@ -101,7 +101,7 @@ internal static class LicenseTool
 
         var privateKey = File.ReadAllText(args[1]);
         var expiryDate = DateOnly.ParseExact(args[6], "yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(23, 59, 59), DateTimeKind.Utc));
+        var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(TimeSpan.TicksPerDay - 1), DateTimeKind.Utc));
         var modules = args[7].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray();
         var maxBranches = args.Length >= 9 ? int.Parse(args[8], CultureInfo.InvariantCulture) : 1;
