@@ -38,9 +38,10 @@ public sealed class PublicHostingManager
             || hostname.Any(c => char.IsControl(c) || c is '{' or '}' or '"' or '\\'))
             return new(false, "دامنه معتبر نیست. فقط نام میزبان مانند shop.example.com وارد کنید.");
 
+        IPAddress[] addresses;
         try
         {
-            var addresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken);
+            addresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken);
             if (addresses.Length == 0)
                 return new(false, "برای دامنه هیچ رکورد DNS پیدا نشد.");
             if (addresses.Any(IsNonPublicAddress))
