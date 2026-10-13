@@ -923,6 +923,31 @@ public partial class MainWindow : Window
         StatusText.Text = $"«{product.Name}» به سبد اضافه شد.";
     }
 
+    private void RemovePosCartItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (PosCartGrid.SelectedItem is not PosCartLineDraft selected)
+        {
+            StatusText.Text = "برای حذف، یک ردیف از سبد را انتخاب کنید.";
+            return;
+        }
+        _posCartLines.Remove(selected);
+        UpdatePosCartTotal();
+    }
+
+    private void UpdatePosCartTotal()
+    {
+        try
+        {
+            var total = _posCartLines.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
+            var currency = _posCartLines.FirstOrDefault()?.CurrencyCode ?? CurrencyInput.Text.Trim();
+            PosCartTotalText.Text = $"مجموع سبد: {total:N2} {currency}";
+        }
+        catch (OverflowException)
+        {
+            PosCartTotalText.Text = "مجموع سبد خارج از محدوده مجاز است.";
+        }
+    }
+
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
         if (PosProductInput.SelectedItem is not StoreProduct product)
