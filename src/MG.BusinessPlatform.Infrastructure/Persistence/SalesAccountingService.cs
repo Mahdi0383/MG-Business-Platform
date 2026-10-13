@@ -131,6 +131,105 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         return invoice;
     }
 
+    public async Task<SalesInvoiceRecord> CreatePosSaleAsync(
+        IReadOnlyCollection<PosSaleLineRequest> requestedLines,
+        string customerName, string customerPhone, string paymentMethod,
+        string paymentReference, string paymentNotes, DateOnly saleDate,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestedLines);
+        if (requestedLines.Count is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(requestedLines), "A sale must contain 1-100 line requests.");
+        if (string.IsNullOrWhiteSpace(customerName) || customerName.Trim().Length > 160)
+            throw new ArgumentException("Customer name is required and must not exceed 160 characters.", nameof(customerName));
+        ArgumentNullException.ThrowIfNull(customerPhone);
+        ArgumentNullException.ThrowIfNull(paymentMethod);
+        ArgumentNullException.ThrowIfNull(paymentReference);
+        ArgumentNullException.ThrowIfNull(paymentNotes);
+        if (customerPhone.Length > 40 || paymentReference.Length > 100 || paymentNotes.Length > 500)
+            throw new ArgumentException("Customer phone, payment reference or notes exceed the allowed length.");
+
+        var quantities = new Dictionary<Guid, int>();
+        foreach (var line in requestedLines)
+        {
+            if (line.ProductId == Guid.Empty || line.Quantity is < 1 or > 10000)
+                throw new ArgumentException("Every line must have a valid product and quantity between 1 and 10000.", nameof(requestedLines));
+            quantities[line.ProductId] = checked(quantities.GetValueOrDefault(line.ProductId) + line.Quantity);
+            if (quantities[line.ProductId] > 10000)
+                throw new ArgumentException("Combined quantity for a product cannot exceed 10000.", nameof(requestedLines));
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var ids = quantities.Keys.ToArray();
+        var products = await db.StoreProducts.Where(x => ids.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (products.Count != ids.Length)
+            throw new KeyNotFoundException("One or more POS products were not found.");
+        var ordered = ids.Select(id => products[id]).OrderBy(x => x.Sku, StringComparer.Ordinal).ToArray();
+        var currency = ordered[0].CurrencyCode;
+        decimal total = 0m;
+        foreach (var product in ordered)
+        {
+            var quantity = quantities[product.Id];
+            if (!product.IsAvailable || product.StockQuantity < quantity)
+                throw new InvalidOperationException($"Product '{product.Name}' is unavailable or has insufficient stock.");
+            if (!string.Equals(product.CurrencyCode, currency, StringComparison.Ordinal))
+                throw new InvalidOperationException("A POS sale cannot mix currencies.");
+            if (product.UnitPrice < 0m || product.UnitCost < 0m)
+                throw new InvalidOperationException($"Product '{product.Name}' has a negative price or cost.");
+            total = checked(total + checked(product.UnitPrice * quantity));
+        }
+
+        var orderId = Guid.NewGuid();
+        var orderNumber = $"POS-{Guid.NewGuid():N}".ToUpperInvariant();
+        var now = DateTimeOffset.UtcNow;
+        var order = new CustomerOrder
+        {
+            Id = orderId, OrderNumber = orderNumber, IdempotencyKey = $"POS-{Guid.NewGuid():N}".ToUpperInvariant(),
+            CustomerName = customerName.Trim(), CustomerPhone = customerPhone.Trim(), DeliveryAddress = string.Empty,
+            Notes = "POS sale", Status = "Received", CurrencyCode = currency, TotalAmount = total, CreatedAt = now,
+            Lines = ordered.Select(product => new CustomerOrderLine
+            {
+                Id = Guid.NewGuid(), OrderId = orderId, ProductId = product.Id, ProductName = product.Name,
+                UnitPrice = product.UnitPrice, UnitCost = product.UnitCost, Quantity = quantities[product.Id],
+                LineTotal = checked(product.UnitPrice * quantities[product.Id])
+            }).ToList()
+        };
+
+        foreach (var product in ordered)
+        {
+            var quantity = quantities[product.Id];
+            var affected = await db.StoreProducts.Where(x => x.Id == product.Id && x.IsAvailable
+                    && x.StockQuantity >= quantity && x.UnitPrice == product.UnitPrice
+                    && x.UnitCost == product.UnitCost && x.CurrencyCode == product.CurrencyCode)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
+                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            if (affected != 1)
+                throw new InvalidOperationException($"Stock or price for '{product.Name}' changed during checkout.");
+            product.StockQuantity -= quantity;
+            product.UpdatedAt = now;
+            db.StockMovements.Add(new StockMovementRecord
+            {
+                Id = Guid.NewGuid(), ProductId = product.Id, OccurredAt = now, MovementType = "PosSaleIssue",
+                Quantity = quantity, SignedQuantity = -quantity, UnitCost = product.UnitCost,
+                CurrencyCode = product.CurrencyCode, Reference = orderNumber, Note = "POS sale stock issue"
+            });
+        }
+
+        db.CustomerOrders.Add(order);
+        await db.SaveChangesAsync(cancellationToken);
+        var invoice = await FulfillOrderCoreAsync(orderId, saleDate, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        if (invoice.TotalAmount > 0m)
+        {
+            await RecordPaymentCoreAsync(invoice.Id, invoice.TotalAmount, paymentMethod, paymentReference,
+                paymentNotes, DateTimeOffset.UtcNow, saleDate, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
+        return invoice;
+    }
+
     public async Task<PaymentRecord> RecordPaymentAsync(
         Guid invoiceId,
         decimal amount,
