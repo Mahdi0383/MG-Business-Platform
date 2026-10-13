@@ -8,6 +8,7 @@ $publishRoot = Join-Path $artifactRoot "publish"
 $desktopOutput = Join-Path $publishRoot "desktop"
 $storefrontOutput = Join-Path $desktopOutput "storefront"
 $licenseToolOutput = Join-Path $publishRoot "license-tool"
+$licenseManagerOutput = Join-Path $publishRoot "license-manager-gui"
 $zipPath = Join-Path $artifactRoot "MG-Business-Platform-win-x64.zip"
 $licenseToolZipPath = Join-Path $artifactRoot "MG-License-Manager-win-x64.zip"
 $mainSourceZipPath = Join-Path $artifactRoot "MG-Business-Platform-SOURCE.zip"
@@ -37,25 +38,28 @@ New-Item -ItemType Directory -Path $desktopOutput -Force | Out-Null
 
 Write-Host "== Publish Windows desktop ==" -ForegroundColor Cyan
 $desktopProject = Join-Path $repoRoot "src/MG.BusinessPlatform.Desktop/MG.BusinessPlatform.Desktop.csproj"
-dotnet publish $desktopProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $desktopOutput
+dotnet publish $desktopProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:UseAppHost=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $desktopOutput
 if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE." }
 
 Write-Host "== Publish customer storefront ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Path $storefrontOutput -Force | Out-Null
 $storefrontProject = Join-Path $repoRoot "src/MG.BusinessPlatform.Storefront/MG.BusinessPlatform.Storefront.csproj"
-dotnet publish $storefrontProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $storefrontOutput
+dotnet publish $storefrontProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:UseAppHost=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $storefrontOutput
 if ($LASTEXITCODE -ne 0) { throw "Storefront publish failed with exit code $LASTEXITCODE." }
 
 Write-Host "== Publish separate license manager ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Path $licenseToolOutput -Force | Out-Null
 $licenseToolProject = Join-Path $repoRoot "src/MG.BusinessPlatform.LicenseTool/MG.BusinessPlatform.LicenseTool.csproj"
-dotnet publish $licenseToolProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $licenseToolOutput
+dotnet publish $licenseToolProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:UseAppHost=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $licenseToolOutput
 if ($LASTEXITCODE -ne 0) { throw "License manager CLI publish failed with exit code $LASTEXITCODE." }
 
 Write-Host "== Publish graphical license manager ==" -ForegroundColor Cyan
 $licenseManagerProject = Join-Path $repoRoot "src/MG.BusinessPlatform.LicenseManager/MG.BusinessPlatform.LicenseManager.csproj"
-dotnet publish $licenseManagerProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $licenseToolOutput
+New-Item -ItemType Directory -Path $licenseManagerOutput -Force | Out-Null
+dotnet publish $licenseManagerProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:UseAppHost=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $licenseManagerOutput
 if ($LASTEXITCODE -ne 0) { throw "Graphical license manager publish failed with exit code $LASTEXITCODE." }
+if (-not (Test-Path (Join-Path $licenseManagerOutput "MG.BusinessPlatform.LicenseManager.exe"))) { throw "Graphical license manager publish did not produce MG.BusinessPlatform.LicenseManager.exe." }
+Copy-Item (Join-Path $licenseManagerOutput "*") $licenseToolOutput -Recurse -Force
 Copy-Item (Join-Path $repoRoot "docs/LICENSE_MANAGER.md") (Join-Path $licenseToolOutput "LICENSE_MANAGER.md") -Force
 
 if (-not (Test-Path (Join-Path $desktopOutput "MG.BusinessPlatform.Desktop.exe"))) {

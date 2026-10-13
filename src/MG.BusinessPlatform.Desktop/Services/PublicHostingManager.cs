@@ -70,7 +70,19 @@ public sealed class PublicHostingManager
 
         await TryAttachAsync(caddyPath, cancellationToken);
         if (_process is { HasExited: false })
-            return new(true, "سرویس انتشار عمومی از قبل در حال اجراست.");
+        {
+            var existingConfig = File.Exists(_configPath)
+                ? await File.ReadAllTextAsync(_configPath, cancellationToken)
+                : string.Empty;
+            if (existingConfig.Contains($"{Environment.NewLine}{hostname} {{", StringComparison.Ordinal))
+                return new(true, "سرویس انتشار HTTPS همین دامنه از قبل در حال اجراست.");
+
+            // Do not leave an old domain serving the storefront after the configured
+            // hostname changes. Stop the owned Caddy process before replacing its config.
+            var stopped = await StopAsync(cancellationToken);
+            if (!stopped.Success)
+                return new(false, $"سرویس قبلی Caddy متوقف نشد؛ دامنه قبلی همچنان پیکربندی شده است. {stopped.Message}");
+        }
         if (!IsTcpPortAvailable(80) || !IsTcpPortAvailable(443))
             return new(false, "درگاه 80 یا 443 توسط برنامه دیگری اشغال شده است. IIS یا سرویس وب دیگری را بررسی کنید.");
 
