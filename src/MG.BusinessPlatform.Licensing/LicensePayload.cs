@@ -48,6 +48,8 @@ public sealed record LicensePayload
             throw new ArgumentException("License contains an unsupported module.", nameof(Modules));
         if (Modules.Distinct(StringComparer.Ordinal).Count() != Modules.Length)
             throw new ArgumentException("License module entitlements cannot contain duplicates.", nameof(Modules));
+        if (!Modules.Contains("Core", StringComparer.Ordinal))
+            throw new ArgumentException("Every license must include the Core module.", nameof(Modules));
 
         return this with
         {
