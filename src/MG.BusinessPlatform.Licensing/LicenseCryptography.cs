@@ -23,6 +23,8 @@ public static class LicenseCryptography
             ?? throw new InvalidOperationException("The trusted license public key is not embedded in this build.");
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var pem = reader.ReadToEnd();
+        if (pem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            throw new CryptographicException("The embedded trust anchor must contain a public key only.");
         using var rsa = RSA.Create();
         rsa.ImportFromPem(pem);
         if (rsa.KeySize < 2048)
@@ -34,6 +36,9 @@ public static class LicenseCryptography
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(candidatePublicKeyPem);
         ArgumentException.ThrowIfNullOrWhiteSpace(trustedPublicKeyPem);
+        if (candidatePublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal)
+            || trustedPublicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
+            return false;
         using var candidate = RSA.Create();
         using var trusted = RSA.Create();
         candidate.ImportFromPem(candidatePublicKeyPem);

@@ -13,6 +13,16 @@ public sealed class LicenseCryptographyTests
         using var rsa = RSA.Create();
         rsa.ImportFromPem(publicKey);
         Assert.True(rsa.KeySize >= 2048);
+        Assert.DoesNotContain("PRIVATE KEY", publicKey, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PublicKeysMatch_RejectsPrivatePemEvenWhenItsPublicComponentMatches()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+
+        Assert.False(LicenseCryptography.PublicKeysMatch(keys.PrivateKeyPem, keys.PublicKeyPem));
+        Assert.True(LicenseCryptography.PublicKeysMatch(keys.PublicKeyPem, keys.PublicKeyPem));
     }
 
     [Fact]
