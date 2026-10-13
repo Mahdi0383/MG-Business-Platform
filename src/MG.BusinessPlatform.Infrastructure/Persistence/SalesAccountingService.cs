@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
+public sealed record PosSaleLineRequest(Guid ProductId, int Quantity);
+
 public sealed class SalesAccountingService(BusinessDbContext db)
 {
     public async Task<SalesInvoiceRecord> FulfillOrderAsync(
