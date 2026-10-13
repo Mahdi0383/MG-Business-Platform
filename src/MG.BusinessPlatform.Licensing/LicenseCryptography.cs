@@ -51,9 +51,19 @@ public static class LicenseCryptography
         using var publicKey = RSA.Create();
         privateKey.ImportFromPem(privateKeyPem);
         publicKey.ImportFromPem(expectedPublicKeyPem);
-        return privateKey.KeySize >= 2048 && publicKey.KeySize >= 2048
-            && CryptographicOperations.FixedTimeEquals(
-                privateKey.ExportSubjectPublicKeyInfo(), publicKey.ExportSubjectPublicKeyInfo());
+        // Ensure the selected PEM actually contains private signing material, not
+        // merely a public key with the same identity.
+        var privateMaterial = privateKey.ExportPkcs8PrivateKey();
+        try
+        {
+            return privateKey.KeySize >= 2048 && publicKey.KeySize >= 2048
+                && CryptographicOperations.FixedTimeEquals(
+                    privateKey.ExportSubjectPublicKeyInfo(), publicKey.ExportSubjectPublicKeyInfo());
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(privateMaterial);
+        }
     }
 
     public static (string PrivateKeyPem, string PublicKeyPem) GenerateKeyPair(int keySize = 3072)
