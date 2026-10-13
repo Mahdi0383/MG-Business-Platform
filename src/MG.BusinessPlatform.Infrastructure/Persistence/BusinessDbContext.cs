@@ -220,6 +220,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
     public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
     public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
+    public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
+    public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
