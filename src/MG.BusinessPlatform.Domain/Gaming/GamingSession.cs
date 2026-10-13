@@ -25,17 +25,20 @@ public sealed record GamingPlayer
         HourlyRate = hourlyRate;
     }
 
-    public Money CalculateTotal(TimeSpan elapsed, int billingIntervalMinutes, int minimumChargeMinutes)
+    public Money CalculateTotal(TimeSpan elapsed, int billingIntervalMinutes, int minimumChargeMinutes, decimal currencyQuantum = 0.01m)
     {
         if (elapsed < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(elapsed));
         if (billingIntervalMinutes is < 1 or > 1440) throw new ArgumentOutOfRangeException(nameof(billingIntervalMinutes));
         if (minimumChargeMinutes is < 0 or > 10080) throw new ArgumentOutOfRangeException(nameof(minimumChargeMinutes));
+        if (currencyQuantum <= 0m) throw new ArgumentOutOfRangeException(nameof(currencyQuantum));
 
         var actualMinutes = (decimal)elapsed.Ticks / TimeSpan.TicksPerMinute;
         var roundedMinutes = actualMinutes == 0m ? 0m
             : decimal.Ceiling(actualMinutes / billingIntervalMinutes) * billingIntervalMinutes;
         var billableMinutes = Math.Max(roundedMinutes, minimumChargeMinutes);
-        var usageCharge = HourlyRate.Multiply(billableMinutes / 60m);
+        var rawUsageAmount = checked(HourlyRate.Amount * billableMinutes / 60m);
+        var roundedUsageAmount = checked(decimal.Round(rawUsageAmount / currencyQuantum, 0, MidpointRounding.AwayFromZero) * currencyQuantum);
+        var usageCharge = new Money(roundedUsageAmount, HourlyRate.CurrencyCode);
         return EntryFee + usageCharge;
     }
 }
