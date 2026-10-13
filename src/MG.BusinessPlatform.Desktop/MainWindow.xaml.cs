@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
@@ -14,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Domain.Finance;
 using MG.BusinessPlatform.Domain.GameCafe;
+using MG.BusinessPlatform.Licensing;
 using MG.BusinessPlatform.Desktop.Services;
 
 namespace MG.BusinessPlatform.Desktop;
@@ -197,6 +199,116 @@ public partial class MainWindow : Window
         MG.BusinessPlatform.Licensing.LicenseValidationStatus.InvalidSignature => "امضای لایسنس نامعتبر است",
         _ => "لایسنس نامعتبر"
     };
+
+    private void ImportLicensePublicKey_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب کلید عمومی لایسنس",
+            Filter = "PEM public key (*.pem)|*.pem|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            var publicKey = File.ReadAllText(dialog.FileName);
+            if (!publicKey.Contains("-----BEGIN PUBLIC KEY-----", StringComparison.Ordinal)
+                || publicKey.Contains("PRIVATE KEY", StringComparison.Ordinal))
+                throw new ArgumentException("فقط کلید عمومی PEM را وارد کنید؛ فایل کلید خصوصی پذیرفته نمی‌شود.");
+
+            using (var rsa = RSA.Create())
+            {
+                rsa.ImportFromPem(publicKey);
+                if (rsa.KeySize < 2048)
+                {
+                    LicenseStatusText.Text = "کلید عمومی باید حداقل ۲۰۴۸ بیت باشد.";
+                    return;
+                }
+            }
+
+            var currentLicensePath = Path.Combine(_dataDirectory, "license.json");
+            if (File.Exists(currentLicensePath))
+            {
+                var info = _licenseService.LoadOrCreate(_dataDirectory);
+                var currentEnvelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(currentLicensePath));
+                var currentResult = LicenseCryptography.Verify(currentEnvelope, publicKey,
+                    info.SoftwareSerial, info.HardwareSerial, DateTimeOffset.UtcNow);
+                if (!currentResult.IsValid && !ConfirmationDialog.Confirm(this, "تغییر کلید عمومی",
+                    "کلید انتخابی با لایسنس فعلی مطابقت ندارد. پس از جایگزینی، لایسنس فعلی معتبر نخواهد بود تا لایسنس متناظر وارد شود. ادامه می‌دهید؟",
+                    "جایگزینی کلید"))
+                    return;
+            }
+
+            WriteFileAtomically(Path.Combine(_dataDirectory, "license-public-key.pem"), publicKey);
+            RefreshLicenseStatus();
+            StatusText.Text = "کلید عمومی وارد شد. کلید خصوصی هرگز به این برنامه وارد نکنید.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or CryptographicException or System.Text.Json.JsonException)
+        {
+            LicenseStatusText.Text = $"وارد کردن کلید عمومی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void ImportLicenseFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب لایسنس امضاشده",
+            Filter = "License JSON (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            var publicKeyPath = Path.Combine(_dataDirectory, "license-public-key.pem");
+            if (!File.Exists(publicKeyPath))
+            {
+                LicenseStatusText.Text = "ابتدا کلید عمومی مورد اعتماد را وارد کنید.";
+                return;
+            }
+
+            var info = _licenseService.LoadOrCreate(_dataDirectory);
+            var envelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(dialog.FileName));
+            var result = LicenseCryptography.Verify(envelope, File.ReadAllText(publicKeyPath),
+                info.SoftwareSerial, info.HardwareSerial, DateTimeOffset.UtcNow);
+            if (!result.IsValid)
+            {
+                LicenseStatusText.Text = $"لایسنس وارد نشد: {result.Message}";
+                return;
+            }
+
+            WriteFileAtomically(Path.Combine(_dataDirectory, "license.json"), File.ReadAllText(dialog.FileName));
+            RefreshLicenseStatus();
+            StatusText.Text = $"لایسنس معتبر برای {result.Payload!.CustomerName} وارد شد.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or CryptographicException or System.Text.Json.JsonException)
+        {
+            LicenseStatusText.Text = $"وارد کردن لایسنس ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private static void WriteFileAtomically(string destinationPath, string content)
+    {
+        var temporaryPath = destinationPath + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            File.WriteAllText(temporaryPath, content);
+            File.Move(temporaryPath, destinationPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
 
     private void CopySoftwareSerial_Click(object sender, RoutedEventArgs e)
     {
