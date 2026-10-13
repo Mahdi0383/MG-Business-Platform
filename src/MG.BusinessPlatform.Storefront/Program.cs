@@ -1,6 +1,7 @@
 using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.HttpOverrides;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,15 @@ Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
 builder.Services.AddDbContext<BusinessDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath};Cache=Shared;Default Timeout=15"));
 builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+    options.ForwardLimit = 1;
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -35,6 +45,9 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+// Trust forwarded client/host metadata only from the loopback Caddy proxy.
+// This keeps per-client rate limiting meaningful without trusting internet-supplied X-Forwarded-* headers.
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.Use(async (context, next) =>
 {
