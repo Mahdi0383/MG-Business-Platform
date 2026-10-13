@@ -52,7 +52,6 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             throw new InvalidOperationException($"Insufficient stock. Available quantity: {product.StockQuantity}.");
 
         var total = checked(product.UnitPrice * quantity);
-        var cost = checked(product.UnitCost * quantity);
         var orderId = Guid.NewGuid();
         var orderNumber = $"POS-{Guid.NewGuid():N}".ToUpperInvariant();
         var order = new CustomerOrder
