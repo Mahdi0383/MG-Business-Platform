@@ -62,6 +62,7 @@ public sealed class GameSession
     public DateTimeOffset? PausedAtUtc { get; private set; }
     public DateTimeOffset? EndedAtUtc { get; private set; }
     public TimeSpan AccumulatedPause { get; private set; }
+    public DateTimeOffset LastTransitionAtUtc { get; private set; }
     public GameSessionStatus Status { get; private set; } = GameSessionStatus.Active;
     public IReadOnlyList<GameSessionPlayer> Players => _players.AsReadOnly();
     public Money TotalPlayerCharges => _players.Aggregate(Money.Zero(RatePerHour.CurrencyCode),
@@ -83,6 +84,7 @@ public sealed class GameSession
         DeviceId = deviceId;
         GameName = gameName.Trim();
         StartedAtUtc = startedAtUtc.ToUniversalTime();
+        LastTransitionAtUtc = StartedAtUtc;
         RatePerHour = ratePerHour;
 
         if (players is not null)
@@ -97,6 +99,10 @@ public sealed class GameSession
         var utcNow = now.ToUniversalTime();
         if (utcNow < StartedAtUtc)
             throw new ArgumentOutOfRangeException(nameof(now), "The requested time cannot be before the session start.");
+        if (Status == GameSessionStatus.Active && utcNow < LastTransitionAtUtc)
+            throw new ArgumentOutOfRangeException(nameof(now), "The requested time cannot be before the last session transition.");
+        if (Status == GameSessionStatus.Paused && utcNow < PausedAtUtc)
+            throw new ArgumentOutOfRangeException(nameof(now), "The requested time cannot be before the current pause.");
 
         var end = EndedAtUtc ?? PausedAtUtc ?? utcNow;
         var elapsed = end - StartedAtUtc - AccumulatedPause;
@@ -136,22 +142,26 @@ public sealed class GameSession
     public void UpdatePlayerCharges(Guid playerId, Money entryAmount, Money timeCharge, Money additionalAmount)
     {
         EnsureStatus(GameSessionStatus.Active, "Player charges can only be changed while a session is active.");
+        if (entryAmount.CurrencyCode != RatePerHour.CurrencyCode
+            || timeCharge.CurrencyCode != RatePerHour.CurrencyCode
+            || additionalAmount.CurrencyCode != RatePerHour.CurrencyCode)
+            throw new InvalidOperationException("Player charges and session rate must use the same currency.");
+
         var index = _players.FindIndex(player => player.Id == playerId);
         if (index < 0)
             throw new KeyNotFoundException($"Player {playerId} is not part of this session.");
 
         _players[index] = _players[index].WithCharges(entryAmount, timeCharge, additionalAmount);
-        if (_players[index].FinalAmount.CurrencyCode != RatePerHour.CurrencyCode)
-            throw new InvalidOperationException("Player charges and session rate must use the same currency.");
     }
 
     public void Pause(DateTimeOffset at)
     {
         EnsureStatus(GameSessionStatus.Active, "Only an active session can be paused.");
         var utc = at.ToUniversalTime();
-        if (utc < StartedAtUtc)
-            throw new ArgumentOutOfRangeException(nameof(at), "Pause time cannot be before session start.");
+        if (utc < LastTransitionAtUtc)
+            throw new ArgumentOutOfRangeException(nameof(at), "Pause time cannot be before the last session transition.");
         PausedAtUtc = utc;
+        LastTransitionAtUtc = utc;
         Status = GameSessionStatus.Paused;
     }
 
@@ -163,6 +173,7 @@ public sealed class GameSession
             throw new ArgumentOutOfRangeException(nameof(at), "Resume time cannot be before pause time.");
         AccumulatedPause = AccumulatedPause.Add(utc - PausedAtUtc!.Value);
         PausedAtUtc = null;
+        LastTransitionAtUtc = utc;
         Status = GameSessionStatus.Active;
     }
 
@@ -172,9 +183,8 @@ public sealed class GameSession
             throw new InvalidOperationException("Only an active or paused session can be completed.");
 
         var utc = at.ToUniversalTime();
-        var earliest = PausedAtUtc ?? StartedAtUtc;
-        if (utc < earliest)
-            throw new ArgumentOutOfRangeException(nameof(at), "Completion time cannot be before the current session state.");
+        if (utc < LastTransitionAtUtc)
+            throw new ArgumentOutOfRangeException(nameof(at), "Completion time cannot be before the last session transition.");
 
         if (PausedAtUtc is not null)
         {
@@ -183,6 +193,7 @@ public sealed class GameSession
         }
 
         EndedAtUtc = utc;
+        LastTransitionAtUtc = utc;
         Status = GameSessionStatus.Completed;
     }
 
@@ -192,9 +203,8 @@ public sealed class GameSession
             throw new InvalidOperationException("Only an active or paused session can be cancelled.");
 
         var utc = at.ToUniversalTime();
-        var earliest = PausedAtUtc ?? StartedAtUtc;
-        if (utc < earliest)
-            throw new ArgumentOutOfRangeException(nameof(at), "Cancellation time cannot be before the current session state.");
+        if (utc < LastTransitionAtUtc)
+            throw new ArgumentOutOfRangeException(nameof(at), "Cancellation time cannot be before the last session transition.");
 
         if (PausedAtUtc is not null)
         {
@@ -203,6 +213,7 @@ public sealed class GameSession
         }
 
         EndedAtUtc = utc;
+        LastTransitionAtUtc = utc;
         Status = GameSessionStatus.Cancelled;
     }
 
