@@ -363,6 +363,19 @@ public partial class MainWindow : Window
                 }
                 product.StockQuantity = checked(product.StockQuantity + line.Quantity);
                 product.UpdatedAt = DateTimeOffset.UtcNow;
+                db.StockMovements.Add(new StockMovementRecord
+                {
+                    Id = Guid.NewGuid(),
+                    ProductId = product.Id,
+                    OccurredAt = DateTimeOffset.UtcNow,
+                    MovementType = "WebOrderCancellation",
+                    Quantity = line.Quantity,
+                    SignedQuantity = line.Quantity,
+                    UnitCost = line.UnitCost,
+                    CurrencyCode = order.CurrencyCode,
+                    Reference = order.OrderNumber,
+                    Note = "Stock restored after order cancellation"
+                });
             }
 
             order.Status = "Cancelled";
