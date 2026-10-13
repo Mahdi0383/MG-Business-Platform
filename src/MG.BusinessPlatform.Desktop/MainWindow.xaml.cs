@@ -87,8 +87,9 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            ProductsGrid.ItemsSource = await db.StoreProducts.AsNoTracking()
-                .OrderBy(x => x.Name).ToListAsync();
+            var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+            ProductsGrid.ItemsSource = products;
+            PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
             CustomersGrid.ItemsSource = await db.Customers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
             SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
@@ -109,11 +110,13 @@ public partial class MainWindow : Window
                     movement.Reference,
                     movement.Note
                 }).Take(500).ToListAsync();
-            InvoicesGrid.ItemsSource = await db.SalesInvoices.AsNoTracking()
+            var invoiceRows = await db.SalesInvoices.AsNoTracking()
                 .OrderByDescending(x => x.IssueDate).ThenByDescending(x => x.CreatedAt).Take(500)
                 .Select(x => new InvoiceListItem(x.Id, x.InvoiceNumber, x.CustomerName, x.CustomerPhone,
                     x.IssueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
                 .ToListAsync();
+            InvoicesGrid.ItemsSource = invoiceRows;
+            PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
             OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
@@ -344,6 +347,65 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"اصلاح موجودی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void PosProductInput_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (PosProductInput.SelectedItem is StoreProduct product)
+            PosProductInfoText.Text = $"قیمت: {product.UnitPrice:N2} {product.CurrencyCode} | موجودی: {product.StockQuantity}";
+        else
+            PosProductInfoText.Text = "کالا و تعداد را انتخاب کنید.";
+    }
+
+    private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
+    {
+        if (PosProductInput.SelectedItem is not StoreProduct product)
+        {
+            StatusText.Text = "ابتدا کالای فروش حضوری را انتخاب کنید.";
+            return;
+        }
+        var rawQuantity = PosQuantityInput.Text.Trim();
+        if ((!int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
+            && !int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
+            || quantity < 1 || quantity > 10000)
+        {
+            StatusText.Text = "تعداد باید عدد صحیح بین ۱ تا ۱۰۰۰۰ باشد.";
+            return;
+        }
+        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string method)
+        {
+            StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
+            return;
+        }
+
+        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text)
+            ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
+        var customerPhone = PosCustomerPhoneInput.Text.Trim();
+        if (customerName.Length > 160 || customerPhone.Length > 40)
+        {
+            StatusText.Text = "طول نام مشتری یا شماره تماس بیش از حد مجاز است.";
+            return;
+        }
+
+        if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
+            $"فروش {quantity} عدد از «{product.Name}» با مبلغ {product.UnitPrice * quantity:N2} {product.CurrencyCode} ثبت می‌شود. موجودی کم، فاکتور صادر و دریافت وجه در حسابداری ثبت خواهد شد.",
+            "ثبت فروش"))
+            return;
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var accounting = new SalesAccountingService(db);
+            var invoice = await accounting.CreatePosSaleAsync(product.Id, quantity, customerName, customerPhone,
+                method, string.Empty, "POS checkout", DateOnly.FromDateTime(DateTime.Today));
+            StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+            await RefreshAsync();
+            await RefreshTrialBalanceAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
         }
     }
 
