@@ -97,6 +97,7 @@
                                 <Button Content="راه‌اندازی انتشار HTTPS عمومی" Click="StartPublicHosting_Click"/>
                                 <Button Content="بررسی دسترسی HTTPS" Click="CheckPublicHosting_Click"/>
                                 <Button Content="توقف انتشار عمومی" Click="StopPublicHosting_Click"/>
+                                <Button Content="تنظیم فایروال ویندوز" Click="ConfigureFirewall_Click"/>
                             </StackPanel>
                             <TextBlock x:Name="PublicHostingStatusText" Text="انتشار عمومی راه‌اندازی نشده است." TextWrapping="Wrap" Margin="4,8" Foreground="#334155"/>
                             <TextBlock Text="برای HTTPS عمومی، دامنه باید به IP عمومی این رایانه/روتر اشاره کند و TCP 80 و 443 باید از اینترنت به این رایانه هدایت شوند. Caddy گواهی معتبر را خودکار دریافت و تمدید می‌کند؛ شبکه‌های CGNAT یا محدودکننده ممکن است به تونل خروجی نیاز داشته باشند." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
