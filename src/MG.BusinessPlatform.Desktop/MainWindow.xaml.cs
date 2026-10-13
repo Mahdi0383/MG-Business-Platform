@@ -396,8 +396,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        decimal estimatedTotal;
+        try { estimatedTotal = checked(product.UnitPrice * quantity); }
+        catch (OverflowException)
+        {
+            StatusText.Text = "مبلغ فروش خارج از محدوده قابل پشتیبانی است.";
+            return;
+        }
+
         if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
-            $"فروش {quantity} عدد از «{product.Name}» با مبلغ {product.UnitPrice * quantity:N2} {product.CurrencyCode} ثبت می‌شود. موجودی کم، فاکتور صادر و دریافت وجه در حسابداری ثبت خواهد شد.",
+            $"فروش {quantity} عدد از «{product.Name}» با مبلغ {estimatedTotal:N2} {product.CurrencyCode} ثبت می‌شود. موجودی کم، فاکتور صادر و دریافت وجه در حسابداری ثبت خواهد شد.",
             "ثبت فروش"))
             return;
 
