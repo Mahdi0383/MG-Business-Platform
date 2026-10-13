@@ -55,6 +55,7 @@ Write-Host "== Package Caddy HTTPS reverse proxy ==" -ForegroundColor Cyan
 $caddyDirectory = Join-Path $desktopOutput "caddy"
 New-Item -ItemType Directory -Path $caddyDirectory -Force | Out-Null
 $caddyPath = Join-Path $caddyDirectory "caddy.exe"
+Copy-Item (Join-Path $repoRoot "LICENSES/Caddy-Apache-2.0.txt") (Join-Path $caddyDirectory "LICENSE.txt") -Force
 $caddyUri = "https://caddyserver.com/api/download?os=windows&arch=amd64"
 Invoke-WebRequest -Uri $caddyUri -OutFile $caddyPath -UseBasicParsing
 if (-not (Test-Path $caddyPath) -or (Get-Item $caddyPath).Length -lt 1MB) {
