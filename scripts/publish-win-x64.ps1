@@ -53,7 +53,7 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path (Join-Path $desktopOutput "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
 $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash
-Set-Content -Path "$zipPath.sha256" -Value "$sha  $(Split-Path $zipPath -Leaf)" -Encoding ASCII
+Set-Content -Path "${zipPath}.sha256" -Value "$sha  $(Split-Path $zipPath -Leaf)" -Encoding ASCII
 
 Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Green
 Write-Host "Package: $zipPath"
