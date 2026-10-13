@@ -94,6 +94,37 @@ public sealed class GameSession
         }
     }
 
+    public static GameSession Restore(Guid id, Guid branchId, Guid deviceId, string gameName,
+        DateTimeOffset startedAtUtc, Money ratePerHour, IEnumerable<GameSessionPlayer> players,
+        GameSessionStatus status, DateTimeOffset? pausedAtUtc, DateTimeOffset? endedAtUtc,
+        TimeSpan accumulatedPause, DateTimeOffset lastTransitionAtUtc)
+    {
+        if (!Enum.IsDefined(status))
+            throw new ArgumentOutOfRangeException(nameof(status), "Unknown session status.");
+        if (accumulatedPause < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(accumulatedPause), "Accumulated pause cannot be negative.");
+
+        var start = startedAtUtc.ToUniversalTime();
+        var lastTransition = lastTransitionAtUtc.ToUniversalTime();
+        var paused = pausedAtUtc?.ToUniversalTime();
+        var ended = endedAtUtc?.ToUniversalTime();
+        if (lastTransition < start || (paused is not null && (paused < start || paused != lastTransition))
+            || (ended is not null && ended < start))
+            throw new ArgumentException("Persisted session timestamps are inconsistent.");
+        if ((status == GameSessionStatus.Active && (paused is not null || ended is not null))
+            || (status == GameSessionStatus.Paused && (paused is null || ended is not null))
+            || (status is GameSessionStatus.Completed or GameSessionStatus.Cancelled && (paused is not null || ended is null)))
+            throw new ArgumentException("Persisted session state does not match its timestamps.");
+
+        var session = new GameSession(id, branchId, deviceId, gameName, start, ratePerHour, players);
+        session.Status = status;
+        session.PausedAtUtc = paused;
+        session.EndedAtUtc = ended;
+        session.AccumulatedPause = accumulatedPause;
+        session.LastTransitionAtUtc = lastTransition;
+        return session;
+    }
+
     public TimeSpan ElapsedAt(DateTimeOffset now)
     {
         var utcNow = now.ToUniversalTime();
