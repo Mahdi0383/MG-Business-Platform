@@ -287,8 +287,12 @@
                                 <TextBox x:Name="HardwareSerialText" IsReadOnly="True" Width="390"/>
                                 <Button Content="کپی" Click="CopyHardwareSerial_Click"/>
                             </StackPanel>
-                            <Button Content="بررسی مجدد لایسنس" HorizontalAlignment="Right" Click="RefreshLicenseStatus_Click"/>
-                            <TextBlock Text="برای فعال‌سازی آفلاین، کلید عمومی license-public-key.pem و فایل امضاشده license.json را در پوشه داده برنامه قرار دهید. کلید خصوصی صدور لایسنس را هرگز در رایانه مشتری یا داخل برنامه قرار ندهید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,8,4,12"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button Content="وارد کردن کلید عمومی" Click="ImportLicensePublicKey_Click"/>
+                                <Button Content="وارد کردن فایل لایسنس" Click="ImportLicenseFile_Click"/>
+                                <Button Content="بررسی مجدد لایسنس" Click="RefreshLicenseStatus_Click"/>
+                            </StackPanel>
+                            <TextBlock Text="برای فعال‌سازی آفلاین، کلید عمومی و فایل لایسنس امضاشده را با دکمه‌های بالا وارد کنید. کلید خصوصی صدور لایسنس را هرگز در رایانه مشتری یا داخل برنامه قرار ندهید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,8,4,12"/>
                             <TextBlock Text="نام فروشگاه"/>
                             <TextBox x:Name="StoreNameInput"/>
                             <TextBlock Text="واحد پول (کد سه‌حرفی، مانند IRR یا USD)"/>
