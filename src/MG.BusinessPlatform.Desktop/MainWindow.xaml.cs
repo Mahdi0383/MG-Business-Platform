@@ -749,6 +749,7 @@ public partial class MainWindow : Window
             await transaction.CommitAsync();
             StatusText.Text = $"تحویل ثبت شد؛ فاکتور {invoiceNumber} و اسناد حسابداری صادر شدند. دریافت وجه هنوز ثبت نشده است.";
             await RefreshAsync();
+            await RefreshTrialBalanceAsync();
         }
         catch (Exception ex)
         {
