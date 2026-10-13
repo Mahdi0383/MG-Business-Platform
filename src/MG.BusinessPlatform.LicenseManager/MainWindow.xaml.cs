@@ -54,13 +54,20 @@ public partial class MainWindow : Window
 
         try
         {
+            if (File.Exists(privateDialog.FileName) || File.Exists(publicDialog.FileName))
+                throw new IOException("برای جلوگیری از جایگزینی تصادفی کلیدهای قبلی، مسیرهای جدید انتخاب کنید.");
+
             var keys = LicenseCryptography.GenerateKeyPair(3072);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(privateDialog.FileName))!);
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(publicDialog.FileName))!);
-            File.WriteAllText(privateDialog.FileName, keys.PrivateKeyPem);
+            using (var stream = new FileStream(privateDialog.FileName, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+                writer.Write(keys.PrivateKeyPem);
             try
             {
-                File.WriteAllText(publicDialog.FileName, keys.PublicKeyPem);
+                using var stream = new FileStream(publicDialog.FileName, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                using var writer = new StreamWriter(stream);
+                writer.Write(keys.PublicKeyPem);
             }
             catch
             {
@@ -110,7 +117,7 @@ public partial class MainWindow : Window
             var softwareSerial = RequireText(SoftwareSerialInput.Text, "سریال نرم‌افزار");
             var hardwareSerial = RequireText(HardwareSerialInput.Text, "سریال سخت‌افزار");
             var customerName = RequireText(CustomerNameInput.Text, "نام مشتری");
-            var outputPath = RequirePath(LicenseOutputPathInput.Text, "مسیر خروجی لایسنس");
+            var outputPath = Path.GetFullPath(RequireText(LicenseOutputPathInput.Text, "مسیر خروجی لایسنس"));
             var expiryDate = DateOnly.ParseExact(ExpiryDateInput.Text.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
             if (!int.TryParse(MaxBranchesInput.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var maxBranches))
                 throw new ArgumentException("تعداد شعبه باید عدد صحیح مثبت باشد.");
@@ -136,7 +143,9 @@ public partial class MainWindow : Window
 
             var envelope = LicenseCryptography.Sign(payload, File.ReadAllText(privateKeyPath));
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            File.WriteAllText(outputPath, LicenseCryptography.SerializeEnvelope(envelope));
+            using (var stream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+                writer.Write(LicenseCryptography.SerializeEnvelope(envelope));
             LicenseToVerifyPathInput.Text = outputPath;
             SetStatus($"لایسنس صادر شد. شناسه: {payload.LicenseId}\nمشتری: {payload.CustomerName}\nانقضا (UTC): {payload.ExpiresAtUtc:yyyy-MM-dd}\nماژول‌ها: {string.Join(", ", payload.Modules)}", true);
         }
