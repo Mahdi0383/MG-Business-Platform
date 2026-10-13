@@ -7,7 +7,9 @@ $artifactRoot = Join-Path $repoRoot "artifacts"
 $publishRoot = Join-Path $artifactRoot "publish"
 $desktopOutput = Join-Path $publishRoot "desktop"
 $storefrontOutput = Join-Path $desktopOutput "storefront"
+$licenseToolOutput = Join-Path $publishRoot "license-tool"
 $zipPath = Join-Path $artifactRoot "MG-Business-Platform-win-x64.zip"
+$licenseToolZipPath = Join-Path $artifactRoot "MG-License-Manager-win-x64.zip"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET SDK 10 is required. Install the .NET 10 SDK and rerun this script."
@@ -42,11 +44,20 @@ $storefrontProject = Join-Path $repoRoot "src/MG.BusinessPlatform.Storefront/MG.
 dotnet publish $storefrontProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $storefrontOutput
 if ($LASTEXITCODE -ne 0) { throw "Storefront publish failed with exit code $LASTEXITCODE." }
 
+Write-Host "== Publish separate license manager ==" -ForegroundColor Cyan
+New-Item -ItemType Directory -Path $licenseToolOutput -Force | Out-Null
+$licenseToolProject = Join-Path $repoRoot "src/MG.BusinessPlatform.LicenseTool/MG.BusinessPlatform.LicenseTool.csproj"
+dotnet publish $licenseToolProject --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o $licenseToolOutput
+if ($LASTEXITCODE -ne 0) { throw "License manager publish failed with exit code $LASTEXITCODE." }
+
 if (-not (Test-Path (Join-Path $desktopOutput "MG.BusinessPlatform.Desktop.exe"))) {
     throw "Desktop executable was not produced."
 }
 if (-not (Test-Path (Join-Path $storefrontOutput "MG.BusinessPlatform.Storefront.exe"))) {
     throw "Storefront executable was not produced."
+}
+if (-not (Test-Path (Join-Path $licenseToolOutput "MG.BusinessPlatform.LicenseTool.exe"))) {
+    throw "Separate license manager executable was not produced."
 }
 
 Copy-Item (Join-Path $PSScriptRoot "configure-firewall.ps1") (Join-Path $desktopOutput "configure-firewall.ps1") -Force
@@ -72,9 +83,16 @@ Compress-Archive -Path (Join-Path $desktopOutput "*") -DestinationPath $zipPath 
 $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash
 Set-Content -Path "${zipPath}.sha256" -Value "$sha  $(Split-Path $zipPath -Leaf)" -Encoding ASCII
 
+if (Test-Path $licenseToolZipPath) { Remove-Item $licenseToolZipPath -Force }
+Compress-Archive -Path (Join-Path $licenseToolOutput "*") -DestinationPath $licenseToolZipPath -CompressionLevel Optimal
+$licenseToolSha = (Get-FileHash $licenseToolZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${licenseToolZipPath}.sha256" -Value "$licenseToolSha  $(Split-Path $licenseToolZipPath -Leaf)" -Encoding ASCII
+
 Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Green
 Write-Host "Package: $zipPath"
 Write-Host "SHA-256: $sha"
+Write-Host "License manager package: $licenseToolZipPath"
+Write-Host "License manager SHA-256: $licenseToolSha"
 
 $isccCandidates = @(
     (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
@@ -85,8 +103,11 @@ if ($isccCandidates.Count -gt 0) {
     $iscc = $isccCandidates[0]
     $installerScript = Join-Path $repoRoot "installer/MG-Business-Platform.iss"
     & $iscc $installerScript
-    if ($LASTEXITCODE -ne 0) { throw "Inno Setup packaging failed with exit code $LASTEXITCODE." }
-    Write-Host "Installer packaging completed." -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) { throw "Main application installer packaging failed with exit code $LASTEXITCODE." }
+    $licenseInstallerScript = Join-Path $repoRoot "installer/MG-License-Manager.iss"
+    & $iscc $licenseInstallerScript
+    if ($LASTEXITCODE -ne 0) { throw "License manager installer packaging failed with exit code $LASTEXITCODE." }
+    Write-Host "Main application and separate license manager installers completed." -ForegroundColor Green
 } else {
     Write-Warning "Inno Setup is not installed. ZIP package is ready; installer EXE was not produced."
 }
