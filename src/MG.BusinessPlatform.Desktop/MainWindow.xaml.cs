@@ -188,6 +188,12 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            if (!string.Equals(settings.CurrencyCode, currency, StringComparison.Ordinal)
+                && await db.StoreProducts.AnyAsync())
+            {
+                StatusText.Text = "تغییر واحد پول پس از ثبت کالا مجاز نیست؛ ابتدا باید تبدیل و بازبینی قیمت‌ها انجام شود.";
+                return;
+            }
             settings.StoreName = storeName;
             settings.CurrencyCode = currency;
             settings.PublicHostname = hostname;
