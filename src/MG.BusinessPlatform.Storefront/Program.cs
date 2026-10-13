@@ -104,7 +104,7 @@ app.MapGet("/api/storefront/products", async (BusinessDbContext db, Cancellation
 
 app.MapPost("/api/storefront/orders", async (
     HttpContext context,
-    CreateOrderRequest request,
+    CreateOrderRequest? request,
     BusinessDbContext db,
     IConfiguration config,
     CancellationToken ct) =>
@@ -112,6 +112,11 @@ app.MapPost("/api/storefront/orders", async (
     var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
     if (!storeSettings.OnlineOrderingEnabled)
         return Results.Problem("Online ordering is not enabled by the store.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (request is null)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["Request"] = ["A valid order request is required."]
+        });
 
     var key = context.Request.Headers["Idempotency-Key"].ToString().Trim();
     if (key.Length is < 16 or > 100 || key.Any(char.IsControl))
@@ -222,8 +227,9 @@ app.MapPost("/api/storefront/orders", async (
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
-        return Results.Created($"/api/storefront/orders/{order.Id}",
-            new OrderCreatedResponse(order.Id, order.OrderNumber, order.TotalAmount, order.CurrencyCode, order.Status));
+        return Results.Json(
+            new OrderCreatedResponse(order.Id, order.OrderNumber, order.TotalAmount, order.CurrencyCode, order.Status),
+            statusCode: StatusCodes.Status201Created);
     }
     catch (DbUpdateException ex)
     {
@@ -273,12 +279,12 @@ internal static class StorefrontHtml
 <main class="wrap"><section class="panel"><h2>محصولات</h2><div id="products" class="grid"><p>در حال دریافت محصولات…</p></div></section>
 <section class="panel"><h2>سبد سفارش</h2><div id="cart"><p class="muted">هنوز محصولی انتخاب نکرده‌اید.</p></div><form id="order"><h3>اطلاعات مشتری</h3><input name="CustomerName" placeholder="نام و نام خانوادگی" maxlength="160" required><input name="CustomerPhone" placeholder="شماره تماس" maxlength="40" required><textarea name="DeliveryAddress" placeholder="نشانی تحویل" maxlength="1000" rows="2"></textarea><textarea name="Notes" placeholder="توضیحات (اختیاری)" maxlength="1000" rows="2"></textarea><button id="submit" type="submit" disabled>ثبت سفارش</button></form><div id="status" class="status" role="status" aria-live="polite">در حال بررسی فروشگاه…</div></section></main>
 <script>
-const $=s=>document.querySelector(s);const cart=new Map();let products=[];let info={CurrencyCode:"IRR",OnlineOrderingEnabled:false};
+const $=s=>document.querySelector(s);const cart=new Map();let products=[];let info={CurrencyCode:"IRR",OnlineOrderingEnabled:false};let pendingKey=null;let pendingOrder=null;
 const fmt=(n,c)=>new Intl.NumberFormat("fa-IR",{maximumFractionDigits:2}).format(n)+" "+c;
 function renderCart(){const root=$("#cart");root.replaceChildren();let total=0;for(const [id,q] of cart){const p=products.find(x=>x.id===id);if(!p)continue;total+=p.price*q;const row=document.createElement("div");row.className="cartline";const label=document.createElement("span");label.textContent=p.name+" × "+q;const price=document.createElement("strong");price.textContent=fmt(p.price*q,p.currencyCode);row.append(label,price);root.append(row)}if(cart.size===0){const empty=document.createElement("p");empty.className="muted";empty.textContent="هنوز محصولی انتخاب نکرده‌اید.";root.append(empty)}const t=document.createElement("p");t.innerHTML="<strong>مجموع: </strong>";const v=document.createElement("span");v.textContent=fmt(total,info.CurrencyCode);t.append(v);root.append(t);$("#submit").disabled=cart.size===0||!info.OnlineOrderingEnabled}
 function renderProducts(){const root=$("#products");root.replaceChildren();for(const p of products){const card=document.createElement("article");card.className="item";const h=document.createElement("h3");h.textContent=p.name;const d=document.createElement("p");d.className="muted";d.textContent=p.description||" ";const price=document.createElement("div");price.className="price";price.textContent=fmt(p.price,p.currencyCode);const row=document.createElement("div");row.className="row";const qty=document.createElement("input");qty.className="qty";qty.type="number";qty.min="1";qty.max="99";qty.value="1";qty.setAttribute("aria-label","تعداد "+p.name);const b=document.createElement("button");b.type="button";b.textContent=p.inStock?"افزودن":"ناموجود";b.disabled=!p.inStock;b.addEventListener("click",()=>{const q=Math.max(1,Math.min(99,Number.parseInt(qty.value,10)||1));cart.set(p.id,Math.min(99,(cart.get(p.id)||0)+q));renderCart()});row.append(qty,b);card.append(h,d,price,row);root.append(card)}if(!products.length)root.textContent="فعلاً محصولی برای نمایش وجود ندارد."}
 async function init(){try{const [i,p]=await Promise.all([fetch("/api/storefront"),fetch("/api/storefront/products")]);if(!i.ok||!p.ok)throw Error("دریافت اطلاعات فروشگاه ناموفق بود.");info=await i.json();products=await p.json();$("#store").textContent=info.storeName;renderProducts();renderCart();$("#status").textContent=info.onlineOrderingEnabled?"فروشگاه آماده دریافت سفارش است.":"ثبت آنلاین سفارش هنوز توسط فروشگاه فعال نشده است."}catch(e){$("#status").textContent=e.message;$("#products").textContent="دریافت محصولات ناموفق بود."}}
-$("#order").addEventListener("submit",async e=>{e.preventDefault();if(!cart.size||!info.OnlineOrderingEnabled)return;const form=new FormData(e.currentTarget);const body={customerName:form.get("CustomerName"),customerPhone:form.get("CustomerPhone"),deliveryAddress:form.get("DeliveryAddress"),notes:form.get("Notes"),items:[...cart].map(([productId,quantity])=>({productId,quantity}))};const key=crypto.randomUUID()+crypto.randomUUID();$("#submit").disabled=true;$("#status").textContent="در حال ثبت سفارش…";try{const r=await fetch("/api/storefront/orders",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":key},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error||data.title||"ثبت سفارش ناموفق بود.");cart.clear();renderCart();e.currentTarget.reset();$("#status").textContent="سفارش با موفقیت ثبت شد. شماره سفارش: "+data.orderNumber+" — مبلغ: "+fmt(data.total,data.currencyCode)}catch(err){$("#status").textContent=err.message}finally{renderCart()}});
+$("#order").addEventListener("submit",async e=>{e.preventDefault();if(!cart.size||!info.OnlineOrderingEnabled)return;const form=new FormData(e.currentTarget);if(!pendingOrder){pendingOrder={customerName:form.get("CustomerName"),customerPhone:form.get("CustomerPhone"),deliveryAddress:form.get("DeliveryAddress"),notes:form.get("Notes"),items:[...cart].map(([productId,quantity])=>({productId,quantity}))};pendingKey=crypto.randomUUID()+crypto.randomUUID()}const body=pendingOrder;const key=pendingKey;$("#submit").disabled=true;$("#status").textContent="در حال ثبت سفارش…";try{const r=await fetch("/api/storefront/orders",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":key},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.error||data.title||"ثبت سفارش ناموفق بود.");cart.clear();pendingOrder=null;pendingKey=null;renderCart();e.currentTarget.reset();$("#status").textContent="سفارش با موفقیت ثبت شد. شماره سفارش: "+data.orderNumber+" — مبلغ: "+fmt(data.total,data.currencyCode)}catch(err){$("#status").textContent=err.message}finally{renderCart()}});
 init();
 </script>
 </body></html>
