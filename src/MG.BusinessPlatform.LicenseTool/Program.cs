@@ -101,6 +101,10 @@ internal static class LicenseTool
             throw new ArgumentException("Usage: issue <private-key.pem> <output.json> <software-serial> <hardware-serial> <customer-name> <expiry-yyyy-MM-dd> <modules-csv> [max-branches] [max-users]");
 
         var privateKey = File.ReadAllText(args[1]);
+        var trustedPublicKey = LicenseCryptography.GetTrustedPublicKeyPem();
+        if (!LicenseCryptography.PrivateKeyMatchesPublicKey(privateKey, trustedPublicKey))
+            throw new CryptographicException("The supplied private key does not match this release's embedded production trust anchor.");
+
         var expiryDate = DateOnly.ParseExact(args[6], "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(TimeSpan.TicksPerDay - 1), DateTimeKind.Utc));
         var modules = args[7].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
