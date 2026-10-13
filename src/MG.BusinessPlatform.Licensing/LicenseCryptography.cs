@@ -60,11 +60,11 @@ public static class LicenseCryptography
             return new(LicenseValidationStatus.InvalidFormat, "License document is missing.");
         if (string.IsNullOrWhiteSpace(publicKeyPem))
             return new(LicenseValidationStatus.MissingPublicKey, "Trusted license public key is not configured.");
+        if (envelope.Payload is null || string.IsNullOrWhiteSpace(envelope.SignatureBase64))
+            return new(LicenseValidationStatus.InvalidFormat, "License document must contain a payload and signature.");
         if (!publicKeyPem.Contains("-----BEGIN PUBLIC KEY-----", StringComparison.Ordinal)
             || publicKeyPem.Contains("PRIVATE KEY", StringComparison.Ordinal))
             return new(LicenseValidationStatus.InvalidSignature, "Verification requires a public-key PEM; private keys are never accepted by the application.");
-        if (envelope.Payload is null || string.IsNullOrWhiteSpace(envelope.SignatureBase64))
-            return new(LicenseValidationStatus.InvalidFormat, "License document must contain a payload and signature.");
 
         var payload = envelope.Payload;
         byte[] signature;
