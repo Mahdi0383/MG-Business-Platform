@@ -63,9 +63,9 @@ public sealed class PublicHostingManager
 
         var dnsIpv4 = addresses.Where(address => address.AddressFamily == AddressFamily.InterNetwork).Distinct().ToArray();
         if (publicIpv4 is not null && dnsIpv4.Length > 0)
-            details.Add(dnsIpv4.Contains(publicIpv4)
-                ? "تطبیق DNS با IP عمومی: موفق."
-                : "تطبیق DNS با IP عمومی: ناموفق؛ رکورد A باید به IP عمومی فعلی اشاره کند.");
+            details.Add(dnsIpv4.All(address => address.Equals(publicIpv4))
+                ? "تطبیق DNS با IP عمومی: موفق؛ همه رکوردهای A به IP فعلی اشاره می‌کنند."
+                : "تطبیق DNS با IP عمومی: ناموفق؛ همه رکوردهای A باید به IP عمومی فعلی اشاره کنند.");
         else if (dnsIpv4.Length == 0)
             details.Add("رکورد A عمومی IPv4 وجود ندارد یا هنوز منتشر نشده است.");
 
@@ -103,7 +103,7 @@ public sealed class PublicHostingManager
         if (dnsIpv4Addresses.Length > 0)
         {
             var publicIpv4 = await TryGetPublicIpv4Async(cancellationToken);
-            if (publicIpv4 is not null && !dnsIpv4Addresses.Contains(publicIpv4))
+            if (publicIpv4 is not null && dnsIpv4Addresses.Any(address => !address.Equals(publicIpv4)))
                 return new(false, $"رکورد A دامنه با IP عمومی فعلی این اتصال هم‌خوان نیست. IP عمومی فعلی: {publicIpv4}؛ رکوردهای دامنه: {string.Join(", ", dnsIpv4Addresses.Select(address => address.ToString()))}. ابتدا DNS را اصلاح کنید.");
             if (publicIpv4 is null)
                 dnsDiagnostic = " نتوانستم IP عمومی را خودکار بررسی کنم؛ رکورد A را با IP عمومی فعلی اینترنت خود تطبیق دهید.";
