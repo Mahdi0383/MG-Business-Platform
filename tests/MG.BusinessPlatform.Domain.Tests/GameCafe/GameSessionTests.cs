@@ -27,7 +27,7 @@ public sealed class GameSessionTests
         session.Pause(Start.AddMinutes(17));
 
         Assert.Equal(TimeSpan.FromMinutes(17), session.ElapsedAt(Start.AddHours(5)));
-        Assert.Equal(new Money(200m, "IRR"), session.CalculateTimeCharge(Start.AddHours(5), 15));
+        Assert.Equal(new Money(300m, "IRR"), session.CalculateTimeCharge(Start.AddHours(5), 15));
     }
 
     [Fact]
@@ -35,8 +35,8 @@ public sealed class GameSessionTests
     {
         var session = CreateSession(ratePerHour: 600m);
 
-        Assert.Equal(new Money(200m, "IRR"), session.CalculateTimeCharge(Start.AddMinutes(16), 15));
-        Assert.Equal(new Money(100m, "IRR"), session.CalculateTimeCharge(Start.AddMinutes(16), 15, roundUp: false));
+        Assert.Equal(new Money(300m, "IRR"), session.CalculateTimeCharge(Start.AddMinutes(16), 15));
+        Assert.Equal(new Money(150m, "IRR"), session.CalculateTimeCharge(Start.AddMinutes(16), 15, roundUp: false));
     }
 
     [Fact]
