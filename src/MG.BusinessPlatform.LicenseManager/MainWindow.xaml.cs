@@ -126,7 +126,7 @@ public partial class MainWindow : Window
 
             var modules = ModulesInput.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray();
-            var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(23, 59, 59), DateTimeKind.Utc));
+            var expiry = new DateTimeOffset(expiryDate.ToDateTime(new TimeOnly(TimeSpan.TicksPerDay - 1), DateTimeKind.Utc));
             var payload = new LicensePayload
             {
                 LicenseId = Guid.NewGuid(),
