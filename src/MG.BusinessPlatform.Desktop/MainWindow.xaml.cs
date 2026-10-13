@@ -12,6 +12,12 @@ using MG.BusinessPlatform.Desktop.Services;
 
 namespace MG.BusinessPlatform.Desktop;
 
+public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string CustomerName, string CustomerPhone,
+    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
+
+public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
+    decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
+
 public partial class MainWindow : Window
 {
     private readonly string _databasePath;
@@ -24,6 +30,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        TrialBalanceDateInput.SelectedDate = DateTime.Today;
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
@@ -101,6 +108,11 @@ public partial class MainWindow : Window
                     movement.Reference,
                     movement.Note
                 }).Take(500).ToListAsync();
+            InvoicesGrid.ItemsSource = await db.SalesInvoices.AsNoTracking()
+                .OrderByDescending(x => x.IssueDate).ThenByDescending(x => x.CreatedAt).Take(500)
+                .Select(x => new InvoiceListItem(x.Id, x.InvoiceNumber, x.CustomerName, x.CustomerPhone,
+                    x.IssueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
+                .ToListAsync();
             OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
