@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\MG.BusinessPlatform.Domain\MG.BusinessPlatform.Domain.csproj" />
+    <ProjectReference Include="..\..\src\MG.BusinessPlatform.Licensing\MG.BusinessPlatform.Licensing.csproj" />
     <ProjectReference Include="..\..\src\MG.BusinessPlatform.Infrastructure\MG.BusinessPlatform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\MG.BusinessPlatform.Storefront\MG.BusinessPlatform.Storefront.csproj" />
   </ItemGroup>
