@@ -43,7 +43,7 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await db.Database.EnsureCreatedAsync();
+            await db.Database.MigrateAsync();
             if (!await db.StoreSettings.AnyAsync())
             {
                 db.StoreSettings.Add(new StoreSettings
