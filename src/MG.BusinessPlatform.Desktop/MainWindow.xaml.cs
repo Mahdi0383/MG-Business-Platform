@@ -231,6 +231,180 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task RefreshGameSessionsAsync(BusinessDbContext db)
+    {
+        var sessions = await new GameSessionRepository(db).FindOpenAsync();
+        var now = DateTimeOffset.UtcNow;
+        var rows = sessions.Select(session => new GameSessionGridRow(
+            session.Id,
+            session.GameName,
+            session.Status switch
+            {
+                GameSessionStatus.Active => "در حال اجرا",
+                GameSessionStatus.Paused => "متوقف موقت",
+                _ => "پایان‌یافته"
+            },
+            session.StartedAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.GetCultureInfo("fa-IR")),
+            string.Join("، ", session.Players.Select(player => player.DisplayName)),
+            decimal.Round((decimal)session.ElapsedAt(now).TotalMinutes, 1),
+            session.CalculateTimeCharge(now, 15).Amount)).ToList();
+
+        GameSessionsGrid.ItemsSource = rows;
+        if (_selectedGameSessionId is Guid selectedId)
+            GameSessionsGrid.SelectedItem = rows.FirstOrDefault(row => row.Id == selectedId);
+
+        GameSessionStatusText.Text = rows.Count == 0
+            ? "جلسه بازی فعالی ثبت نشده است."
+            : $"تعداد جلسات فعال: {rows.Count} — هزینه زمان هر بازیکن بر اساس نرخ ساعتی و گردکردن ۱۵ دقیقه‌ای محاسبه می‌شود.";
+    }
+
+    private void AddSessionPlayer_Click(object sender, RoutedEventArgs e)
+    {
+        SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        _sessionPlayerDrafts.Add(new GameSessionPlayerDraft
+        {
+            DisplayName = $"بازیکن {_sessionPlayerDrafts.Count + 1}"
+        });
+    }
+
+    private async void StartGameSession_Click(object sender, RoutedEventArgs e)
+    {
+        SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        var gameName = GameSessionNameInput.Text.Trim();
+        if (gameName.Length is < 1 or > 160)
+        {
+            GameSessionStatusText.Text = "نام بازی را وارد کنید.";
+            return;
+        }
+
+        if (!TryParseAmount(GameSessionRateInput.Text, out var hourlyRate) || hourlyRate < 0m)
+        {
+            GameSessionStatusText.Text = "نرخ ساعتی باید عددی معتبر و غیرمنفی باشد.";
+            return;
+        }
+
+        var drafts = _sessionPlayerDrafts.Where(player => !string.IsNullOrWhiteSpace(player.DisplayName)).ToArray();
+        if (drafts.Length == 0)
+        {
+            GameSessionStatusText.Text = "حداقل نام یک بازیکن را وارد کنید.";
+            return;
+        }
+
+        try
+        {
+            var players = drafts.Select(player =>
+            {
+                if (player.EntryAmount < 0m || player.TimeCharge < 0m || player.AdditionalAmount < 0m)
+                    throw new ArgumentOutOfRangeException(nameof(player), "مبالغ بازیکنان نمی‌توانند منفی باشند.");
+                return new GameSessionPlayer(Guid.NewGuid(), player.DisplayName,
+                    new Money(player.EntryAmount, "IRR"),
+                    new Money(player.TimeCharge, "IRR"),
+                    new Money(player.AdditionalAmount, "IRR"));
+            }).ToArray();
+
+            var session = new GameSession(Guid.NewGuid(), _sessionBranchId, _sessionDeviceId,
+                gameName, DateTimeOffset.UtcNow, new Money(hourlyRate, "IRR"), players);
+
+            await using var db = new BusinessDbContext(CreateOptions());
+            await new GameSessionRepository(db).SaveAsync(session);
+            _selectedGameSessionId = session.Id;
+            _sessionPlayerDrafts.Clear();
+            _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
+            GameSessionNameInput.Clear();
+            await RefreshAsync();
+            GameSessionStatusText.Text = $"جلسه «{gameName}» با {players.Length} بازیکن شروع شد.";
+        }
+        catch (Exception ex)
+        {
+            GameSessionStatusText.Text = $"شروع جلسه ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void PauseGameSession_Click(object sender, RoutedEventArgs e) =>
+        await ChangeSelectedGameSessionAsync(GameSessionTransition.Pause);
+
+    private async void ResumeGameSession_Click(object sender, RoutedEventArgs e) =>
+        await ChangeSelectedGameSessionAsync(GameSessionTransition.Resume);
+
+    private async void CompleteGameSession_Click(object sender, RoutedEventArgs e) =>
+        await ChangeSelectedGameSessionAsync(GameSessionTransition.Complete);
+
+    private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e) =>
+        await RefreshAsync();
+
+    private async Task ChangeSelectedGameSessionAsync(GameSessionTransition transition)
+    {
+        if (GameSessionsGrid.SelectedItem is not GameSessionGridRow row)
+        {
+            GameSessionStatusText.Text = "ابتدا یک جلسه را از فهرست انتخاب کنید.";
+            return;
+        }
+
+        _selectedGameSessionId = row.Id;
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var repository = new GameSessionRepository(db);
+            var session = await repository.FindAsync(row.Id);
+            if (session is null)
+            {
+                GameSessionStatusText.Text = "جلسه انتخاب‌شده پیدا نشد؛ فهرست را به‌روزرسانی کنید.";
+                await RefreshAsync();
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            switch (transition)
+            {
+                case GameSessionTransition.Pause:
+                    session.Pause(now);
+                    break;
+                case GameSessionTransition.Resume:
+                    session.Resume(now);
+                    break;
+                case GameSessionTransition.Complete:
+                    if (session.Status == GameSessionStatus.Paused)
+                        session.Resume(now);
+                    var finalTimeCharge = session.CalculateTimeCharge(now, 15);
+                    foreach (var player in session.Players.ToArray())
+                        session.UpdatePlayerCharges(player.Id, player.EntryAmount, finalTimeCharge, player.AdditionalAmount);
+                    session.Complete(now);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(transition));
+            }
+
+            await repository.SaveAsync(session);
+            if (transition == GameSessionTransition.Complete)
+                _selectedGameSessionId = null;
+            await RefreshAsync();
+            GameSessionStatusText.Text = transition switch
+            {
+                GameSessionTransition.Pause => "جلسه متوقف موقت شد؛ زمان توقف محاسبه نمی‌شود.",
+                GameSessionTransition.Resume => "جلسه ادامه یافت.",
+                _ => "جلسه پایان یافت و مبلغ نهایی هر بازیکن ذخیره شد."
+            };
+        }
+        catch (Exception ex)
+        {
+            GameSessionStatusText.Text = $"تغییر وضعیت جلسه ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private static bool TryParseAmount(string text, out decimal amount) =>
+        decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.CurrentCulture, out amount)
+        || decimal.TryParse(text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out amount);
+
+    private enum GameSessionTransition
+    {
+        Pause,
+        Resume,
+        Complete
+    }
+
     private async void AddProduct_Click(object sender, RoutedEventArgs e)
     {
         var sku = SkuInput.Text.Trim();
