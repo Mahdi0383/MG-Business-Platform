@@ -93,6 +93,10 @@ public partial class MainWindow : Window
             await using var db = new BusinessDbContext(CreateOptions());
             ProductsGrid.ItemsSource = await db.StoreProducts.AsNoTracking()
                 .OrderBy(x => x.Name).ToListAsync();
+            CustomersGrid.ItemsSource = await db.Customers.AsNoTracking()
+                .OrderBy(x => x.DisplayName).ToListAsync();
+            SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
+                .OrderBy(x => x.DisplayName).ToListAsync();
             OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
@@ -228,6 +232,99 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره تنظیمات ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void AddCustomer_Click(object sender, RoutedEventArgs e)
+    {
+        var name = CustomerNameInput.Text.Trim();
+        var phone = CustomerPhoneInput.Text.Trim();
+        var email = CustomerEmailInput.Text.Trim();
+        var address = CustomerAddressInput.Text.Trim();
+        if (name.Length is < 1 or > 200 || phone.Length > 40 || email.Length > 254 || address.Length > 1000)
+        {
+            StatusText.Text = "نام مشتری الزامی است؛ طول شماره تماس، ایمیل یا نشانی بیش از حد مجاز است.";
+            return;
+        }
+        if (email.Length > 0 && !System.Net.Mail.MailAddress.TryCreate(email, out _))
+        {
+            StatusText.Text = "نشانی ایمیل معتبر نیست.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            db.Customers.Add(new CustomerRecord
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = name,
+                Phone = phone,
+                Email = email.ToLowerInvariant(),
+                Address = address,
+                CreatedAt = DateTimeOffset.UtcNow,
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+            CustomerNameInput.Clear();
+            CustomerPhoneInput.Clear();
+            CustomerEmailInput.Clear();
+            CustomerAddressInput.Clear();
+            StatusText.Text = "مشتری ذخیره شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ذخیره مشتری ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void AddSupplier_Click(object sender, RoutedEventArgs e)
+    {
+        var name = SupplierNameInput.Text.Trim();
+        var phone = SupplierPhoneInput.Text.Trim();
+        var email = SupplierEmailInput.Text.Trim();
+        var taxIdentifier = SupplierTaxInput.Text.Trim();
+        var paymentTerms = SupplierTermsInput.Text.Trim();
+        if (name.Length is < 1 or > 200 || phone.Length > 40 || email.Length > 254
+            || taxIdentifier.Length > 80 || paymentTerms.Length > 500)
+        {
+            StatusText.Text = "نام تأمین‌کننده الزامی است؛ طول یکی از فیلدها بیش از حد مجاز است.";
+            return;
+        }
+        if (email.Length > 0 && !System.Net.Mail.MailAddress.TryCreate(email, out _))
+        {
+            StatusText.Text = "نشانی ایمیل تأمین‌کننده معتبر نیست.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            db.Suppliers.Add(new SupplierRecord
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = name,
+                Phone = phone,
+                Email = email.ToLowerInvariant(),
+                Address = string.Empty,
+                TaxIdentifier = taxIdentifier,
+                PaymentTerms = paymentTerms,
+                CreatedAt = DateTimeOffset.UtcNow,
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+            SupplierNameInput.Clear();
+            SupplierPhoneInput.Clear();
+            SupplierEmailInput.Clear();
+            SupplierTaxInput.Clear();
+            SupplierTermsInput.Clear();
+            StatusText.Text = "تأمین‌کننده ذخیره شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ذخیره تأمین‌کننده ناموفق بود: {ex.Message}";
         }
     }
 
