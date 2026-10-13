@@ -56,6 +56,8 @@ public sealed class PublicHostingManager
         await TryAttachAsync(caddyPath, cancellationToken);
         if (_process is { HasExited: false })
             return new(true, "سرویس انتشار عمومی از قبل در حال اجراست.");
+        if (!IsTcpPortAvailable(80) || !IsTcpPortAvailable(443))
+            return new(false, "درگاه 80 یا 443 توسط برنامه دیگری اشغال شده است. IIS یا سرویس وب دیگری را بررسی کنید.");
 
         var safeLogPath = _logPath.Replace('\\', '/');
         var config = $"""
@@ -179,6 +181,25 @@ public sealed class PublicHostingManager
             return "هنوز گزارش Caddy ثبت نشده است.";
         var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
         return string.Join(Environment.NewLine, lines.TakeLast(25));
+    }
+
+    private static bool IsTcpPortAvailable(int port)
+    {
+        TcpListener? listener = null;
+        try
+        {
+            listener = new TcpListener(IPAddress.Any, port);
+            listener.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        finally
+        {
+            listener?.Stop();
+        }
     }
 
     private string? FindCaddyExecutable()
