@@ -14,7 +14,6 @@ internal static class GameSessionsSchemaModel
             b.Property<Guid>("Id").HasColumnType("TEXT");
             b.Property<long>("AccumulatedPauseTicks").HasColumnType("INTEGER");
             b.Property<Guid>("BranchId").HasColumnType("TEXT");
-            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<Guid>("DeviceId").HasColumnType("TEXT");
             b.Property<DateTimeOffset?>("EndedAtUtc").HasColumnType("TEXT");
