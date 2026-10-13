@@ -1,47 +1,62 @@
 # MG Business Platform
 
-**MG Business Platform** is a modular, offline-first business management platform designed to grow from a single Windows workstation to LAN and multi-branch deployments.
+MG Business Platform is a Windows-first, offline-first business management platform under active development. The repository contains a WPF management client, a local SQLite database, a customer storefront API, an initial HTTPS reverse-proxy integration, finance/inventory domain models, and automated tests.
 
-> **Current status:** requirements and architecture foundation. Features described here are planned unless a later implementation and test explicitly proves otherwise.
+> **Release status: NOT PRODUCTION-READY.** The project has not yet completed a verified Windows build, end-to-end release test, or the full accounting/POS/module scope. Do not use it as the sole accounting record for a live business until the release gates pass.
 
-## Principles
+## Current implementation
 
-- Offline-first core workflows.
-- Auditable, balanced double-entry accounting.
-- Modular monolith with explicit module ownership and contracts.
-- Least privilege, signed licenses, secure backups, and no direct public exposure of database files.
-- Persian/Farsi and right-to-left UI as first-class requirements.
-- Small, testable increments with reviewable Git history.
+- Windows WPF management UI with product creation, storefront settings, online order list, order cancellation with stock restoration, and local web-host controls.
+- Local SQLite persistence with an initial EF Core migration.
+- Customer-facing Persian RTL storefront, public product catalog, server-side price calculation, stock checks, order idempotency, request throttling, and basic security headers.
+- Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured.
+- Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
+- CI workflow designed to restore, build, run tests, publish Windows binaries, bundle Caddy, create a ZIP, and create an Inno Setup installer.
 
-## Planned platform capabilities
+## Important current limitations
 
-- Shared core: businesses/branches, users/roles/permissions, customers/suppliers, products/services, pricing, sales, invoices, payments, cash/bank, settings, audit, import/export, backup/restore.
-- Accounting: chart of accounts, journals, general ledger, receivables/payables, trial balance, financial statements, inventory valuation/COGS, fixed assets, financial periods and closing.
-- Inventory and purchasing: warehouses, stock movements, purchasing, returns, stock counts, waste and expiry where relevant.
-- Business modules: cafe/restaurant POS, game cafe/gaming center, retail, supermarket, clothing, repair/service business and wholesale.
-- Optional capabilities: loyalty, QR ordering, reservations, notifications, advanced reports, payroll and multi-branch operations.
-- Separate **MG License Manager** for signed module entitlements; private signing keys must never ship inside the main application.
+- Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Router port forwarding is model-specific and currently requires the operator. CGNAT or blocked inbound ports requires a separate outbound tunnel/relay or public host; no universal tunnel is included.
+- A green local health check does not prove public internet reachability. Test from a phone on mobile data.
+- The desktop app is not yet a full POS/accounting suite. General-ledger persistence/reporting, purchases, supplier/customer management, payments, receipt printing, multi-branch operation, specialized cafe/game-center workflows, and the separate license manager remain unfinished.
+- Schema migration and order flow tests are committed, but their success must be confirmed from the actual Windows CI run. No build or test is claimed as passed until verified.
 
-These are target capabilities, not claims that they are already implemented.
+## Build and test on Windows
+
+Install the .NET 10 SDK and PowerShell, then run from the repository root:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\scripts\publish-win-x64.ps1
+```
+
+The script restores, builds, runs automated tests, publishes self-contained Windows x64 executables, downloads the official Caddy binary, creates a portable ZIP and SHA-256 file, and creates an installer when Inno Setup 6 is installed.
+
+The expected Windows artifacts are:
+- `artifacts/MG-Business-Platform-win-x64.zip`
+- `artifacts/MG-Business-Platform-win-x64.zip.sha256`
+- `artifacts/installer/MG-Business-Platform-Setup-win-x64.exe`
 
 ## Documentation
 
 - [Product vision](docs/PRODUCT_VISION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Roadmap and acceptance criteria](docs/ROADMAP.md)
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [Self-hosted domain publishing](docs/SELF_HOSTED_PUBLISHING.md)
+- [Domain-hosting architecture](docs/DOMAIN_HOSTING.md)
+- [Release gates](docs/RELEASE_GATES.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Module boundaries](docs/MODULES.md)
 - [Security and licensing](docs/SECURITY.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Contribution and development workflow](CONTRIBUTING.md)
 
-## Initial technology direction
+## Product principles
 
-The leading option is C#/.NET for shared business logic and a Windows desktop client, SQLite for single-computer mode, and PostgreSQL for central multi-client deployments. UI framework, target .NET version, persistence boundaries and packaging must be validated by a small compatibility prototype before final commitment.
+- Auditable double-entry accounting and exact decimal money calculations.
+- Modular monolith before premature microservices.
+- Persian/Farsi and right-to-left UI as first-class requirements.
+- Least privilege, signed license entitlements, secure backups, and no direct public exposure of database files.
+- Small increments with tests and reviewable Git history.
 
-## Release gate
-
-Do not treat this as production accounting software until financial invariants, permissions, data migrations, crash recovery, backup/restore, security controls and supported deployment modes pass documented automated and manual tests.
-
-## License
-
-Distribution and source licensing terms will be decided before any public release. This repository is private.
+This repository is private. Keep all signing secrets and production credentials out of source control.
