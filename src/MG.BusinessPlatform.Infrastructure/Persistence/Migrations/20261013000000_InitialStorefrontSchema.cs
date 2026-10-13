@@ -1,5 +1,6 @@
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence.Migrations;
@@ -100,6 +101,11 @@ public sealed class InitialStorefrontSchema : Migration
         migrationBuilder.CreateIndex(name: "IX_CustomerOrders_OrderNumber", table: "CustomerOrders", column: "OrderNumber", unique: true);
         migrationBuilder.CreateIndex(name: "IX_CustomerOrders_IdempotencyKey", table: "CustomerOrders", column: "IdempotencyKey", unique: true);
         migrationBuilder.CreateIndex(name: "IX_CustomerOrderLines_OrderId", table: "CustomerOrderLines", column: "OrderId");
+    }
+
+    protected override void BuildTargetModel(ModelBuilder modelBuilder)
+    {
+        BusinessDbContextModelSnapshot.BuildModelCore(modelBuilder);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
