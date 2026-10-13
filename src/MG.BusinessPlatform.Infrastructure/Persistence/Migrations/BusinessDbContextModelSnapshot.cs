@@ -16,6 +16,38 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("ProductVersion", "10.0.0")
             .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("Address").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
+            b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("Email").IsRequired().HasMaxLength(254).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<string>("Phone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("DisplayName");
+            b.HasIndex("Phone");
+            b.ToTable("Customers");
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.SupplierRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("Address").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
+            b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("Email").IsRequired().HasMaxLength(254).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<string>("PaymentTerms").IsRequired().HasMaxLength(500).HasColumnType("TEXT");
+            b.Property<string>("Phone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<string>("TaxIdentifier").IsRequired().HasMaxLength(80).HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("DisplayName");
+            b.HasIndex("Phone");
+            b.ToTable("Suppliers");
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreSettings", b =>
         {
             b.Property<int>("Id").ValueGeneratedNever().HasColumnType("INTEGER");
