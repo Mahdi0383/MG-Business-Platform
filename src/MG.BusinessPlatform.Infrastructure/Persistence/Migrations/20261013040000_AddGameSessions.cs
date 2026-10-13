@@ -58,10 +58,10 @@ public sealed class AddGameSessions : Migration
                     "GameSessions", "Id", onDelete: ReferentialAction.Cascade);
             });
 
-        migrationBuilder.CreateIndex("IX_GameSessions_Status_StartedAtUtc", "GameSessions", new[] { "Status", "StartedAtUtc" });
-        migrationBuilder.CreateIndex("IX_GameSessions_BranchId_DeviceId_Status", "GameSessions", new[] { "BranchId", "DeviceId", "Status" });
+        migrationBuilder.CreateIndex("IX_GameSessions_BranchId_StartedAtUtc", "GameSessions", new[] { "BranchId", "StartedAtUtc" });
+        migrationBuilder.CreateIndex("IX_GameSessions_DeviceId_Status", "GameSessions", new[] { "DeviceId", "Status" });
         
-        migrationBuilder.CreateIndex("IX_GameSessionPlayers_GameSessionId_DisplayName", "GameSessionPlayers", new[] { "GameSessionId", "DisplayName" });
+        migrationBuilder.CreateIndex("IX_GameSessionPlayers_GameSessionId", "GameSessionPlayers", "GameSessionId");
     }
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
