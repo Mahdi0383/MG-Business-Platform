@@ -1,9 +1,40 @@
+using System.Security.Cryptography;
 using MG.BusinessPlatform.Licensing;
 
 namespace MG.BusinessPlatform.Domain.Tests.Licensing;
 
 public sealed class LicenseCryptographyTests
 {
+    [Fact]
+    public void GetTrustedPublicKeyPem_LoadsEmbeddedProductionTrustAnchor()
+    {
+        var publicKey = LicenseCryptography.GetTrustedPublicKeyPem();
+
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(publicKey);
+        Assert.True(rsa.KeySize >= 2048);
+    }
+
+    [Fact]
+    public void PublicKeysMatch_RejectsAnAttackerGeneratedKey()
+    {
+        var trusted = LicenseCryptography.GetTrustedPublicKeyPem();
+        var attacker = LicenseCryptography.GenerateKeyPair(2048);
+
+        Assert.False(LicenseCryptography.PublicKeysMatch(attacker.PublicKeyPem, trusted));
+        Assert.True(LicenseCryptography.PublicKeysMatch(trusted, trusted));
+    }
+
+    [Fact]
+    public void PrivateKeyMatchesPublicKey_OnlyAcceptsCorrespondingKeyPair()
+    {
+        var first = LicenseCryptography.GenerateKeyPair(2048);
+        var second = LicenseCryptography.GenerateKeyPair(2048);
+
+        Assert.True(LicenseCryptography.PrivateKeyMatchesPublicKey(first.PrivateKeyPem, first.PublicKeyPem));
+        Assert.False(LicenseCryptography.PrivateKeyMatchesPublicKey(second.PrivateKeyPem, first.PublicKeyPem));
+    }
+
     [Fact]
     public void SignAndVerify_AcceptsValidLicenseForMatchingInstallation()
     {
