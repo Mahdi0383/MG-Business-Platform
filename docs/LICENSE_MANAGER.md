@@ -56,6 +56,6 @@ The desktop license reader currently looks for these files in:
 - `license-public-key.pem` — public verification key only
 - `license.json` — signed license document
 
-Copy the public key and signed license to that data directory using a controlled activation workflow. Never copy the private key there.
+In the main app, open **Settings**. Click **Import public key** and choose the trusted `license-public.pem`; then click **Import license file** and choose the signed `license.json`. The app validates the public key and verifies the license against the current software and hardware serials before importing it. A license that fails verification is not installed. Never import or copy the private key to the customer computer.
 
-**Release warning:** signing and verification are implemented, but licensing is not considered production-enforced until module/expiry entitlements are checked by protected application operations and public-key provisioning is managed safely. Do not advertise this as complete DRM or use it as the only access-control boundary.
+**Security boundary:** signed license verification, expiry checks, desktop module gating and storefront startup checks are implemented. This is still local desktop software; it is not tamper-proof DRM, and local administrators can modify binaries or application data. Do not use it as the only authorization boundary for a remote multi-user service. Keep the signing private key offline, issue licenses only to verified serials, and back up the private key securely.
