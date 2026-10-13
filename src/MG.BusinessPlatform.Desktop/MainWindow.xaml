@@ -139,6 +139,59 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="فاکتورهای فروش">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="PaymentAmountInput" Width="140" ToolTip="مبلغ دریافتی"/>
+                            <ComboBox x:Name="PaymentMethodInput" Width="150" SelectedIndex="0">
+                                <ComboBoxItem Content="نقدی" Tag="Cash"/>
+                                <ComboBoxItem Content="کارت‌خوان" Tag="Card"/>
+                                <ComboBoxItem Content="واریز بانکی" Tag="Bank"/>
+                            </ComboBox>
+                            <TextBox x:Name="PaymentReferenceInput" Width="180" ToolTip="شماره پیگیری (اختیاری)"/>
+                            <TextBox x:Name="PaymentNotesInput" Width="220" ToolTip="توضیحات (اختیاری)"/>
+                            <Button Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="InvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="شماره فاکتور" Binding="{Binding InvoiceNumber}" Width="1.6*"/>
+                            <DataGridTextColumn Header="مشتری" Binding="{Binding CustomerName}" Width="2*"/>
+                            <DataGridTextColumn Header="تاریخ" Binding="{Binding IssueDate}" Width="*"/>
+                            <DataGridTextColumn Header="جمع فاکتور" Binding="{Binding TotalAmount}" Width="*"/>
+                            <DataGridTextColumn Header="پرداخت‌شده" Binding="{Binding PaidAmount}" Width="*"/>
+                            <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount}" Width="*"/>
+                            <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
+                            <DataGridTextColumn Header="وضعیت" Binding="{Binding Status}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <TabItem Header="تراز آزمایشی">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <DatePicker x:Name="TrialBalanceDateInput" Width="160"/>
+                            <Button Content="محاسبه تراز آزمایشی" Click="RefreshTrialBalance_Click"/>
+                            <TextBlock x:Name="TrialBalanceTotalsText" VerticalAlignment="Center" Margin="12,0,0,0" Text="تراز هنوز محاسبه نشده است."/>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="TrialBalanceGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="کد حساب" Binding="{Binding AccountCode}" Width="*"/>
+                            <DataGridTextColumn Header="نام حساب" Binding="{Binding AccountName}" Width="2*"/>
+                            <DataGridTextColumn Header="نوع حساب" Binding="{Binding AccountType}" Width="*"/>
+                            <DataGridTextColumn Header="گردش بدهکار" Binding="{Binding DebitTurnover}" Width="*"/>
+                            <DataGridTextColumn Header="گردش بستانکار" Binding="{Binding CreditTurnover}" Width="*"/>
+                            <DataGridTextColumn Header="مانده بدهکار" Binding="{Binding DebitBalance}" Width="*"/>
+                            <DataGridTextColumn Header="مانده بستانکار" Binding="{Binding CreditBalance}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
