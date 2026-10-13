@@ -45,20 +45,7 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await db.Database.MigrateAsync();
-            if (!await db.StoreSettings.AnyAsync())
-            {
-                db.StoreSettings.Add(new StoreSettings
-                {
-                    Id = 1,
-                    StoreName = "فروشگاه شما",
-                    CurrencyCode = "IRR",
-                    OnlineOrderingEnabled = false,
-                    PublicHostname = string.Empty,
-                    UpdatedAt = DateTimeOffset.UtcNow
-                });
-                await db.SaveChangesAsync();
-            }
+            await DatabaseInitializer.InitializeAsync(db);
 
             await LoadSettingsAsync();
             await RefreshAsync();
