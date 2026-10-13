@@ -218,8 +218,22 @@ app.MapPost("/api/storefront/orders", async (
                 ProductId = product.Id,
                 ProductName = product.Name,
                 UnitPrice = product.UnitPrice,
+                UnitCost = product.UnitCost,
                 Quantity = quantity,
                 LineTotal = lineTotal
+            });
+            db.StockMovements.Add(new StockMovementRecord
+            {
+                Id = Guid.NewGuid(),
+                ProductId = product.Id,
+                OccurredAt = DateTimeOffset.UtcNow,
+                MovementType = "WebOrderIssue",
+                Quantity = quantity,
+                SignedQuantity = -quantity,
+                UnitCost = product.UnitCost,
+                CurrencyCode = product.CurrencyCode,
+                Reference = order.OrderNumber,
+                Note = "Stock reserved for customer web order"
             });
         }
 
