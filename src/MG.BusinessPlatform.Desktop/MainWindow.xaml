@@ -13,7 +13,7 @@
         <StatusBar DockPanel.Dock="Bottom" Background="White">
             <TextBlock x:Name="StatusText" Text="در حال آماده‌سازی…" />
         </StatusBar>
-        <TabControl Margin="14">
+        <TabControl x:Name="MainTabs" Margin="14">
             <TabItem Header="نمای کلی">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="18">
