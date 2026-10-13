@@ -43,6 +43,8 @@ public sealed class PublicHostingManager
             var addresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken);
             if (addresses.Length == 0)
                 return new(false, "برای دامنه هیچ رکورد DNS پیدا نشد.");
+            if (addresses.Any(IsNonPublicAddress))
+                return new(false, "حداقل یکی از رکوردهای A/AAAA به IP خصوصی، محلی یا رزروشده اشاره می‌کند. دامنه باید به IP عمومی قابل‌دسترسی اشاره کند.");
         }
         catch (SocketException)
         {
@@ -181,6 +183,41 @@ public sealed class PublicHostingManager
             return "هنوز گزارش Caddy ثبت نشده است.";
         var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
         return string.Join(Environment.NewLine, lines.TakeLast(25));
+    }
+
+    private static bool IsNonPublicAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6)
+            return IsNonPublicAddress(address.MapToIPv4());
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var bytes = address.GetAddressBytes();
+            var a = bytes[0];
+            var b = bytes[1];
+            var c = bytes[2];
+            return a == 0 || a == 10 || a == 127 || a >= 224
+                || (a == 100 && b is >= 64 and <= 127)
+                || (a == 169 && b == 254)
+                || (a == 172 && b is >= 16 and <= 31)
+                || (a == 192 && b == 168)
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 0 && c == 2)
+                || (a == 198 && b is 18 or 19)
+                || (a == 198 && b == 51 && c == 100)
+                || (a == 203 && b == 0 && c == 113);
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var bytes = address.GetAddressBytes();
+            var isGlobalUnicast = (bytes[0] & 0xE0) == 0x20;
+            var isUniqueLocal = (bytes[0] & 0xFE) == 0xFC;
+            return !isGlobalUnicast || isUniqueLocal || address.IsIPv6LinkLocal
+                || address.IsIPv6SiteLocal || address.IsIPv6Multicast || IPAddress.IsLoopback(address);
+        }
+
+        return true;
     }
 
     private static bool IsTcpPortAvailable(int port)
