@@ -49,7 +49,7 @@ public sealed class AddCustomerSupplierTables : Migration
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
-        BusinessDbContextModelSnapshot.BuildModelCore(modelBuilder);
+        CustomerSupplierSchemaModel.BuildModel(modelBuilder);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
