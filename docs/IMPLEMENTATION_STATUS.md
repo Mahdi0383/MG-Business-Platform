@@ -6,6 +6,7 @@ This file distinguishes committed code from validated behavior. "Implemented" me
 
 - .NET 10 solution with Domain, Infrastructure, Storefront, WPF Desktop, signed-license verification, and separate License Manager projects.
 - Money value object with currency-safe arithmetic.
+- Recoverable game-cafe session domain, SQLite persistence/repository, versioned migration, per-player amounts, and pause/resume recovery tests; desktop controls are still pending.
 - Game-cafe session domain aggregate with pause/resume/completion/cancellation transitions, recoverable pause accounting, exact billable-minute rounding, and per-player charge validation; persistence and desktop UI integration are not yet complete.
 - Validated chart-of-accounts definitions, double-entry journal balancing, financial-period boundaries/closure metadata.
 - Invoice line arithmetic, payment allocations, catalog item rules, stock movement direction rules, business/branch identities.
