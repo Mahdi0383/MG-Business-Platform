@@ -79,6 +79,78 @@ public sealed class SalesAccountingServiceTests
     }
 
     [Fact]
+    public async Task CompletedGameSession_CreatesPerPlayerInvoiceOnce_ThenAllowsSeparatePayment()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var now = DateTimeOffset.UtcNow;
+        var sessionId = Guid.NewGuid();
+        db.GameSessions.Add(new GameSessionRecord
+        {
+            Id = sessionId,
+            BranchId = Guid.NewGuid(),
+            DeviceId = Guid.NewGuid(),
+            GameName = "FIFA",
+            RatePerHour = 600000m,
+            CurrencyCode = "IRR",
+            StartedAtUtc = now.AddHours(-1),
+            EndedAtUtc = now,
+            LastTransitionAtUtc = now,
+            Status = "Completed",
+            Players =
+            [
+                new GameSessionPlayerRecord
+                {
+                    Id = Guid.NewGuid(), GameSessionId = sessionId, CreatedAtUtc = now,
+                    DisplayName = "Ali", EntryAmount = 50000m, TimeCharge = 100000m,
+                    AdditionalAmount = 10000m, CurrencyCode = "IRR"
+                },
+                new GameSessionPlayerRecord
+                {
+                    Id = Guid.NewGuid(), GameSessionId = sessionId, CreatedAtUtc = now.AddTicks(1),
+                    DisplayName = "Sara", EntryAmount = 50000m, TimeCharge = 150000m,
+                    AdditionalAmount = 0m, CurrencyCode = "IRR"
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var service = new SalesAccountingService(db);
+        var issueDate = new DateOnly(2026, 10, 13);
+        var invoice = await service.CreateGameSessionInvoiceAsync(sessionId, issueDate);
+
+        Assert.Equal(360000m, invoice.TotalAmount);
+        Assert.Equal(0m, invoice.PaidAmount);
+        Assert.Equal("Issued", invoice.Status);
+        Assert.Equal(2, invoice.Lines.Count);
+        Assert.Equal(new[] { 160000m, 200000m }, invoice.Lines.OrderBy(x => x.ProductName).Select(x => x.LineTotal).OrderBy(x => x).ToArray());
+        Assert.Equal(0m, invoice.CostTotal);
+        Assert.Empty(await db.StockMovements.ToListAsync());
+        Assert.Single(await db.CustomerOrders.ToListAsync());
+        Assert.Single(await db.JournalEntries.ToListAsync());
+        Assert.Empty(await db.Payments.ToListAsync());
+        await AssertAllJournalEntriesBalancedAsync(db);
+
+        var retry = await service.CreateGameSessionInvoiceAsync(sessionId, issueDate);
+        Assert.Equal(invoice.Id, retry.Id);
+        Assert.Single(await db.SalesInvoices.ToListAsync());
+        Assert.Single(await db.CustomerOrders.ToListAsync());
+        Assert.Single(await db.JournalEntries.ToListAsync());
+
+        await service.RecordPaymentAsync(invoice.Id, invoice.TotalAmount, "Cash", "", "",
+            DateTimeOffset.UtcNow, issueDate);
+        var paidInvoice = await db.SalesInvoices.SingleAsync(x => x.Id == invoice.Id);
+        Assert.Equal("Paid", paidInvoice.Status);
+        Assert.Equal(invoice.TotalAmount, paidInvoice.PaidAmount);
+        Assert.Single(await db.Payments.ToListAsync());
+        await AssertAllJournalEntriesBalancedAsync(db);
+    }
+
+    [Fact]
     public async Task PosSale_DeductsStockIssuesInvoiceAndPostsFullPaymentAtomically()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
