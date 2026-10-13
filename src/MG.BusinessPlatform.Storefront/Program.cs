@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Data.Sqlite;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -175,9 +176,21 @@ app.MapPost("/api/storefront/orders", async (
             });
     }
 
-    await using var transaction = await db.Database.BeginTransactionAsync(ct);
     try
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        // Recheck after acquiring the write transaction. The first lookup above is
+        // only a fast path; two concurrent retries can both pass that initial lookup.
+        var existingInTransaction = await db.CustomerOrders.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+        if (existingInTransaction is not null)
+        {
+            await transaction.CommitAsync(ct);
+            return Results.Ok(new OrderCreatedResponse(existingInTransaction.Id, existingInTransaction.OrderNumber,
+                existingInTransaction.TotalAmount, existingInTransaction.CurrencyCode, existingInTransaction.Status));
+        }
+
         var productIds = requested.Keys.ToArray();
         var products = await db.StoreProducts.Where(x => productIds.Contains(x.Id) && x.IsAvailable)
             .ToDictionaryAsync(x => x.Id, ct);
@@ -265,13 +278,34 @@ app.MapPost("/api/storefront/orders", async (
     }
     catch (DbUpdateException ex)
     {
-        await transaction.RollbackAsync(ct);
         app.Logger.LogWarning(ex, "Order persistence failed.");
+        // A concurrent request with the same key may have committed first. Treat
+        // the unique-key conflict as a successful idempotent retry when possible.
+        var committedOrder = await db.CustomerOrders.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+        if (committedOrder is not null)
+            return Results.Ok(new OrderCreatedResponse(committedOrder.Id, committedOrder.OrderNumber,
+                committedOrder.TotalAmount, committedOrder.CurrencyCode, committedOrder.Status));
         return Results.Conflict(new { error = "The order could not be confirmed. Retry with the same idempotency key." });
+    }
+    catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
+    {
+        app.Logger.LogWarning(ex, "SQLite was busy while processing a public order.");
+        CustomerOrder? committedOrder = null;
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            committedOrder = await db.CustomerOrders.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+            if (committedOrder is not null)
+                return Results.Ok(new OrderCreatedResponse(committedOrder.Id, committedOrder.OrderNumber,
+                    committedOrder.TotalAmount, committedOrder.CurrencyCode, committedOrder.Status));
+            if (attempt < 5)
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), ct);
+        }
+        return Results.Conflict(new { error = "The store is processing another update. Retry with the same idempotency key." });
     }
     catch (OverflowException)
     {
-        await transaction.RollbackAsync(ct);
         return Results.ValidationProblem(new Dictionary<string, string[]>
         {
             ["Items"] = ["Order total is outside the supported range."]

@@ -79,6 +79,65 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task ConcurrentRetries_WithSameIdempotencyKeyCreateOnlyOneOrder()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var productId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = productId, Sku = "TEST-CONCURRENT", Name = "Concurrent item",
+                UnitPrice = 12m, UnitCost = 5m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 10, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        const string key = "integration-concurrent-retry-0001";
+        var payload = new
+        {
+            customerName = "Concurrent Customer",
+            customerPhone = "09120000000",
+            items = new[] { new { productId, quantity = 2 } }
+        };
+
+        async Task<HttpResponseMessage> SubmitAsync()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return await client.SendAsync(request);
+        }
+
+        var responses = await Task.WhenAll(SubmitAsync(), SubmitAsync());
+        using var first = responses[0];
+        using var second = responses[1];
+        Assert.Contains(first.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.OK });
+        Assert.Contains(second.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.OK });
+
+        var firstBody = await first.Content.ReadFromJsonAsync<OrderResponse>();
+        var secondBody = await second.Content.ReadFromJsonAsync<OrderResponse>();
+        Assert.NotNull(firstBody);
+        Assert.NotNull(secondBody);
+        Assert.Equal(firstBody.Id, secondBody.Id);
+        Assert.Equal(24m, firstBody.Total);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Equal(1, await verificationDb.CustomerOrders.CountAsync());
+        Assert.Equal(8, (await verificationDb.StoreProducts.SingleAsync(x => x.Id == productId)).StockQuantity);
+        Assert.Equal(1, await verificationDb.StockMovements.CountAsync());
+    }
+
+    [Fact]
     public async Task PublicOrder_AggregatesDuplicateProductLinesBeforeStockValidation()
     {
         await using var factory = new StorefrontTestFactory();
