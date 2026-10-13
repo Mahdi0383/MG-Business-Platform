@@ -17,19 +17,13 @@
             <StackPanel Margin="18">
                 <Border Background="White" CornerRadius="10" Padding="14" Margin="0,0,0,12">
                     <StackPanel>
-                        <TextBlock Text="۱. کلیدهای امضا" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <TextBlock Text="کلید خصوصی فقط برای صدور استفاده می‌شود. کلید عمومی را می‌توان در برنامه مشتری قرار داد." TextWrapping="Wrap" Foreground="#475569"/>
-                        <TextBlock Text="مسیر کلید خصوصی"/>
+                        <TextBlock Text="۱. کلید امضای ناشر" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="کلید عمومی مورد اعتماد داخل برنامه تثبیت شده است. فقط کلید خصوصی متناظر با همین کلید برای صدور لایسنس پذیرفته می‌شود. کلید خصوصی را آفلاین و محرمانه نگه دارید؛ هرگز آن را در برنامه مشتری یا مخزن کد قرار ندهید." TextWrapping="Wrap" Foreground="#475569"/>
+                        <TextBlock Text="مسیر کلید خصوصی مورد اعتماد"/>
                         <DockPanel>
                             <Button DockPanel.Dock="Left" Content="انتخاب…" Click="BrowsePrivateKey_Click"/>
                             <TextBox x:Name="PrivateKeyPathInput" FlowDirection="LeftToRight"/>
                         </DockPanel>
-                        <TextBlock Text="مسیر کلید عمومی"/>
-                        <DockPanel>
-                            <Button DockPanel.Dock="Left" Content="انتخاب…" Click="BrowsePublicKey_Click"/>
-                            <TextBox x:Name="PublicKeyPathInput" FlowDirection="LeftToRight"/>
-                        </DockPanel>
-                        <Button Content="تولید جفت‌کلید جدید RSA-3072" HorizontalAlignment="Right" Click="GenerateKeys_Click"/>
                     </StackPanel>
                 </Border>
 
