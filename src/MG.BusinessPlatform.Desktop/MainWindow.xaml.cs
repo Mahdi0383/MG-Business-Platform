@@ -338,6 +338,7 @@ public partial class MainWindow : Window
         CurrencyInput.Text = settings.CurrencyCode;
         HostnameInput.Text = settings.PublicHostname;
         OnlineOrdersInput.IsChecked = settings.OnlineOrderingEnabled;
+        UpdatePosCartTotal();
         StoreUrlText.Text = string.IsNullOrWhiteSpace(settings.PublicHostname)
             ? "http://127.0.0.1:8080"
             : $"دامنه ثبت‌شده: {settings.PublicHostname} — انتشار عمومی هنوز تأیید نشده است.";
