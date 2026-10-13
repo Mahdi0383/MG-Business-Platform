@@ -24,8 +24,9 @@ internal static class GameSessionsSchemaModel
             b.Property<DateTimeOffset>("StartedAtUtc").HasColumnType("TEXT");
             b.Property<string>("Status").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
             b.HasKey("Id");
-            b.HasIndex("BranchId", "DeviceId", "Status");
-            b.HasIndex("Status", "StartedAtUtc");
+            b.HasIndex("BranchId", "StartedAtUtc");
+            b.HasIndex("DeviceId", "Status");
+            
             b.ToTable("GameSessions", t =>
             {
                 t.HasCheckConstraint("CK_GameSession_PauseTicks", "AccumulatedPauseTicks >= 0");
