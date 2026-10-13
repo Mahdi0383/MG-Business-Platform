@@ -46,6 +46,12 @@ jobs:
           if (-not (Test-Path "artifacts/MG-Business-Platform-win-x64.zip")) {
             throw "Portable ZIP package was not produced."
           }
+          if (-not (Test-Path "artifacts/publish/license-tool/MG.BusinessPlatform.LicenseManager.exe")) {
+            throw "Graphical license manager executable was not produced."
+          }
+          if (-not (Test-Path "artifacts/publish/license-tool/MG.BusinessPlatform.LicenseTool.exe")) {
+            throw "License manager CLI executable was not produced."
+          }
           if (-not (Test-Path "artifacts/MG-License-Manager-win-x64.zip")) {
             throw "Separate license manager ZIP package was not produced."
           }
