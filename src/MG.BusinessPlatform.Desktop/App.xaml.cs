@@ -34,7 +34,7 @@ public partial class App : System.Windows.Application
             .Options;
 
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
         if (!await db.StoreSettings.AnyAsync())
         {
             db.StoreSettings.Add(new StoreSettings
