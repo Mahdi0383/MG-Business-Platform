@@ -1,5 +1,7 @@
 # MG Business Platform License Manager
 
+The standalone installer opens the Persian RTL graphical license manager (`MG.BusinessPlatform.LicenseManager.exe`). Use it to generate a signing-key pair, issue a license from the customer's software/hardware serials, and verify an issued license. A command-line companion (`MG.BusinessPlatform.LicenseTool.exe`) is included for automation.
+
 The license manager is a separate Windows executable. It signs licenses offline using an RSA private key; the main application must receive only the matching public key. Never commit or distribute the private key with the application.
 
 ## Commands
