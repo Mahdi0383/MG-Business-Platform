@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly string _databasePath;
     private readonly string _dataDirectory;
     private readonly LicenseService _licenseService = new();
+    private MachineLicenseInfo? _machineLicenseInfo;
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
@@ -46,7 +47,11 @@ public partial class MainWindow : Window
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-        _refreshTimer.Tick += async (_, _) => await RefreshAsync();
+        _refreshTimer.Tick += async (_, _) =>
+        {
+            RefreshLicenseStatus();
+            await RefreshAsync();
+        };
         Loaded += MainWindow_Loaded;
         Closed += (_, _) => _refreshTimer.Stop();
     }
@@ -82,14 +87,56 @@ public partial class MainWindow : Window
         try
         {
             var info = _licenseService.LoadOrCreate(_dataDirectory);
+            _machineLicenseInfo = info;
             SoftwareSerialText.Text = info.SoftwareSerial;
             HardwareSerialText.Text = info.HardwareSerial;
             LicenseStatusText.Text = $"{LicenseStatusTitle(info.Validation.Status)} — {info.Validation.Message}";
+            ApplyLicenseAccessPolicy(info);
         }
         catch (Exception ex)
         {
+            _machineLicenseInfo = null;
             LicenseStatusText.Text = $"بررسی لایسنس ناموفق بود: {ex.Message}";
+            ApplyLicenseAccessPolicy(null);
         }
+    }
+
+    private void ApplyLicenseAccessPolicy(MachineLicenseInfo? info)
+    {
+        var tabs = MainTabs.Items.OfType<TabItem>().ToArray();
+        var settingsTab = tabs.FirstOrDefault(tab => string.Equals(tab.Header?.ToString(), "تنظیمات فروشگاه", StringComparison.Ordinal));
+        if (settingsTab is null)
+            return;
+
+        var payload = info?.Validation.IsValid == true ? info.Validation.Payload : null;
+        if (payload is null)
+        {
+            // Keep activation, serial display and diagnostics available; all business
+            // modules stay disabled until a valid signed license is loaded.
+            MainTabs.SelectedItem = settingsTab;
+            foreach (var tab in tabs)
+                tab.IsEnabled = ReferenceEquals(tab, settingsTab);
+            return;
+        }
+
+        foreach (var tab in tabs)
+        {
+            var module = tab.Header?.ToString() switch
+            {
+                "نمای کلی" => "Core",
+                "محصولات" or "گردش انبار" => "Inventory",
+                "مشتریان" or "تأمین‌کنندگان" => "Core",
+                "فروش حضوری (POS)" => "POS",
+                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" => "Accounting",
+                "سفارش‌های آنلاین" => "Storefront",
+                "تنظیمات فروشگاه" => null,
+                _ => "Core"
+            };
+            tab.IsEnabled = module is null || payload.Modules.Contains(module, StringComparer.Ordinal);
+        }
+
+        if (MainTabs.SelectedItem is TabItem selected && !selected.IsEnabled)
+            MainTabs.SelectedItem = tabs.FirstOrDefault(tab => tab.IsEnabled) ?? settingsTab;
     }
 
     private static string LicenseStatusTitle(MG.BusinessPlatform.Licensing.LicenseValidationStatus status) => status switch
