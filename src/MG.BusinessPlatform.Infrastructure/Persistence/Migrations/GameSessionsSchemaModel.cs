@@ -25,7 +25,12 @@ internal static class GameSessionsSchemaModel
             b.HasKey("Id");
             b.HasIndex("BranchId", "StartedAtUtc");
             b.HasIndex("DeviceId", "Status");
-            b.ToTable("GameSessions");
+            b.ToTable("GameSessions", t =>
+            {
+                t.HasCheckConstraint("CK_GameSession_Rate", "CAST(RatePerHour AS NUMERIC) >= 0");
+                t.HasCheckConstraint("CK_GameSession_PauseTicks", "AccumulatedPauseTicks >= 0");
+                t.HasCheckConstraint("CK_GameSession_Status", "Status IN ('Active','Paused','Completed','Cancelled')");
+            });
         });
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionPlayerRecord", b =>
         {
@@ -39,7 +44,8 @@ internal static class GameSessionsSchemaModel
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.HasKey("Id");
             b.HasIndex("GameSessionId");
-            b.ToTable("GameSessionPlayers");
+            b.ToTable("GameSessionPlayers", t => t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
+                "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0"));
         });
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionPlayerRecord", b =>
         {
