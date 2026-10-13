@@ -184,7 +184,7 @@ app.MapPost("/api/storefront/orders", async (
         var order = new CustomerOrder
         {
             Id = Guid.NewGuid(),
-            OrderNumber = $"WEB-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..29].ToUpperInvariant(),
+            OrderNumber = $"WEB-{Guid.NewGuid():N}".ToUpperInvariant(),
             IdempotencyKey = key,
             CustomerName = request.CustomerName.Trim(),
             CustomerPhone = request.CustomerPhone.Trim(),
