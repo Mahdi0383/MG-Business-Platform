@@ -304,11 +304,11 @@
                                 <Button Content="کپی" Click="CopyHardwareSerial_Click"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                <Button Content="وارد کردن کلید عمومی" Click="ImportLicensePublicKey_Click"/>
+                                <Button Content="تطبیق کلید عمومی ناشر" Click="ImportLicensePublicKey_Click"/>
                                 <Button Content="وارد کردن فایل لایسنس" Click="ImportLicenseFile_Click"/>
                                 <Button Content="بررسی مجدد لایسنس" Click="RefreshLicenseStatus_Click"/>
                             </StackPanel>
-                            <TextBlock Text="برای فعال‌سازی آفلاین، کلید عمومی و فایل لایسنس امضاشده را با دکمه‌های بالا وارد کنید. کلید خصوصی صدور لایسنس را هرگز در رایانه مشتری یا داخل برنامه قرار ندهید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,8,4,12"/>
+                            <TextBlock Text="برای فعال‌سازی آفلاین، ابتدا در صورت نیاز کلید عمومی را با کلید ثابت ناشر تطبیق دهید و سپس فایل لایسنس امضاشده را وارد کنید. کلید عمومی مورد اعتماد داخل برنامه تعبیه شده و قابل جایگزینی نیست. کلید خصوصی صدور لایسنس را هرگز در رایانه مشتری یا مخزن کد قرار ندهید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,8,4,12"/>
                             <TextBlock Text="نام فروشگاه"/>
                             <TextBox x:Name="StoreNameInput"/>
                             <TextBlock Text="واحد پول (کد سه‌حرفی، مانند IRR یا USD)"/>
