@@ -35,5 +35,12 @@ A release may not be described as complete until all applicable gates have evide
 - Certificate renewal, host restart, WAN IP change, and unpublish tested.
 - Never declare online availability based only on a local health check.
 
+## License Manager
+- The standalone Persian RTL GUI generates keys without overwriting existing key files.
+- A new signed license can be issued to a new output path and then verified successfully.
+- Tampered, expired, wrong-device, malformed, and wrong-key licenses are rejected.
+- The independent installer launches the GUI and includes the CLI companion and documentation.
+- The main application enforces module and expiry entitlements in protected operations before licensing can be called production-ready.
+
 ## Release evidence
 Publish CI run links, test summary, known limitations, supported Windows versions, installation/upgrade instructions, rollback instructions, and SHA-256 checksums. If a gate has not been tested, mark it NOT VERIFIED; do not imply it passed.
