@@ -220,8 +220,6 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
     public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
     public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
-    public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
-    public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -413,29 +411,5 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0"));
         });
 
-        modelBuilder.Entity<GameSessionRecord>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.GameName).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
-            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
-            entity.HasIndex(x => new { x.Status, x.StartedAtUtc });
-            entity.HasIndex(x => new { x.BranchId, x.DeviceId, x.Status });
-            entity.ToTable(t => t.HasCheckConstraint("CK_GameSession_Status", "Status IN ('Active','Paused','Completed','Cancelled')"));
-            entity.ToTable(t => t.HasCheckConstraint("CK_GameSession_Rate", "CAST(RatePerHour AS NUMERIC) >= 0"));
-            entity.ToTable(t => t.HasCheckConstraint("CK_GameSession_PauseTicks", "AccumulatedPauseTicks >= 0"));
-            entity.HasMany(x => x.Players).WithOne(x => x.Session).HasForeignKey(x => x.SessionId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<GameSessionPlayerRecord>(entity =>
-        {
-            entity.HasKey(x => x.Id);
-            entity.Property(x => x.DisplayName).HasMaxLength(120).IsRequired();
-            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
-            entity.HasIndex(x => new { x.SessionId, x.DisplayName });
-            entity.ToTable(t => t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
-                "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0"));
-        });
     }
 }
