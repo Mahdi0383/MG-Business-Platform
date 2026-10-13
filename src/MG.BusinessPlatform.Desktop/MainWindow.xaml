@@ -1,0 +1,99 @@
+<Window x:Class="MG.BusinessPlatform.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MG Business Platform" Height="780" Width="1180" MinHeight="620" MinWidth="900"
+        WindowStartupLocation="CenterScreen" FlowDirection="RightToLeft" Background="#F3F5F9">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#17243B" Padding="22">
+            <StackPanel>
+                <TextBlock Text="MG Business Platform" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                <TextBlock Text="مدیریت فروشگاه، محصولات و سفارش‌های آنلاین" Foreground="#D5DDEA" Margin="0,6,0,0"/>
+            </StackPanel>
+        </Border>
+        <StatusBar DockPanel.Dock="Bottom" Background="White">
+            <TextBlock x:Name="StatusText" Text="در حال آماده‌سازی…" />
+        </StatusBar>
+        <TabControl Margin="14">
+            <TabItem Header="نمای کلی">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="18">
+                        <TextBlock Text="وضعیت سامانه" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                        <UniformGrid Columns="3" Rows="1">
+                            <Border Background="White" CornerRadius="12" Padding="18" Margin="5">
+                                <StackPanel><TextBlock Text="محصولات فعال" Foreground="#64748B"/><TextBlock x:Name="ProductCountText" Text="۰" FontSize="30" FontWeight="Bold" Margin="0,8"/></StackPanel>
+                            </Border>
+                            <Border Background="White" CornerRadius="12" Padding="18" Margin="5">
+                                <StackPanel><TextBlock Text="سفارش‌های ثبت‌شده" Foreground="#64748B"/><TextBlock x:Name="OrderCountText" Text="۰" FontSize="30" FontWeight="Bold" Margin="0,8"/></StackPanel>
+                            </Border>
+                            <Border Background="White" CornerRadius="12" Padding="18" Margin="5">
+                                <StackPanel><TextBlock Text="سرویس وب مشتریان" Foreground="#64748B"/><TextBlock x:Name="ServerStatusText" Text="متوقف" FontSize="24" FontWeight="Bold" Margin="0,8"/><StackPanel Orientation="Horizontal"><Button x:Name="StartServerButton" Content="راه‌اندازی وب" Click="StartServer_Click"/><Button x:Name="StopServerButton" Content="توقف وب" Click="StopServer_Click"/></StackPanel></StackPanel>
+                            </Border>
+                        </UniformGrid>
+                        <Border Background="White" CornerRadius="12" Padding="18" Margin="5,15,5,5">
+                            <StackPanel>
+                                <TextBlock Text="نشانی فروشگاه" FontWeight="SemiBold" FontSize="16"/>
+                                <TextBlock x:Name="StoreUrlText" Text="http://127.0.0.1:8080" Margin="0,8" FontSize="15"/>
+                                <TextBlock Text="برای انتشار عمومی دامنه، اتصال اینترنت قابل‌دسترسی و HTTPS معتبر لازم است. این نسخه وضعیت سرویس محلی را مدیریت می‌کند؛ انتشار عمومی تا تکمیل تنظیمات DNS، گواهی و تونل تأییدشده اعلام نمی‌شود." TextWrapping="Wrap" Foreground="#64748B"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="محصولات">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="SkuInput" Grid.Column="0" ToolTip="کد کالا" />
+                            <TextBox x:Name="NameInput" Grid.Column="1" ToolTip="نام محصول"/>
+                            <TextBox x:Name="PriceInput" Grid.Column="2" ToolTip="قیمت به واحد پول فروشگاه"/>
+                            <TextBox x:Name="StockInput" Grid.Column="3" ToolTip="موجودی"/>
+                            <Button Grid.Column="4" Content="افزودن محصول" Click="AddProduct_Click"/>
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="ProductsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="کد کالا" Binding="{Binding Sku}" Width="1.1*"/>
+                            <DataGridTextColumn Header="نام محصول" Binding="{Binding Name}" Width="2*"/>
+                            <DataGridTextColumn Header="قیمت" Binding="{Binding UnitPrice}" Width="*"/>
+                            <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
+                            <DataGridTextColumn Header="موجودی" Binding="{Binding StockQuantity}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <TabItem Header="سفارش‌های آنلاین">
+                <DataGrid x:Name="OrdersGrid" Margin="12" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="شماره سفارش" Binding="{Binding OrderNumber}" Width="1.5*"/>
+                        <DataGridTextColumn Header="نام مشتری" Binding="{Binding CustomerName}" Width="1.5*"/>
+                        <DataGridTextColumn Header="تماس" Binding="{Binding CustomerPhone}" Width="1.2*"/>
+                        <DataGridTextColumn Header="مبلغ کل" Binding="{Binding TotalAmount}" Width="*"/>
+                        <DataGridTextColumn Header="وضعیت" Binding="{Binding Status}" Width="*"/>
+                        <DataGridTextColumn Header="زمان ثبت" Binding="{Binding CreatedAt}" Width="1.6*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+            <TabItem Header="تنظیمات فروشگاه">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Background="White" CornerRadius="12" Padding="24" Margin="14" MaxWidth="760" HorizontalAlignment="Right">
+                        <StackPanel>
+                            <TextBlock Text="مشخصات فروشگاه" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                            <TextBlock Text="نام فروشگاه"/>
+                            <TextBox x:Name="StoreNameInput"/>
+                            <TextBlock Text="واحد پول (کد سه‌حرفی، مانند IRR یا USD)"/>
+                            <TextBox x:Name="CurrencyInput"/>
+                            <TextBlock Text="دامنه مشتریان (نام میزبان بدون https://، مانند shop.example.com)"/>
+                            <TextBox x:Name="HostnameInput"/>
+                            <CheckBox x:Name="OnlineOrdersInput" Content="فعال‌سازی ثبت سفارش آنلاین" Margin="8,12"/>
+                            <Button Content="ذخیره تنظیمات" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
+                            <TextBlock Text="ذخیره دامنه در این قسمت به‌تنهایی دامنه را در اینترنت منتشر نمی‌کند. راه‌اندازی DNS، گواهی HTTPS، دسترسی عمومی و در صورت نیاز تونل امن باید جداگانه با بررسی اتصال تأیید شود." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
