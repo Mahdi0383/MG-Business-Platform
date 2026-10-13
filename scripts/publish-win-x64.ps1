@@ -203,6 +203,15 @@ if ($isccCandidates.Count -gt 0) {
     $licenseInstallerScript = Join-Path $repoRoot "installer/MG-License-Manager.iss"
     & $iscc $licenseInstallerScript
     if ($LASTEXITCODE -ne 0) { throw "License manager installer packaging failed with exit code $LASTEXITCODE." }
+
+    $mainInstallerPath = Join-Path $artifactRoot "installer/MG-Business-Platform-Setup-win-x64.exe"
+    $licenseInstallerPath = Join-Path $artifactRoot "installer/MG-License-Manager-Setup-win-x64.exe"
+    foreach ($installerPath in @($mainInstallerPath, $licenseInstallerPath)) {
+        if (-not (Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
+        $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+        Set-Content -Path "$installerPath.sha256" -Value "$installerHash  $(Split-Path $installerPath -Leaf)" -Encoding ASCII
+        Write-Host "Installer SHA-256 ($([System.IO.Path]::GetFileName($installerPath))): $installerHash"
+    }
     Write-Host "Main application and separate license manager installers completed." -ForegroundColor Green
 } else {
     Write-Warning "Inno Setup is not installed. ZIP package is ready; installer EXE was not produced."
