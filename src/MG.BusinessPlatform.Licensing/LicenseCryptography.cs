@@ -60,6 +60,8 @@ public static class LicenseCryptography
             return new(LicenseValidationStatus.InvalidFormat, "License document is missing.");
         if (string.IsNullOrWhiteSpace(publicKeyPem))
             return new(LicenseValidationStatus.MissingPublicKey, "Trusted license public key is not configured.");
+        if (envelope.Payload is null || string.IsNullOrWhiteSpace(envelope.SignatureBase64))
+            return new(LicenseValidationStatus.InvalidFormat, "License document must contain a payload and signature.");
 
         LicensePayload payload;
         byte[] signature;
@@ -92,7 +94,7 @@ public static class LicenseCryptography
                     HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
                 return new(LicenseValidationStatus.InvalidSignature, "License signature is invalid.", payload);
         }
-        catch (CryptographicException ex)
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
         {
             return new(LicenseValidationStatus.InvalidSignature, $"License signature could not be verified: {ex.Message}", payload);
         }
