@@ -9,6 +9,7 @@ public sealed class StoreProduct
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal UnitPrice { get; set; }
+    public decimal UnitCost { get; set; }
     public string CurrencyCode { get; set; } = "IRR";
     public bool IsAvailable { get; set; } = true;
     public int StockQuantity { get; set; }
@@ -66,6 +67,20 @@ public sealed class CustomerOrder
     public List<CustomerOrderLine> Lines { get; set; } = [];
 }
 
+public sealed class StockMovementRecord
+{
+    public Guid Id { get; set; }
+    public Guid ProductId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public string MovementType { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public int SignedQuantity { get; set; }
+    public decimal UnitCost { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public string Reference { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+}
+
 public sealed class CustomerOrderLine
 {
     public Guid Id { get; set; }
@@ -74,6 +89,7 @@ public sealed class CustomerOrderLine
     public Guid ProductId { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public decimal UnitPrice { get; set; }
+    public decimal UnitCost { get; set; }
     public int Quantity { get; set; }
     public decimal LineTotal { get; set; }
 }
@@ -86,6 +102,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<StoreSettings> StoreSettings => Set<StoreSettings>();
     public DbSet<CustomerOrder> CustomerOrders => Set<CustomerOrder>();
     public DbSet<CustomerOrderLine> CustomerOrderLines => Set<CustomerOrderLine>();
+    public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -98,6 +115,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Description).HasMaxLength(2000);
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "CAST(UnitPrice AS NUMERIC) >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Cost", "CAST(UnitCost AS NUMERIC) >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
         });
 
@@ -153,12 +171,25 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<StockMovementRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.MovementType).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Reference).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Note).HasMaxLength(500).IsRequired();
+            entity.HasIndex(x => new { x.ProductId, x.OccurredAt });
+            entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_SignedQuantity", "SignedQuantity = Quantity OR SignedQuantity = -Quantity"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_UnitCost", "CAST(UnitCost AS NUMERIC) >= 0"));
+        });
+
         modelBuilder.Entity<CustomerOrderLine>(entity =>
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Quantity", "Quantity > 0"));
-            entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0"));
         });
     }
 }
