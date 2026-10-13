@@ -1033,7 +1033,7 @@ public partial class MainWindow : Window
             try
             {
                 await LoadSettingsAsync();
-                if (OnlineOrdersInput.IsChecked == true && !await IsStorefrontRunningAsync())
+                if (HasLicensedModule("Storefront") && OnlineOrdersInput.IsChecked == true && !await IsStorefrontRunningAsync())
                 {
                     StartServer_Click(this, new RoutedEventArgs());
                     for (var attempt = 0; attempt < 10 && !await IsStorefrontRunningAsync(); attempt++)
@@ -1042,7 +1042,7 @@ public partial class MainWindow : Window
 
                 await using var db = new BusinessDbContext(CreateOptions());
                 var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
-                if (settings.PublicPublicationEnabled && !string.IsNullOrWhiteSpace(settings.PublicHostname))
+                if (HasLicensedModule("Storefront") && settings.PublicPublicationEnabled && !string.IsNullOrWhiteSpace(settings.PublicHostname))
                     await _publicHostingManager.StartAsync(settings.PublicHostname);
                 await RefreshAsync();
             }
@@ -1096,6 +1096,12 @@ public partial class MainWindow : Window
 
     private async void StartPublicHosting_Click(object sender, RoutedEventArgs e)
     {
+        if (!HasLicensedModule("Storefront"))
+        {
+            PublicHostingStatusText.Text = "برای انتشار فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
         var hostname = HostnameInput.Text.Trim().TrimEnd('.').ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(hostname) || Uri.CheckHostName(hostname) != UriHostNameType.Dns)
         {
@@ -1202,6 +1208,10 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool HasLicensedModule(string module) =>
+        _machineLicenseInfo?.Validation.IsValid == true
+        && _machineLicenseInfo.Validation.Payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
+
     private async Task<bool> IsStorefrontRunningAsync()
     {
         if (_storefrontProcess is { HasExited: false })
@@ -1256,6 +1266,11 @@ public partial class MainWindow : Window
 
     private async void StartServer_Click(object sender, RoutedEventArgs e)
     {
+        if (!HasLicensedModule("Storefront"))
+        {
+            StatusText.Text = "برای راه‌اندازی فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
         if (await IsStorefrontRunningAsync())
         {
             StatusText.Text = "سرویس وب از قبل در حال اجراست.";
