@@ -260,7 +260,7 @@ public sealed record CreateOrderRequest(string CustomerName, string CustomerPhon
 public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity);
 public sealed record OrderCreatedResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
 
-public partial class Program;
+public partial class Program { }
 
 internal static class StorefrontHtml
 {
