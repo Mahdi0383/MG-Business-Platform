@@ -69,6 +69,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
         Assert.Contains("20261013010000_AddCustomerSupplierTables", appliedMigrations);
         Assert.Contains("20261013020000_AddStockMovementLedger", appliedMigrations);
+        Assert.Contains("20261013030000_AddAccountingLedger", appliedMigrations);
     }
 
     [Fact]
