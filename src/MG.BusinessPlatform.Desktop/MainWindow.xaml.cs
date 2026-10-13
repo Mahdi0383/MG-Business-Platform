@@ -86,6 +86,16 @@ public partial class MainWindow : Window
         Closed += (_, _) => _refreshTimer.Stop();
     }
 
+    private static Guid LoadOrCreateIdentity(string path)
+    {
+        if (File.Exists(path) && Guid.TryParse(File.ReadAllText(path).Trim(), out var existing) && existing != Guid.Empty)
+            return existing;
+
+        var created = Guid.NewGuid();
+        File.WriteAllText(path, created.ToString("D"));
+        return created;
+    }
+
     private DbContextOptions<BusinessDbContext> CreateOptions() =>
         new DbContextOptionsBuilder<BusinessDbContext>()
             .UseSqlite($"Data Source={_databasePath};Cache=Shared;Default Timeout=15")
@@ -205,6 +215,7 @@ public partial class MainWindow : Window
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
             OrdersGrid.ItemsSource = await db.CustomerOrders.AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync();
+            await RefreshGameSessionsAsync(db);
             ProductCountText.Text = (await db.StoreProducts.CountAsync(x => x.IsAvailable))
                 .ToString("N0", CultureInfo.GetCultureInfo("fa-IR"));
             OrderCountText.Text = (await db.CustomerOrders.CountAsync())
