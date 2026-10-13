@@ -142,7 +142,10 @@
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <Button Content="لغو سفارش انتخاب‌شده و بازگردانی موجودی" HorizontalAlignment="Right" Click="CancelOrder_Click"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="ثبت تحویل سفارش انتخاب‌شده" Click="FulfillOrder_Click"/>
+                        <Button Content="لغو سفارش انتخاب‌شده و بازگردانی موجودی" Click="CancelOrder_Click"/>
+                    </StackPanel>
                     <DataGrid x:Name="OrdersGrid" Grid.Row="1" Margin="0,8,0,0" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="شماره سفارش" Binding="{Binding OrderNumber}" Width="1.5*"/>
