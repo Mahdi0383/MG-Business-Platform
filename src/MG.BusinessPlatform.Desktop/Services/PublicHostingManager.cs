@@ -51,6 +51,17 @@ public sealed class PublicHostingManager
             return new(false, "دامنه در DNS پیدا نشد. رکورد A/AAAA را تنظیم کنید و دوباره تلاش کنید.");
         }
 
+        var dnsDiagnostic = string.Empty;
+        var dnsIpv4Addresses = addresses.Where(address => address.AddressFamily == AddressFamily.InterNetwork).ToArray();
+        if (dnsIpv4Addresses.Length > 0)
+        {
+            var publicIpv4 = await TryGetPublicIpv4Async(cancellationToken);
+            if (publicIpv4 is not null && !dnsIpv4Addresses.Contains(publicIpv4))
+                return new(false, $"رکورد A دامنه با IP عمومی فعلی این اتصال هم‌خوان نیست. IP عمومی فعلی: {publicIpv4}؛ رکوردهای دامنه: {string.Join(", ", dnsIpv4Addresses.Select(address => address.ToString()))}. ابتدا DNS را اصلاح کنید.");
+            if (publicIpv4 is null)
+                dnsDiagnostic = " نتوانستم IP عمومی را خودکار بررسی کنم؛ رکورد A را با IP عمومی فعلی اینترنت خود تطبیق دهید.";
+        }
+
         var caddyPath = FindCaddyExecutable();
         if (caddyPath is null)
             return new(false, "فایل caddy.exe همراه برنامه پیدا نشد؛ بسته انتشار ناقص است.");
@@ -116,7 +127,7 @@ public sealed class PublicHostingManager
                 return new(false, $"Caddy بلافاصله متوقف شد. بررسی کنید درگاه‌های 80 و 443 آزاد باشند. {log}");
             }
 
-            return new(true, "سرویس HTTPS شروع شد؛ دسترسی عمومی هنوز تأیید نشده است. DNS و انتقال درگاه‌های TCP 80 و 443 روتر را بررسی کنید.");
+            return new(true, $"سرویس HTTPS شروع شد؛ دسترسی عمومی هنوز تأیید نشده است.{dnsDiagnostic} DNS و انتقال درگاه‌های TCP 80 و 443 روتر را بررسی کنید.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
         {
@@ -183,6 +194,21 @@ public sealed class PublicHostingManager
             return "هنوز گزارش Caddy ثبت نشده است.";
         var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
         return string.Join(Environment.NewLine, lines.TakeLast(25));
+    }
+
+    private static async Task<IPAddress?> TryGetPublicIpv4Async(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var text = (await ProbeClient.GetStringAsync("https://api.ipify.org", cancellationToken)).Trim();
+            return IPAddress.TryParse(text, out var address)
+                && address.AddressFamily == AddressFamily.InterNetwork
+                && !IsNonPublicAddress(address)
+                ? address
+                : null;
+        }
+        catch (HttpRequestException) { return null; }
+        catch (TaskCanceledException) { return null; }
     }
 
     private static bool IsNonPublicAddress(IPAddress address)
