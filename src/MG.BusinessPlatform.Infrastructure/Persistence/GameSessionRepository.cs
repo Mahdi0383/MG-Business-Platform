@@ -85,6 +85,25 @@ public sealed class GameSessionRepository(BusinessDbContext db)
         return records.Select(Restore).ToArray();
     }
 
+    public async Task<IReadOnlyList<GameSession>> FindRecentAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "The recent-session limit must be between 1 and 1000.");
+
+        var records = await db.GameSessions.AsNoTracking()
+            .Include(x => x.Players)
+            .Where(x => x.Status == nameof(GameSessionStatus.Active)
+                || x.Status == nameof(GameSessionStatus.Paused)
+                || x.Status == nameof(GameSessionStatus.Completed))
+            .OrderByDescending(x => x.StartedAtUtc)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+        return records.Select(Restore).ToArray();
+    }
+
     private static GameSession Restore(GameSessionRecord record)
     {
         if (!Enum.TryParse<GameSessionStatus>(record.Status, ignoreCase: false, out var status))
