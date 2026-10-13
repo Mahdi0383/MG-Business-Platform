@@ -85,6 +85,80 @@ public sealed class SalesAccountingServiceTests
     }
 
     [Fact]
+    public async Task MultiLinePosSale_DeductsEachStockAndPostsOneBalancedInvoiceAtomically()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var first = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-MULTI-1", Name = "First item", UnitPrice = 100m,
+            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var second = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-MULTI-2", Name = "Second item", UnitPrice = 50m,
+            UnitCost = 20m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.AddRange(first, second);
+        await db.SaveChangesAsync();
+
+        var invoice = await new SalesAccountingService(db).CreatePosSaleAsync(
+            new[] { new PosSaleLineRequest(first.Id, 2), new PosSaleLineRequest(second.Id, 3) },
+            "Walk-in customer", "", "Cash", "", "", new DateOnly(2026, 10, 13));
+
+        Assert.Equal(350m, invoice.TotalAmount);
+        Assert.Equal(140m, invoice.CostTotal);
+        Assert.Equal(350m, invoice.PaidAmount);
+        Assert.Equal("Paid", invoice.Status);
+        Assert.Equal(2, invoice.Lines.Count);
+        Assert.Equal(3, await db.JournalEntries.CountAsync());
+        Assert.Equal(2, await db.StockMovements.CountAsync());
+        Assert.Equal(3, (await db.StoreProducts.SingleAsync(x => x.Id == first.Id)).StockQuantity);
+        Assert.Equal(4, (await db.StoreProducts.SingleAsync(x => x.Id == second.Id)).StockQuantity);
+        await AssertAllJournalEntriesBalancedAsync(db);
+    }
+
+    [Fact]
+    public async Task MultiLinePosSale_InsufficientStockRollsBackEveryLine()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var first = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-ROLLBACK-1", Name = "Available item", UnitPrice = 100m,
+            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var second = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-ROLLBACK-2", Name = "Low stock item", UnitPrice = 50m,
+            UnitCost = 20m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 1,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.AddRange(first, second);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new SalesAccountingService(db).CreatePosSaleAsync(
+            new[] { new PosSaleLineRequest(first.Id, 2), new PosSaleLineRequest(second.Id, 2) },
+            "Walk-in customer", "", "Cash", "", "", new DateOnly(2026, 10, 13)));
+
+        Assert.Equal(5, (await db.StoreProducts.SingleAsync(x => x.Id == first.Id)).StockQuantity);
+        Assert.Equal(1, (await db.StoreProducts.SingleAsync(x => x.Id == second.Id)).StockQuantity);
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+        Assert.Empty(await db.StockMovements.ToListAsync());
+        Assert.Empty(await db.SalesInvoices.ToListAsync());
+        Assert.Empty(await db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task PosSale_InvalidPaymentMethodRollsBackOrderAndStock()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
