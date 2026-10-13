@@ -65,7 +65,10 @@
                 </Grid>
             </TabItem>
             <TabItem Header="سفارش‌های آنلاین">
-                <DataGrid x:Name="OrdersGrid" Margin="12" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Button Content="لغو سفارش انتخاب‌شده و بازگردانی موجودی" HorizontalAlignment="Right" Click="CancelOrder_Click"/>
+                    <DataGrid x:Name="OrdersGrid" Grid.Row="1" Margin="0,8,0,0" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="شماره سفارش" Binding="{Binding OrderNumber}" Width="1.5*"/>
                         <DataGridTextColumn Header="نام مشتری" Binding="{Binding CustomerName}" Width="1.5*"/>
@@ -74,7 +77,8 @@
                         <DataGridTextColumn Header="وضعیت" Binding="{Binding Status}" Width="*"/>
                         <DataGridTextColumn Header="زمان ثبت" Binding="{Binding CreatedAt}" Width="1.6*"/>
                     </DataGrid.Columns>
-                </DataGrid>
+                    </DataGrid>
+                </Grid>
             </TabItem>
             <TabItem Header="تنظیمات فروشگاه">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
