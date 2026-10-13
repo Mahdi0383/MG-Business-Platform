@@ -12,6 +12,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Storefr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Desktop", "src\MG.BusinessPlatform.Desktop\MG.BusinessPlatform.Desktop.csproj", "{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Licensing", "src\MG.BusinessPlatform.Licensing\MG.BusinessPlatform.Licensing.csproj", "{6CAC71B0-616D-428F-94A8-7CDF86A6F006}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.LicenseTool", "src\MG.BusinessPlatform.LicenseTool\MG.BusinessPlatform.LicenseTool.csproj", "{7DBD82C1-727E-4390-A5B9-8DE097B7F107}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
