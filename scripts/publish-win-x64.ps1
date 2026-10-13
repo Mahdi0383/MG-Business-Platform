@@ -111,9 +111,11 @@ Write-Host "License manager package: $licenseToolZipPath"
 Write-Host "License manager SHA-256: $licenseToolSha"
 
 $isccCandidates = @(
-    (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
-    (Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Inno Setup 6/ISCC.exe")
-) | Where-Object { $_ -and (Test-Path $_) }
+    @(
+        (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
+        (Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Inno Setup 6/ISCC.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+)
 if ($isccCandidates.Count -gt 0) {
     New-Item -ItemType Directory -Path (Join-Path $artifactRoot "installer") -Force | Out-Null
     $iscc = $isccCandidates[0]
