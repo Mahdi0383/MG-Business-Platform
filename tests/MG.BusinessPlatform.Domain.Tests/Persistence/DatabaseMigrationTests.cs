@@ -37,11 +37,26 @@ public sealed class DatabaseMigrationTests
             StockQuantity = 8,
             UpdatedAt = DateTimeOffset.UtcNow
         });
+        db.Customers.Add(new CustomerRecord
+        {
+            Id = Guid.NewGuid(), DisplayName = "Test Customer", Phone = "0912", Email = string.Empty,
+            Address = string.Empty, CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+        });
+        db.Suppliers.Add(new SupplierRecord
+        {
+            Id = Guid.NewGuid(), DisplayName = "Test Supplier", Phone = "021", Email = string.Empty,
+            Address = string.Empty, TaxIdentifier = string.Empty, PaymentTerms = string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+        });
         await db.SaveChangesAsync();
 
         Assert.Equal("Test Store", (await db.StoreSettings.SingleAsync()).StoreName);
         Assert.Equal(123.45m, (await db.StoreProducts.SingleAsync()).UnitPrice);
-        Assert.Contains("20261013000000_InitialStorefrontSchema", await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal("Test Customer", (await db.Customers.SingleAsync()).DisplayName);
+        Assert.Equal("Test Supplier", (await db.Suppliers.SingleAsync()).DisplayName);
+        var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+        Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
+        Assert.Contains("20261013010000_AddCustomerSupplierTables", appliedMigrations);
     }
 
     [Fact]
