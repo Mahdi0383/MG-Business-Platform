@@ -15,7 +15,7 @@ This file distinguishes committed code from validated behavior. "Implemented" me
 - Caddy-based TLS reverse proxy lifecycle management and opt-in Windows firewall rule setup.
 - Unit, persistence, migration, backup/restore and storefront integration tests, plus sales accounting service tests for balanced journals, partial payments and overpayment rejection.
 - Windows CI and packaging scripts that build the main app, storefront and separate license-manager executable; create the main app installer and standalone license-manager installer; and emit ZIP packages with SHA-256 checksums.
-- RSA-PSS signed offline license payload generation/verification and automated tests for signatures, tampering, expiry, hardware binding and malformed documents.
+- Separate Persian RTL WPF License Manager GUI plus command-line tool, RSA-PSS signed offline license payload generation/verification, independent installer/ZIP packages, and automated tests for signatures, tampering, expiry, hardware binding and malformed documents.
 
 ## Not yet implemented to product scope
 
