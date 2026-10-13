@@ -97,7 +97,7 @@ public partial class MainWindow : Window
         _refreshTimer.Tick += async (_, _) =>
         {
             RefreshLicenseStatus();
-            await RefreshAsync();
+            await RefreshLiveStatusAsync();
         };
         Loaded += MainWindow_Loaded;
         Closed += (_, _) => _refreshTimer.Stop();
@@ -384,6 +384,23 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"خطا در به‌روزرسانی اطلاعات: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshLiveStatusAsync()
+    {
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await RefreshGameSessionsAsync(db);
+            var running = await IsStorefrontRunningAsync();
+            ServerStatusText.Text = running ? "در حال اجرا" : "متوقف";
+            StartServerButton.IsEnabled = !running;
+            StopServerButton.IsEnabled = running;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"خطا در به‌روزرسانی وضعیت زنده: {ex.Message}";
         }
     }
 
