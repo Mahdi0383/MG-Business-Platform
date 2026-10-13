@@ -71,7 +71,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(2000);
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
-            entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "UnitPrice >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "CAST(UnitPrice AS NUMERIC) >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
         });
 
@@ -97,7 +97,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Notes).HasMaxLength(1000);
             entity.Property(x => x.Status).HasMaxLength(30).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
-            entity.ToTable(t => t.HasCheckConstraint("CK_CustomerOrder_Total", "TotalAmount >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_CustomerOrder_Total", "CAST(TotalAmount AS NUMERIC) >= 0"));
             entity.HasMany(x => x.Lines).WithOne(x => x.Order).HasForeignKey(x => x.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
@@ -107,7 +107,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Quantity", "Quantity > 0"));
-            entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "UnitPrice >= 0 AND LineTotal >= 0"));
+            entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0"));
         });
     }
 }
