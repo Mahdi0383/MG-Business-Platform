@@ -11,6 +11,36 @@ namespace MG.BusinessPlatform.Domain.Tests.Storefront;
 public sealed class StorefrontOrderIntegrationTests
 {
     [Fact]
+    public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.CurrencyCode = "IRR";
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync("/api/storefront");
+        response.EnsureSuccessStatusCode();
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(json.RootElement.GetProperty("onlineOrderingEnabled").GetBoolean());
+        Assert.Equal("IRR", json.RootElement.GetProperty("currencyCode").GetString());
+
+        using var pageResponse = await client.GetAsync("/");
+        pageResponse.EnsureSuccessStatusCode();
+        Assert.Contains("frame-ancestors 'none'", pageResponse.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);
+        var html = await pageResponse.Content.ReadAsStringAsync();
+        Assert.Contains("!info.onlineOrderingEnabled", html, StringComparison.Ordinal);
+        Assert.Contains("fmt(total,info.currencyCode)", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("!info.OnlineOrderingEnabled", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PublicOrder_RecalculatesPriceAndRetryDoesNotDuplicateOrderOrStockDeduction()
     {
         await using var factory = new StorefrontTestFactory();

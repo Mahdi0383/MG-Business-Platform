@@ -54,15 +54,36 @@ internal static class LicenseTool
         Directory.CreateDirectory(Path.GetDirectoryName(privatePath)!);
         Directory.CreateDirectory(Path.GetDirectoryName(publicPath)!);
         var keys = LicenseCryptography.GenerateKeyPair();
-        File.WriteAllText(privatePath, keys.PrivateKeyPem);
+        var privateCreated = false;
+        var publicCreated = false;
         try
         {
-            File.WriteAllText(publicPath, keys.PublicKeyPem);
+            using (var stream = new FileStream(privatePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                privateCreated = true;
+                using var writer = new StreamWriter(stream);
+                writer.Write(keys.PrivateKeyPem);
+            }
+
+            using (var stream = new FileStream(publicPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                publicCreated = true;
+                using var writer = new StreamWriter(stream);
+                writer.Write(keys.PublicKeyPem);
+            }
         }
         catch
         {
-            try { File.Delete(privatePath); } catch (IOException) { }
-            try { if (File.Exists(publicPath)) File.Delete(publicPath); } catch (IOException) { }
+            // Remove only files created by this invocation. Never delete a pre-existing
+            // key if a CreateNew call loses a race.
+            if (privateCreated)
+            {
+                try { File.Delete(privatePath); } catch (IOException) { }
+            }
+            if (publicCreated)
+            {
+                try { File.Delete(publicPath); } catch (IOException) { }
+            }
             throw;
         }
 

@@ -46,6 +46,18 @@ public partial class App : System.Windows.Application
     {
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
+
+        // The startup-task entry point bypasses the normal desktop tab gating, so
+        // enforce the Storefront entitlement here before starting either web process.
+        var license = new LicenseService().LoadOrCreate(dataDirectory);
+        if (license.Validation is not { IsValid: true, Payload: { } payload }
+            || !payload.Modules.Contains("Storefront", StringComparer.Ordinal))
+        {
+            await File.AppendAllTextAsync(Path.Combine(dataDirectory, "publication-startup.log"),
+                $"{DateTimeOffset.UtcNow:O} Storefront auto-start skipped: a valid Storefront entitlement is required.{Environment.NewLine}");
+            return;
+        }
+
         var databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         var pidPath = Path.Combine(dataDirectory, "storefront.pid");
         var options = new DbContextOptionsBuilder<BusinessDbContext>()

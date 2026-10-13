@@ -63,16 +63,39 @@ public static class LicenseCryptography
         if (envelope.Payload is null || string.IsNullOrWhiteSpace(envelope.SignatureBase64))
             return new(LicenseValidationStatus.InvalidFormat, "License document must contain a payload and signature.");
 
-        LicensePayload payload;
+        var payload = envelope.Payload;
         byte[] signature;
         try
         {
-            payload = envelope.Payload.Validate();
             signature = Convert.FromBase64String(envelope.SignatureBase64);
+        }
+        catch (FormatException ex)
+        {
+            return new(LicenseValidationStatus.InvalidFormat, $"License signature encoding is invalid: {ex.Message}");
+        }
+
+        // Authenticate the deserialized payload before semantic validation or
+        // trusting any claim such as expiry, product ID, or device serial.
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(publicKeyPem);
+            if (rsa.KeySize < 2048 || !rsa.VerifyData(SerializePayload(payload), signature,
+                    HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
+                return new(LicenseValidationStatus.InvalidSignature, "License signature is invalid.");
+        }
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+        {
+            return new(LicenseValidationStatus.InvalidSignature, $"License signature could not be verified: {ex.Message}");
+        }
+
+        try
+        {
+            payload = payload.Validate();
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidDataException or FormatException)
         {
-            return new(LicenseValidationStatus.InvalidFormat, $"License payload is invalid: {ex.Message}");
+            return new(LicenseValidationStatus.InvalidFormat, $"Signed license payload is invalid: {ex.Message}");
         }
 
         if (!string.Equals(payload.ProductId, "MG-Business-Platform", StringComparison.Ordinal))
@@ -85,19 +108,6 @@ public static class LicenseCryptography
             return new(LicenseValidationStatus.NotYetValid, "License is not active yet.", payload);
         if (nowUtc.ToUniversalTime() >= payload.ExpiresAtUtc)
             return new(LicenseValidationStatus.Expired, "License has expired. Business data has not been modified.", payload);
-
-        try
-        {
-            using var rsa = RSA.Create();
-            rsa.ImportFromPem(publicKeyPem);
-            if (rsa.KeySize < 2048 || !rsa.VerifyData(SerializePayload(payload), signature,
-                    HashAlgorithmName.SHA256, RSASignaturePadding.Pss))
-                return new(LicenseValidationStatus.InvalidSignature, "License signature is invalid.", payload);
-        }
-        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
-        {
-            return new(LicenseValidationStatus.InvalidSignature, $"License signature could not be verified: {ex.Message}", payload);
-        }
 
         return new(LicenseValidationStatus.Valid, "License is valid.", payload);
     }
