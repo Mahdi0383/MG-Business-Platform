@@ -9,6 +9,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\MG.BusinessPlatform.Infrastructure\MG.BusinessPlatform.Infrastructure.csproj" />
     <ProjectReference Include="..\MG.BusinessPlatform.Licensing\MG.BusinessPlatform.Licensing.csproj" />
   </ItemGroup>

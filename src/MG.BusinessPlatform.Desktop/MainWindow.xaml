@@ -329,6 +329,15 @@
                                 <Button Content="تنظیم فایروال ویندوز" Click="ConfigureFirewall_Click"/>
                             </StackPanel>
                             <TextBlock x:Name="PublicHostingStatusText" Text="انتشار عمومی راه‌اندازی نشده است." TextWrapping="Wrap" Margin="4,8" Foreground="#334155"/>
+                            <Separator Margin="0,12,0,8"/>
+                            <TextBlock Text="لینک و QR سفارش آنلاین" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBox x:Name="StorefrontUrlInput" IsReadOnly="True" Margin="4,6" ToolTip="این لینک پس از تنظیم DNS و تأیید HTTPS برای مشتریان قابل استفاده است."/>
+                            <StackPanel Orientation="Horizontal" Margin="4,4">
+                                <Button Content="ساخت QR فروشگاه" Click="GenerateStorefrontQr_Click"/>
+                                <Button Content="ذخیره QR به صورت PNG" Click="SaveStorefrontQr_Click"/>
+                            </StackPanel>
+                            <Image x:Name="StorefrontQrImage" Width="220" Height="220" Stretch="Uniform" HorizontalAlignment="Right" Margin="4,8" Visibility="Collapsed"/>
+                            <TextBlock Text="QR فقط لینک را رمزگذاری می‌کند؛ قبل از چاپ، دسترسی دامنه را با اینترنت موبایل آزمایش کنید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,4,4,12"/>
                             <TextBlock Text="برای HTTPS عمومی، دامنه باید به IP عمومی این رایانه/روتر اشاره کند و TCP 80 و 443 باید از اینترنت به این رایانه هدایت شوند. Caddy گواهی معتبر را خودکار دریافت و تمدید می‌کند؛ شبکه‌های CGNAT یا محدودکننده ممکن است به تونل خروجی نیاز داشته باشند." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
                         </StackPanel>
                     </Border>

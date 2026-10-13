@@ -9,6 +9,8 @@ using System.Net;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
+using QRCoder;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Microsoft.EntityFrameworkCore;
@@ -1464,6 +1466,77 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             PublicHostingStatusText.Text = $"تنظیم فایروال ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async Task<(string Url, byte[] Png)> BuildStorefrontQrAsync()
+    {
+        if (!HasLicensedModule("Storefront"))
+            throw new InvalidOperationException("برای ساخت QR فروشگاه، لایسنس معتبر دارای ماژول Storefront لازم است.");
+
+        await using var db = new BusinessDbContext(CreateOptions());
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+        if (!settings.OnlineOrderingEnabled)
+            throw new InvalidOperationException("ابتدا ثبت سفارش آنلاین را فعال و تنظیمات را ذخیره کنید.");
+
+        var hostname = settings.PublicHostname.Trim().TrimEnd('.').ToLowerInvariant();
+        if (hostname.Length == 0 || Uri.CheckHostName(hostname) != UriHostNameType.Dns
+            || hostname.Any(c => char.IsControl(c) || c is '{' or '}' or '"' or '\\'))
+            throw new InvalidOperationException("ابتدا یک دامنه معتبر را در تنظیمات ذخیره کنید.");
+
+        var url = $"https://{hostname}/";
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q);
+        var png = new PngByteQRCode(data).GetGraphic(12);
+        return (url, png);
+    }
+
+    private async void GenerateStorefrontQr_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var qr = await BuildStorefrontQrAsync();
+            StorefrontUrlInput.Text = qr.Url;
+            using var stream = new MemoryStream(qr.Png);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            StorefrontQrImage.Source = bitmap;
+            StorefrontQrImage.Visibility = Visibility.Visible;
+            PublicHostingStatusText.Text = "QR ساخته شد. قبل از چاپ، دامنه و HTTPS را با اینترنت موبایل آزمایش کنید.";
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"ساخت QR ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void SaveStorefrontQr_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var qr = await BuildStorefrontQrAsync();
+            var dialog = new SaveFileDialog
+            {
+                Title = "ذخیره QR سفارش آنلاین",
+                Filter = "PNG image (*.png)|*.png",
+                DefaultExt = ".png",
+                AddExtension = true,
+                FileName = "MG-Storefront-QR.png"
+            };
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            await File.WriteAllBytesAsync(dialog.FileName, qr.Png);
+            StorefrontUrlInput.Text = qr.Url;
+            PublicHostingStatusText.Text = $"QR ذخیره شد: {dialog.FileName}. قبل از چاپ، دسترسی دامنه را با اینترنت موبایل تأیید کنید.";
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"ذخیره QR ناموفق بود: {ex.Message}";
         }
     }
 
