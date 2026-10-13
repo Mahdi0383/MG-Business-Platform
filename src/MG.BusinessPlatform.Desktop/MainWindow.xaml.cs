@@ -23,6 +23,11 @@ namespace MG.BusinessPlatform.Desktop;
 public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string CustomerName, string CustomerPhone,
     DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
 
+public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, string CurrencyCode)
+{
+    public decimal LineTotal => checked(UnitPrice * Quantity);
+}
+
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
     decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
 
@@ -61,6 +66,7 @@ public partial class MainWindow : Window
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
+    private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
@@ -79,7 +85,9 @@ public partial class MainWindow : Window
         _sessionBranchId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
         _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
         SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
+        PosCartGrid.ItemsSource = _posCartLines;
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
+        UpdatePosCartTotal();
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
@@ -330,6 +338,7 @@ public partial class MainWindow : Window
         CurrencyInput.Text = settings.CurrencyCode;
         HostnameInput.Text = settings.PublicHostname;
         OnlineOrdersInput.IsChecked = settings.OnlineOrderingEnabled;
+        UpdatePosCartTotal();
         StoreUrlText.Text = string.IsNullOrWhiteSpace(settings.PublicHostname)
             ? "http://127.0.0.1:8080"
             : $"دامنه ثبت‌شده: {settings.PublicHostname} — انتشار عمومی هنوز تأیید نشده است.";
@@ -877,29 +886,83 @@ public partial class MainWindow : Window
             PosProductInfoText.Text = "کالا و تعداد را انتخاب کنید.";
     }
 
-    private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
+    private void AddPosCartItem_Click(object sender, RoutedEventArgs e)
     {
         if (PosProductInput.SelectedItem is not StoreProduct product)
         {
-            StatusText.Text = "ابتدا کالای فروش حضوری را انتخاب کنید.";
+            StatusText.Text = "ابتدا کالا را انتخاب کنید.";
             return;
         }
-        var rawQuantity = PosQuantityInput.Text.Trim();
-        if ((!int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
-            && !int.TryParse(rawQuantity, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
+        var text = PosQuantityInput.Text.Trim();
+        if ((!int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
+            && !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
             || quantity < 1 || quantity > 10000)
         {
             StatusText.Text = "تعداد باید عدد صحیح بین ۱ تا ۱۰۰۰۰ باشد.";
             return;
         }
-        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string method)
+        if (!product.IsAvailable || product.StockQuantity <= 0)
+        {
+            StatusText.Text = "این کالا موجود یا قابل فروش نیست.";
+            return;
+        }
+        if (_posCartLines.Count > 0 && _posCartLines[0].CurrencyCode != product.CurrencyCode)
+        {
+            StatusText.Text = "واحد پول کالا با سبد فعلی متفاوت است.";
+            return;
+        }
+        var existing = _posCartLines.FirstOrDefault(x => x.ProductId == product.Id);
+        var combined = checked((existing?.Quantity ?? 0) + quantity);
+        if (combined > product.StockQuantity || combined > 10000)
+        {
+            StatusText.Text = $"موجودی «{product.Name}» کافی نیست؛ موجودی {product.StockQuantity} عدد است.";
+            return;
+        }
+        if (existing is not null) _posCartLines.Remove(existing);
+        _posCartLines.Add(new PosCartLineDraft(product.Id, product.Name, combined, product.UnitPrice, product.CurrencyCode));
+        UpdatePosCartTotal();
+        StatusText.Text = $"«{product.Name}» به سبد اضافه شد.";
+    }
+
+    private void RemovePosCartItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (PosCartGrid.SelectedItem is not PosCartLineDraft selected)
+        {
+            StatusText.Text = "برای حذف، یک ردیف از سبد را انتخاب کنید.";
+            return;
+        }
+        _posCartLines.Remove(selected);
+        UpdatePosCartTotal();
+    }
+
+    private void UpdatePosCartTotal()
+    {
+        try
+        {
+            var total = _posCartLines.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
+            var currency = _posCartLines.FirstOrDefault()?.CurrencyCode ?? CurrencyInput.Text.Trim();
+            PosCartTotalText.Text = $"مجموع سبد: {total:N2} {currency}";
+        }
+        catch (OverflowException)
+        {
+            PosCartTotalText.Text = "مجموع سبد خارج از محدوده مجاز است.";
+        }
+    }
+
+    private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
+    {
+        var cart = _posCartLines.ToArray();
+        if (cart.Length == 0)
+        {
+            StatusText.Text = "سبد فروش خالی است؛ ابتدا کالا اضافه کنید.";
+            return;
+        }
+        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string paymentMethod)
         {
             StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
             return;
         }
-
-        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text)
-            ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
+        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text) ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
         var customerPhone = PosCustomerPhoneInput.Text.Trim();
         if (customerName.Length > 160 || customerPhone.Length > 40)
         {
@@ -907,16 +970,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        decimal estimatedTotal;
-        try { estimatedTotal = checked(product.UnitPrice * quantity); }
+        decimal total;
+        try { total = cart.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal)); }
         catch (OverflowException)
         {
-            StatusText.Text = "مبلغ فروش خارج از محدوده قابل پشتیبانی است.";
+            StatusText.Text = "مجموع سبد خارج از محدوده مجاز است.";
             return;
         }
-
+        var summary = string.Join(Environment.NewLine, cart.Select(x => $"{x.ProductName} × {x.Quantity} = {x.LineTotal:N2} {x.CurrencyCode}"));
         if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
-            $"فروش {quantity} عدد از «{product.Name}» با مبلغ {estimatedTotal:N2} {product.CurrencyCode} ثبت می‌شود. موجودی کم، فاکتور صادر و دریافت وجه در حسابداری ثبت خواهد شد.",
+            $"{summary}{Environment.NewLine}مجموع: {total:N2} {cart[0].CurrencyCode}{Environment.NewLine}موجودی، فاکتور و دریافت وجه به‌صورت تراکنشی ثبت می‌شوند.",
             "ثبت فروش"))
             return;
 
@@ -924,8 +987,12 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
-            var invoice = await accounting.CreatePosSaleAsync(product.Id, quantity, customerName, customerPhone,
-                method, string.Empty, "POS checkout", DateOnly.FromDateTime(DateTime.Today));
+            var invoice = await accounting.CreatePosSaleAsync(
+                cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
+                customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
+                DateOnly.FromDateTime(DateTime.Today));
+            _posCartLines.Clear();
+            UpdatePosCartTotal();
             StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
