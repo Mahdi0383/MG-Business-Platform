@@ -69,12 +69,7 @@ app.UseRateLimiter();
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
-    await db.Database.MigrateAsync();
-    if (!await db.StoreSettings.AnyAsync())
-    {
-        db.StoreSettings.Add(new StoreSettings { Id = 1, StoreName = "فروشگاه شما", CurrencyCode = "IRR", OnlineOrderingEnabled = false, PublicHostname = string.Empty, UpdatedAt = DateTimeOffset.UtcNow });
-        await db.SaveChangesAsync();
-    }
+    await DatabaseInitializer.InitializeAsync(db);
 }
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
