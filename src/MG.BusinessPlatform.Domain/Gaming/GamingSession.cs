@@ -69,10 +69,10 @@ public sealed class GamingSession
         var materialized = players.ToArray();
         if (materialized.Length is < 1 or > 100)
             throw new ArgumentException("A gaming session requires between 1 and 100 players.", nameof(players));
-        if (materialized.Select(player => player.Id).Distinct().Count() != materialized.Length)
-            throw new ArgumentException("Player IDs must be unique within a session.", nameof(players));
         if (materialized.Any(player => player is null))
             throw new ArgumentException("Players cannot contain null values.", nameof(players));
+        if (materialized.Select(player => player.Id).Distinct().Count() != materialized.Length)
+            throw new ArgumentException("Player IDs must be unique within a session.", nameof(players));
 
         var currency = materialized[0].EntryFee.CurrencyCode;
         if (materialized.Any(player => player.EntryFee.CurrencyCode != currency))
@@ -96,6 +96,10 @@ public sealed class GamingSession
             (total, player) => total + player.CalculateTotal(effectiveEnd - StartedAt, billingIntervalMinutes, minimumChargeMinutes));
     }
 
-    public GamingSession Complete(DateTimeOffset endedAt) =>
-        new(Id, BranchId, StationId, GameName, StartedAt, _players, endedAt);
+    public GamingSession Complete(DateTimeOffset endedAt)
+    {
+        if (IsCompleted)
+            throw new InvalidOperationException("A completed gaming session cannot be completed again.");
+        return new GamingSession(Id, BranchId, StationId, GameName, StartedAt, _players, endedAt);
+    }
 }
