@@ -32,6 +32,51 @@ public sealed class PublicHostingManager
         _logPath = Path.Combine(_dataDirectory, "caddy.log");
     }
 
+    public async Task<PublicationResult> DiagnoseAsync(string hostname, CancellationToken cancellationToken = default)
+    {
+        hostname = NormalizeHostname(hostname);
+        if (hostname.Length == 0 || Uri.CheckHostName(hostname) != UriHostNameType.Dns
+            || hostname.Any(c => char.IsControl(c) || c is '{' or '}' or '"' or '\\'))
+            return new(false, "دامنه معتبر نیست. نام میزبان را بدون https:// وارد کنید.");
+
+        var details = new List<string> { $"دامنه: {hostname}" };
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(hostname, cancellationToken);
+            details.Add(addresses.Length == 0
+                ? "DNS: هیچ رکورد قابل حل A/AAAA پیدا نشد."
+                : $"DNS A/AAAA: {string.Join(", ", addresses.Select(address => address.ToString()).Distinct(StringComparer.Ordinal))}");
+            if (addresses.Any(IsNonPublicAddress))
+                details.Add("هشدار: یکی از رکوردها خصوصی/رزروشده است؛ برای دسترسی عمومی، رکوردهای عمومی معتبر لازم است.");
+        }
+        catch (SocketException)
+        {
+            addresses = [];
+            details.Add("DNS: نام میزبان حل نشد. در پنل ثبت‌کننده دامنه، رکورد A را تنظیم کنید و پس از انتشار DNS دوباره بررسی کنید.");
+        }
+
+        var publicIpv4 = await TryGetPublicIpv4Async(cancellationToken);
+        details.Add(publicIpv4 is null
+            ? "IP عمومی IPv4: به‌صورت خودکار دریافت نشد؛ اتصال اینترنت یا دسترسی به سرویس تشخیص IP را بررسی کنید."
+            : $"IP عمومی IPv4 فعلی: {publicIpv4}");
+
+        var dnsIpv4 = addresses.Where(address => address.AddressFamily == AddressFamily.InterNetwork).Distinct().ToArray();
+        if (publicIpv4 is not null && dnsIpv4.Length > 0)
+            details.Add(dnsIpv4.Contains(publicIpv4)
+                ? "تطبیق DNS با IP عمومی: موفق."
+                : "تطبیق DNS با IP عمومی: ناموفق؛ رکورد A باید به IP عمومی فعلی اشاره کند.");
+        else if (dnsIpv4.Length == 0)
+            details.Add("رکورد A عمومی IPv4 وجود ندارد یا هنوز منتشر نشده است.");
+
+        details.Add($"درگاه محلی TCP 80: {(IsTcpPortAvailable(80) ? "آزاد" : "اشغال")}");
+        details.Add($"درگاه محلی TCP 443: {(IsTcpPortAvailable(443) ? "آزاد" : "اشغال")}");
+        details.Add("روتر: انتقال TCP 80 و 443 به IP ثابت/رزروشده این رایانه باید در روتر تنظیم شود؛ برنامه نمی‌تواند بدون دسترسی مدیریتی روتر این کار را از راه دور انجام دهد.");
+        details.Add("CGNAT/محدودیت ISP: اگر IP WAN روتر با IP عمومی بالا متفاوت است یا انتقال درگاه کار نمی‌کند، از ISP IP عمومی بگیرید یا از VPS/تونل خروجی سازگار استفاده کنید.");
+        details.Add("امنیت: پوشه دیتابیس را در وب‌سرور منتشر نکنید؛ فقط API فروشگاه روی درگاه محلی 8080 باید پشت پراکسی HTTPS قرار بگیرد.");
+        return new(true, string.Join(Environment.NewLine, details));
+    }
+
     public async Task<PublicationResult> StartAsync(string hostname, CancellationToken cancellationToken = default)
     {
         hostname = NormalizeHostname(hostname);
