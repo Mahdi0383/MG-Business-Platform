@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Infrast
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Storefront", "src\MG.BusinessPlatform.Storefront\MG.BusinessPlatform.Storefront.csproj", "{4A9A5F9E-4F4B-406D-B296-5ABD64E4D004}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MG.BusinessPlatform.Desktop", "src\MG.BusinessPlatform.Desktop\MG.BusinessPlatform.Desktop.csproj", "{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,5 +34,9 @@ Global
 		{4A9A5F9E-4F4B-406D-B296-5ABD64E4D004}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4A9A5F9E-4F4B-406D-B296-5ABD64E4D004}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4A9A5F9E-4F4B-406D-B296-5ABD64E4D004}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5BAB60AF-505C-417E-C3A7-6BCE75F5E005}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
