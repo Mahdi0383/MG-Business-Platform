@@ -50,6 +50,70 @@ public sealed class SalesAccountingServiceTests
     }
 
     [Fact]
+    public async Task PosSale_DeductsStockIssuesInvoiceAndPostsFullPaymentAtomically()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-ITEM-1", Name = "POS item", UnitPrice = 100m,
+            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        var invoice = await new SalesAccountingService(db).CreatePosSaleAsync(
+            product.Id, 2, "Walk-in customer", "", "Cash", "", "",
+            new DateOnly(2026, 10, 13));
+
+        Assert.Equal(200m, invoice.TotalAmount);
+        Assert.Equal(80m, invoice.CostTotal);
+        Assert.Equal(200m, invoice.PaidAmount);
+        Assert.Equal("Paid", invoice.Status);
+        Assert.Equal(3, await db.JournalEntries.CountAsync());
+        Assert.Equal(1, await db.Payments.CountAsync());
+        Assert.Equal("Fulfilled", (await db.CustomerOrders.SingleAsync()).Status);
+        Assert.Equal(3, (await db.StoreProducts.SingleAsync()).StockQuantity);
+        var movement = await db.StockMovements.SingleAsync();
+        Assert.Equal(-2, movement.SignedQuantity);
+        Assert.Equal("PosSaleIssue", movement.MovementType);
+        await AssertAllJournalEntriesBalancedAsync(db);
+    }
+
+    [Fact]
+    public async Task PosSale_InvalidPaymentMethodRollsBackOrderAndStock()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-ITEM-2", Name = "POS item", UnitPrice = 100m,
+            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new SalesAccountingService(db).CreatePosSaleAsync(
+            product.Id, 2, "Walk-in customer", "", "Unsupported", "", "",
+            new DateOnly(2026, 10, 13)));
+
+        await db.Entry(product).ReloadAsync();
+        Assert.Equal(5, product.StockQuantity);
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+        Assert.Empty(await db.StockMovements.ToListAsync());
+        Assert.Empty(await db.SalesInvoices.ToListAsync());
+        Assert.Empty(await db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task Fulfillment_RejectsDuplicateInvoiceWithoutDuplicateJournals()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
