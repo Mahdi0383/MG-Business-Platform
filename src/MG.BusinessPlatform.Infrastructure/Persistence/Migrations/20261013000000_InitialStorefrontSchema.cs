@@ -105,7 +105,7 @@ public sealed class InitialStorefrontSchema : Migration
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
-        BusinessDbContextModelSnapshot.BuildModelCore(modelBuilder);
+        InitialStorefrontSchemaModel.BuildModel(modelBuilder);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
