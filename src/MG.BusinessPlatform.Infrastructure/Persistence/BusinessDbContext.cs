@@ -151,6 +151,7 @@ public sealed class GameSessionRecord
 public sealed class GameSessionPlayerRecord
 {
     public Guid Id { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
     public Guid GameSessionId { get; set; }
     public GameSessionRecord? Session { get; set; }
     public string DisplayName { get; set; } = string.Empty;
