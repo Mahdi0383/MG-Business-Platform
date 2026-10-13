@@ -80,9 +80,8 @@ public sealed class GameSessionRepository(BusinessDbContext db)
         var records = await db.GameSessions.AsNoTracking()
             .Include(x => x.Players)
             .Where(x => x.Status == nameof(GameSessionStatus.Active) || x.Status == nameof(GameSessionStatus.Paused))
-            .OrderBy(x => x.StartedAtUtc)
             .ToListAsync(cancellationToken);
-        return records.Select(Restore).ToArray();
+        return records.OrderBy(x => x.StartedAtUtc).Select(Restore).ToArray();
     }
 
     public async Task<IReadOnlyList<GameSession>> FindRecentAsync(
@@ -96,15 +95,17 @@ public sealed class GameSessionRepository(BusinessDbContext db)
             .Include(x => x.Players)
             .Where(x => x.Status == nameof(GameSessionStatus.Active)
                 || x.Status == nameof(GameSessionStatus.Paused))
-            .OrderByDescending(x => x.StartedAtUtc)
             .ToListAsync(cancellationToken);
 
-        var completedRecords = await db.GameSessions.AsNoTracking()
-            .Include(x => x.Players)
-            .Where(x => x.Status == nameof(GameSessionStatus.Completed))
+        // SQLite's EF provider cannot translate DateTimeOffset ordering. Sort these
+        // persisted UTC instants in memory instead of failing on real session data.
+        var completedRecords = (await db.GameSessions.AsNoTracking()
+                .Include(x => x.Players)
+                .Where(x => x.Status == nameof(GameSessionStatus.Completed))
+                .ToListAsync(cancellationToken))
             .OrderByDescending(x => x.StartedAtUtc)
             .Take(limit)
-            .ToListAsync(cancellationToken);
+            .ToArray();
 
         return openRecords.Concat(completedRecords)
             .OrderByDescending(x => x.StartedAtUtc)
