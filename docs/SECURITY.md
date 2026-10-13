@@ -38,6 +38,7 @@ The current implementation uses a JSON payload signed with RSA-PSS/SHA-256. The 
 - HTTPS, authentication, authorization, rate limits and request validation.
 - Behind the bundled Caddy reverse proxy, trust forwarded host/protocol/client-IP headers only from loopback proxy addresses; never trust arbitrary internet-supplied forwarded headers. Per-client rate limits must use the validated client IP.
 - No direct internet exposure of database files or database administration ports.
+- Treat the Windows installer and standalone License Manager installer as separate trust boundaries; only the issuing workstation should have access to the private signing key.
 - Secrets and signing keys are server-side only.
 - Idempotency and replay protection for payment/order endpoints.
 - Backups, monitoring, incident response and patching procedures.
