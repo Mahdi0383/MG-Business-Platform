@@ -266,6 +266,58 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<bool> IsStorefrontRunningAsync()
+    {
+        if (_storefrontProcess is { HasExited: false })
+            return true;
+        await TryAttachManagedProcessAsync();
+        if (_storefrontProcess is { HasExited: false })
+            return true;
+
+        try
+        {
+            using var response = await HealthClient.GetAsync("http://127.0.0.1:8080/health/live");
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException) { return false; }
+        catch (TaskCanceledException) { return false; }
+    }
+
+    private async Task TryAttachManagedProcessAsync()
+    {
+        if (_storefrontProcess is { HasExited: false } || !File.Exists(_storefrontPidPath))
+            return;
+
+        try
+        {
+            var text = await File.ReadAllTextAsync(_storefrontPidPath);
+            if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid))
+            {
+                File.Delete(_storefrontPidPath);
+                return;
+            }
+
+            var candidate = Process.GetProcessById(pid);
+            var baseDirectory = AppContext.BaseDirectory;
+            var expectedPaths = new[]
+            {
+                Path.Combine(baseDirectory, "storefront", "MG.BusinessPlatform.Storefront.exe"),
+                Path.Combine(baseDirectory, "MG.BusinessPlatform.Storefront.exe")
+            }.Where(File.Exists).Select(Path.GetFullPath).ToArray();
+            var actualPath = candidate.MainModule?.FileName;
+            if (actualPath is not null && expectedPaths.Contains(Path.GetFullPath(actualPath), StringComparer.OrdinalIgnoreCase))
+                _storefrontProcess = candidate;
+            else
+                candidate.Dispose();
+        }
+        catch (ArgumentException)
+        {
+            if (File.Exists(_storefrontPidPath)) File.Delete(_storefrontPidPath);
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        catch (InvalidOperationException) { }
+    }
+
     private async void StartServer_Click(object sender, RoutedEventArgs e)
     {
         if (await IsStorefrontRunningAsync())
