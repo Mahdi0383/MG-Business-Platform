@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
-public sealed record PosSaleLineRequest(Guid ProductId, int Quantity);
+public sealed record PosSaleLineRequest(Guid ProductId, int Quantity, decimal? ExpectedUnitPrice = null);
 
 public sealed class SalesAccountingService(BusinessDbContext db)
 {
@@ -165,6 +165,10 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         if (products.Count != ids.Length)
             throw new KeyNotFoundException("One or more POS products were not found.");
+        foreach (var requested in requestedLines)
+            if (requested.ExpectedUnitPrice is decimal expected && products[requested.ProductId].UnitPrice != expected)
+                throw new InvalidOperationException($"Price for '{products[requested.ProductId].Name}' changed. Refresh the cart and confirm the new total.");
+
         var ordered = ids.Select(id => products[id]).OrderBy(x => x.Sku, StringComparer.Ordinal).ToArray();
         var currency = ordered[0].CurrencyCode;
         decimal total = 0m;
