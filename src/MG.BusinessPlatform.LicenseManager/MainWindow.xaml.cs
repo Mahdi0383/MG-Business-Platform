@@ -21,69 +21,6 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) PrivateKeyPathInput.Text = dialog.FileName;
     }
 
-    private void BrowsePublicKey_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Title = "انتخاب کلید عمومی", Filter = "PEM files (*.pem)|*.pem|All files (*.*)|*.*" };
-        if (dialog.ShowDialog(this) == true) PublicKeyPathInput.Text = dialog.FileName;
-    }
-
-    private void GenerateKeys_Click(object sender, RoutedEventArgs e)
-    {
-        var privateDialog = new SaveFileDialog
-        {
-            Title = "ذخیره محرمانه کلید خصوصی",
-            FileName = "license-private.pem",
-            Filter = "PEM files (*.pem)|*.pem",
-            OverwritePrompt = true
-        };
-        if (privateDialog.ShowDialog(this) != true) return;
-
-        var publicDialog = new SaveFileDialog
-        {
-            Title = "ذخیره کلید عمومی",
-            FileName = "license-public.pem",
-            Filter = "PEM files (*.pem)|*.pem",
-            OverwritePrompt = true
-        };
-        if (publicDialog.ShowDialog(this) != true) return;
-        if (string.Equals(Path.GetFullPath(privateDialog.FileName), Path.GetFullPath(publicDialog.FileName), StringComparison.OrdinalIgnoreCase))
-        {
-            SetStatus("مسیر کلید خصوصی و عمومی باید متفاوت باشد.", false);
-            return;
-        }
-
-        try
-        {
-            if (File.Exists(privateDialog.FileName) || File.Exists(publicDialog.FileName))
-                throw new IOException("برای جلوگیری از جایگزینی تصادفی کلیدهای قبلی، مسیرهای جدید انتخاب کنید.");
-
-            var keys = LicenseCryptography.GenerateKeyPair(3072);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(privateDialog.FileName))!);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(publicDialog.FileName))!);
-            using (var stream = new FileStream(privateDialog.FileName, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            using (var writer = new StreamWriter(stream))
-                writer.Write(keys.PrivateKeyPem);
-            try
-            {
-                using var stream = new FileStream(publicDialog.FileName, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                using var writer = new StreamWriter(stream);
-                writer.Write(keys.PublicKeyPem);
-            }
-            catch
-            {
-                try { File.Delete(privateDialog.FileName); } catch (IOException) { }
-                throw;
-            }
-            PrivateKeyPathInput.Text = privateDialog.FileName;
-            PublicKeyPathInput.Text = publicDialog.FileName;
-            SetStatus("جفت‌کلید تولید شد. کلید خصوصی را به‌صورت آفلاین و با دسترسی محدود نگه دارید؛ آن را هرگز در برنامه مشتری یا مخزن کد قرار ندهید.", true);
-        }
-        catch (Exception ex)
-        {
-            SetStatus($"تولید کلید ناموفق بود: {ex.Message}", false);
-        }
-    }
-
     private void CopySoftwareSerial_Click(object sender, RoutedEventArgs e) => CopyText(SoftwareSerialInput.Text);
     private void CopyHardwareSerial_Click(object sender, RoutedEventArgs e) => CopyText(HardwareSerialInput.Text);
 
@@ -141,7 +78,11 @@ public partial class MainWindow : Window
                 MaxUsers = maxUsers
             }.Validate();
 
-            var envelope = LicenseCryptography.Sign(payload, File.ReadAllText(privateKeyPath));
+            var privateKeyPem = File.ReadAllText(privateKeyPath);
+            var trustedPublicKeyPem = LicenseCryptography.GetTrustedPublicKeyPem();
+            if (!LicenseCryptography.PrivateKeyMatchesPublicKey(privateKeyPem, trustedPublicKeyPem))
+                throw new CryptographicException("کلید خصوصی انتخاب‌شده با کلید ناشر تعبیه‌شده در برنامه مطابقت ندارد.");
+            var envelope = LicenseCryptography.Sign(payload, privateKeyPem);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             using (var stream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var writer = new StreamWriter(stream))
@@ -165,16 +106,16 @@ public partial class MainWindow : Window
     {
         try
         {
-            var publicKeyPath = RequirePath(PublicKeyPathInput.Text, "کلید عمومی");
             var licensePath = RequirePath(LicenseToVerifyPathInput.Text, "فایل لایسنس");
+            var trustedPublicKey = LicenseCryptography.GetTrustedPublicKeyPem();
             var envelope = LicenseCryptography.DeserializeEnvelope(File.ReadAllText(licensePath));
-            var result = LicenseCryptography.Verify(envelope, File.ReadAllText(publicKeyPath),
+            var result = LicenseCryptography.Verify(envelope, trustedPublicKey,
                 SoftwareSerialInput.Text.Trim(), HardwareSerialInput.Text.Trim(), DateTimeOffset.UtcNow);
             var details = result.Payload is null ? string.Empty :
                 $"\nمشتری: {result.Payload.CustomerName}\nشناسه: {result.Payload.LicenseId}\nانقضا: {result.Payload.ExpiresAtUtc:yyyy-MM-dd} UTC\nماژول‌ها: {string.Join(", ", result.Payload.Modules)}";
             SetStatus($"{result.Status}: {result.Message}{details}", result.IsValid);
         }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or FormatException or CryptographicException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or FormatException or CryptographicException or System.Text.Json.JsonException or InvalidOperationException)
         {
             SetStatus($"بررسی لایسنس ناموفق بود: {ex.Message}", false);
         }
