@@ -118,7 +118,7 @@ public sealed class GameSession
         if (billingIncrementMinutes is < 1 or > 60)
             throw new ArgumentOutOfRangeException(nameof(billingIncrementMinutes), "Billing increment must be between 1 and 60 minutes.");
 
-        var elapsedMinutes = (decimal)ElapsedAt(now).TotalMinutes;
+        var elapsedMinutes = ElapsedAt(now).Ticks / (decimal)TimeSpan.TicksPerMinute;
         if (elapsedMinutes == 0m || RatePerHour.Amount == 0m)
             return Money.Zero(RatePerHour.CurrencyCode);
 
