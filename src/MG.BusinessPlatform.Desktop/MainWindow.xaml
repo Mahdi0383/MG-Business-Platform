@@ -275,6 +275,21 @@
                     <Border Background="White" CornerRadius="12" Padding="24" Margin="14" MaxWidth="760" HorizontalAlignment="Right">
                         <StackPanel>
                             <TextBlock Text="مشخصات فروشگاه" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,14"/>
+                            <Separator Margin="0,4,0,8"/>
+                            <TextBlock Text="وضعیت فعال‌سازی" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="LicenseStatusText" Text="در حال بررسی لایسنس..." TextWrapping="Wrap" Margin="4,6"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,4">
+                                <TextBlock Text="سریال نرم‌افزار:" VerticalAlignment="Center" Width="120"/>
+                                <TextBox x:Name="SoftwareSerialText" IsReadOnly="True" Width="390"/>
+                                <Button Content="کپی" Click="CopySoftwareSerial_Click"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
+                                <TextBlock Text="سریال سخت‌افزار:" VerticalAlignment="Center" Width="120"/>
+                                <TextBox x:Name="HardwareSerialText" IsReadOnly="True" Width="390"/>
+                                <Button Content="کپی" Click="CopyHardwareSerial_Click"/>
+                            </StackPanel>
+                            <Button Content="بررسی مجدد لایسنس" HorizontalAlignment="Right" Click="RefreshLicenseStatus_Click"/>
+                            <TextBlock Text="برای فعال‌سازی آفلاین، کلید عمومی license-public-key.pem و فایل امضاشده license.json را در پوشه داده برنامه قرار دهید. کلید خصوصی صدور لایسنس را هرگز در رایانه مشتری یا داخل برنامه قرار ندهید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,8,4,12"/>
                             <TextBlock Text="نام فروشگاه"/>
                             <TextBox x:Name="StoreNameInput"/>
                             <TextBlock Text="واحد پول (کد سه‌حرفی، مانند IRR یا USD)"/>
