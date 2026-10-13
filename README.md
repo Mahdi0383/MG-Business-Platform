@@ -7,7 +7,8 @@ MG Business Platform is a Windows-first, offline-first business management platf
 ## Current implementation
 
 - Windows WPF management UI with product creation, storefront settings, online order list, order cancellation with stock restoration, and local web-host controls.
-- Local SQLite persistence with an initial EF Core migration.
+- Local SQLite persistence with versioned EF Core migrations, an inventory movement ledger, customers/suppliers, sales invoices, journal entries and payment records.
+- Consistent online SQLite backups, integrity checks and guarded restore with an automatic safety backup.
 - Customer-facing Persian RTL storefront, public product catalog, server-side price calculation, stock checks, order idempotency, request throttling, and basic security headers.
 - Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured.
 - Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
@@ -17,7 +18,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 - Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Router port forwarding is model-specific and currently requires the operator. CGNAT or blocked inbound ports requires a separate outbound tunnel/relay or public host; no universal tunnel is included.
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
-- The desktop app is not yet a full POS/accounting suite. General-ledger persistence/reporting, purchases, supplier/customer management, payments, receipt printing, multi-branch operation, specialized cafe/game-center workflows, and the separate license manager remain unfinished.
+- The desktop app is not yet a full POS/accounting suite. The current ledger covers web-order invoice fulfillment, COGS, cash/card/bank receipts and trial balance; full balance sheet/P&L/cash-flow statements, purchasing/payables, refunds, tax policies, receipt printing, multi-branch operation, full cafe/game-center workflows, and the separate license manager remain unfinished.
 - Schema migration and order flow tests are committed, but their success must be confirmed from the actual Windows CI run. No build or test is claimed as passed until verified.
 
 ## Build and test on Windows
