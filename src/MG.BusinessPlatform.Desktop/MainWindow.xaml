@@ -368,6 +368,7 @@
                         <Button Content="توقف موقت" Click="PauseGameSession_Click" Margin="3"/>
                         <Button Content="ادامه جلسه" Click="ResumeGameSession_Click" Margin="3"/>
                         <Button Content="پایان جلسه" Click="CompleteGameSession_Click" Margin="3"/>
+                        <Button Content="ایجاد فاکتور جلسه پایان‌یافته" Click="CreateGameSessionInvoice_Click" Margin="3"/>
                         <Button Content="به‌روزرسانی" Click="RefreshGameSessions_Click" Margin="3"/>
                     </StackPanel>
                     <DataGrid x:Name="GameSessionsGrid" Grid.Row="3" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
