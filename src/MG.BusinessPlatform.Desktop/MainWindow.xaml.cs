@@ -885,6 +885,44 @@ public partial class MainWindow : Window
             PosProductInfoText.Text = "کالا و تعداد را انتخاب کنید.";
     }
 
+    private void AddPosCartItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (PosProductInput.SelectedItem is not StoreProduct product)
+        {
+            StatusText.Text = "ابتدا کالا را انتخاب کنید.";
+            return;
+        }
+        var text = PosQuantityInput.Text.Trim();
+        if ((!int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
+            && !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
+            || quantity < 1 || quantity > 10000)
+        {
+            StatusText.Text = "تعداد باید عدد صحیح بین ۱ تا ۱۰۰۰۰ باشد.";
+            return;
+        }
+        if (!product.IsAvailable || product.StockQuantity <= 0)
+        {
+            StatusText.Text = "این کالا موجود یا قابل فروش نیست.";
+            return;
+        }
+        if (_posCartLines.Count > 0 && _posCartLines[0].CurrencyCode != product.CurrencyCode)
+        {
+            StatusText.Text = "واحد پول کالا با سبد فعلی متفاوت است.";
+            return;
+        }
+        var existing = _posCartLines.FirstOrDefault(x => x.ProductId == product.Id);
+        var combined = checked((existing?.Quantity ?? 0) + quantity);
+        if (combined > product.StockQuantity || combined > 10000)
+        {
+            StatusText.Text = $"موجودی «{product.Name}» کافی نیست؛ موجودی {product.StockQuantity} عدد است.";
+            return;
+        }
+        if (existing is not null) _posCartLines.Remove(existing);
+        _posCartLines.Add(new PosCartLineDraft(product.Id, product.Name, combined, product.UnitPrice, product.CurrencyCode));
+        UpdatePosCartTotal();
+        StatusText.Text = $"«{product.Name}» به سبد اضافه شد.";
+    }
+
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
         if (PosProductInput.SelectedItem is not StoreProduct product)
