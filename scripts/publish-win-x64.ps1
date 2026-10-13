@@ -10,6 +10,8 @@ $storefrontOutput = Join-Path $desktopOutput "storefront"
 $licenseToolOutput = Join-Path $publishRoot "license-tool"
 $zipPath = Join-Path $artifactRoot "MG-Business-Platform-win-x64.zip"
 $licenseToolZipPath = Join-Path $artifactRoot "MG-License-Manager-win-x64.zip"
+$mainSourceZipPath = Join-Path $artifactRoot "MG-Business-Platform-SOURCE.zip"
+$licenseSourceZipPath = Join-Path $artifactRoot "MG-License-Manager-SOURCE.zip"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET SDK 10 is required. Install the .NET 10 SDK and rerun this script."
@@ -113,11 +115,46 @@ Compress-Archive -Path (Join-Path $licenseToolOutput "*") -DestinationPath $lice
 $licenseToolSha = (Get-FileHash $licenseToolZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${licenseToolZipPath}.sha256" -Value "$licenseToolSha  $(Split-Path $licenseToolZipPath -Leaf)" -Encoding ASCII
 
+Write-Host "== Package source archives ==" -ForegroundColor Cyan
+$mainSourceItems = @(
+    "src", "tests", "docs", "scripts", "installer", "LICENSES",
+    "MG.BusinessPlatform.sln", "MG-License-Manager.sln", "global.json",
+    "README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+$licenseSourceItems = @(
+    "src/MG.BusinessPlatform.Licensing",
+    "src/MG.BusinessPlatform.LicenseTool",
+    "src/MG.BusinessPlatform.LicenseManager",
+    "MG-License-Manager.sln",
+    "global.json",
+    "docs/LICENSE_MANAGER.md",
+    "installer/MG-License-Manager.iss",
+    "LICENSES",
+    "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+
+Push-Location $repoRoot
+try {
+    if (Test-Path $mainSourceZipPath) { Remove-Item $mainSourceZipPath -Force }
+    Compress-Archive -Path $mainSourceItems -DestinationPath $mainSourceZipPath -CompressionLevel Optimal
+    if (Test-Path $licenseSourceZipPath) { Remove-Item $licenseSourceZipPath -Force }
+    Compress-Archive -Path $licenseSourceItems -DestinationPath $licenseSourceZipPath -CompressionLevel Optimal
+} finally {
+    Pop-Location
+}
+
+$mainSourceSha = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${mainSourceZipPath}.sha256" -Value "$mainSourceSha  $(Split-Path $mainSourceZipPath -Leaf)" -Encoding ASCII
+$licenseSourceSha = (Get-FileHash $licenseSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${licenseSourceZipPath}.sha256" -Value "$licenseSourceSha  $(Split-Path $licenseSourceZipPath -Leaf)" -Encoding ASCII
+
 Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Green
 Write-Host "Package: $zipPath"
 Write-Host "SHA-256: $sha"
 Write-Host "License manager package: $licenseToolZipPath"
 Write-Host "License manager SHA-256: $licenseToolSha"
+Write-Host "Main source archive: $mainSourceZipPath (SHA-256: $mainSourceSha)"
+Write-Host "License manager source archive: $licenseSourceZipPath (SHA-256: $licenseSourceSha)"
 
 $isccCandidates = @(
     @(
