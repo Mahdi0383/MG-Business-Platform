@@ -19,6 +19,9 @@ public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string Custo
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
     decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
 
+public sealed record FinancialStatementRow(string Statement, string AccountCode, string AccountName,
+    string AccountType, decimal Balance);
+
 public partial class MainWindow : Window
 {
     private readonly string _databasePath;
@@ -32,6 +35,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         TrialBalanceDateInput.SelectedDate = DateTime.Today;
+        FinancialToDateInput.SelectedDate = DateTime.Today;
+        FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
@@ -550,6 +555,72 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت دریافت وجه ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void CalculateFinancialStatements_Click(object sender, RoutedEventArgs e) =>
+        await CalculateFinancialStatementsAsync();
+
+    private async Task CalculateFinancialStatementsAsync()
+    {
+        try
+        {
+            var fromDate = DateOnly.FromDateTime(FinancialFromDateInput.SelectedDate ?? new DateTime(DateTime.Today.Year, 1, 1));
+            var toDate = DateOnly.FromDateTime(FinancialToDateInput.SelectedDate ?? DateTime.Today);
+            if (fromDate > toDate)
+            {
+                FinancialStatementTotalsText.Text = "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.";
+                return;
+            }
+
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            var ledgerAccounts = await db.LedgerAccounts.AsNoTracking().ToListAsync();
+            var journalRecords = await db.JournalEntries.AsNoTracking()
+                .Include(x => x.Lines)
+                .Where(x => x.EntryDate <= toDate && x.CurrencyCode == settings.CurrencyCode)
+                .ToListAsync();
+
+            var accounts = ledgerAccounts.Select(account => new MG.BusinessPlatform.Domain.Finance.Account(
+                account.Code, account.Name,
+                Enum.Parse<MG.BusinessPlatform.Domain.Finance.AccountType>(account.AccountType, ignoreCase: false),
+                isPostingAllowed: account.IsPostingAllowed, isActive: account.IsActive)).ToArray();
+
+            var entries = journalRecords.Select(entry => new MG.BusinessPlatform.Domain.Finance.JournalEntry(
+                entry.Id, entry.EntryDate, entry.Description,
+                entry.Lines.Select(line => new MG.BusinessPlatform.Domain.Finance.JournalLine(
+                    line.AccountCode, line.AccountName,
+                    Enum.Parse<MG.BusinessPlatform.Domain.Finance.EntrySide>(line.Side, ignoreCase: false),
+                    new MG.BusinessPlatform.Domain.Finance.Money(line.Amount, entry.CurrencyCode))))).ToArray();
+
+            var profitLoss = MG.BusinessPlatform.Domain.Finance.FinancialStatementCalculator.CalculateProfitAndLoss(
+                accounts, entries, fromDate, toDate, settings.CurrencyCode);
+            var balanceSheet = MG.BusinessPlatform.Domain.Finance.FinancialStatementCalculator.CalculateBalanceSheet(
+                accounts, entries, toDate, settings.CurrencyCode);
+
+            var rows = new List<FinancialStatementRow>();
+            rows.AddRange(profitLoss.RevenueLines.Select(line =>
+                new FinancialStatementRow("سود و زیان", line.AccountCode, line.AccountName, "درآمد", line.Balance.Amount)));
+            rows.AddRange(profitLoss.ExpenseLines.Select(line =>
+                new FinancialStatementRow("سود و زیان", line.AccountCode, line.AccountName, "هزینه", line.Balance.Amount)));
+            rows.AddRange(balanceSheet.AssetLines.Select(line =>
+                new FinancialStatementRow("ترازنامه", line.AccountCode, line.AccountName, "دارایی", line.Balance.Amount)));
+            rows.AddRange(balanceSheet.LiabilityLines.Select(line =>
+                new FinancialStatementRow("ترازنامه", line.AccountCode, line.AccountName, "بدهی", line.Balance.Amount)));
+            rows.AddRange(balanceSheet.EquityLines.Select(line =>
+                new FinancialStatementRow("ترازنامه", line.AccountCode, line.AccountName, "حقوق مالکانه", line.Balance.Amount)));
+            rows.Add(new FinancialStatementRow("ترازنامه", "EQ-CURRENT", "سود/زیان انباشته تا تاریخ گزارش",
+                "حقوق مالکانه", balanceSheet.AccumulatedEarnings.Amount));
+            FinancialStatementsGrid.ItemsSource = rows;
+
+            FinancialStatementTotalsText.Text =
+                $"سود و زیان ({fromDate:yyyy-MM-dd} تا {toDate:yyyy-MM-dd}) | درآمد: {profitLoss.TotalRevenue.Amount:N2} | هزینه: {profitLoss.TotalExpenses.Amount:N2} | سود/زیان خالص: {profitLoss.NetProfit.Amount:N2} {settings.CurrencyCode}\n" +
+                $"ترازنامه تا {toDate:yyyy-MM-dd} | دارایی: {balanceSheet.TotalAssets.Amount:N2} | بدهی: {balanceSheet.TotalLiabilities.Amount:N2} | حقوق مالکانه: {balanceSheet.TotalEquity.Amount:N2} | سود/زیان انباشته: {balanceSheet.AccumulatedEarnings.Amount:N2} | " +
+                (balanceSheet.IsBalanced ? "ترازنامه متوازن است." : "هشدار: ترازنامه نامتوازن است.");
+        }
+        catch (Exception ex)
+        {
+            FinancialStatementTotalsText.Text = $"محاسبه صورت‌های مالی ناموفق بود: {ex.Message}";
         }
     }
 
