@@ -660,8 +660,17 @@ public partial class MainWindow : Window
                     StatusText.Text = $"کالای سفارش «{line.ProductName}» پیدا نشد؛ برای جلوگیری از مغایرت، لغو انجام نشد.";
                     return;
                 }
-                product.StockQuantity = checked(product.StockQuantity + line.Quantity);
-                product.UpdatedAt = DateTimeOffset.UtcNow;
+                var restoredAt = DateTimeOffset.UtcNow;
+                var affected = await db.StoreProducts
+                    .Where(x => x.Id == product.Id && x.StockQuantity <= int.MaxValue - line.Quantity)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(x => x.StockQuantity, x => x.StockQuantity + line.Quantity)
+                        .SetProperty(x => x.UpdatedAt, restoredAt));
+                if (affected != 1)
+                {
+                    StatusText.Text = $"موجودی کالای «{line.ProductName}» هم‌زمان تغییر کرده یا از محدوده مجاز خارج می‌شود؛ لغو انجام نشد.";
+                    return;
+                }
                 db.StockMovements.Add(new StockMovementRecord
                 {
                     Id = Guid.NewGuid(),
