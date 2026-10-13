@@ -9,9 +9,138 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         DateOnly issueDate,
         CancellationToken cancellationToken = default)
     {
-        if (orderId == Guid.Empty) throw new ArgumentException("Order ID is required.", nameof(orderId));
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var invoice = await FulfillOrderCoreAsync(orderId, issueDate, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return invoice;
+    }
+
+    /// <summary>
+    /// Creates a walk-in POS order, deducts stock, issues its invoice, posts the sales/COGS
+    /// journals, and records full payment in one database transaction.
+    /// </summary>
+    public async Task<SalesInvoiceRecord> CreatePosSaleAsync(
+        Guid productId,
+        int quantity,
+        string customerName,
+        string customerPhone,
+        string paymentMethod,
+        string paymentReference,
+        string paymentNotes,
+        DateOnly saleDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (productId == Guid.Empty) throw new ArgumentException("Product ID is required.", nameof(productId));
+        if (quantity is < 1 or > 10000) throw new ArgumentOutOfRangeException(nameof(quantity));
+        if (string.IsNullOrWhiteSpace(customerName) || customerName.Trim().Length > 160)
+            throw new ArgumentException("Customer name is required and must not exceed 160 characters.", nameof(customerName));
+        ArgumentNullException.ThrowIfNull(customerPhone);
+        ArgumentNullException.ThrowIfNull(paymentMethod);
+        ArgumentNullException.ThrowIfNull(paymentReference);
+        ArgumentNullException.ThrowIfNull(paymentNotes);
+        if (customerPhone.Length > 40) throw new ArgumentOutOfRangeException(nameof(customerPhone));
+        if (paymentReference.Length > 100) throw new ArgumentOutOfRangeException(nameof(paymentReference));
+        if (paymentNotes.Length > 500) throw new ArgumentOutOfRangeException(nameof(paymentNotes));
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == productId, cancellationToken)
+            ?? throw new KeyNotFoundException("Product was not found.");
+        if (!product.IsAvailable)
+            throw new InvalidOperationException("The selected product is unavailable.");
+        if (product.StockQuantity < quantity)
+            throw new InvalidOperationException($"Insufficient stock. Available quantity: {product.StockQuantity}.");
+
+        var total = checked(product.UnitPrice * quantity);
+        var cost = checked(product.UnitCost * quantity);
+        var orderId = Guid.NewGuid();
+        var orderNumber = $"POS-{Guid.NewGuid():N}".ToUpperInvariant();
+        var order = new CustomerOrder
+        {
+            Id = orderId,
+            OrderNumber = orderNumber,
+            IdempotencyKey = $"POS-{Guid.NewGuid():N}".ToUpperInvariant(),
+            CustomerName = customerName.Trim(),
+            CustomerPhone = customerPhone.Trim(),
+            DeliveryAddress = string.Empty,
+            Notes = "POS sale",
+            Status = "Received",
+            CurrencyCode = product.CurrencyCode,
+            TotalAmount = total,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Lines =
+            [
+                new CustomerOrderLine
+                {
+                    Id = Guid.NewGuid(),
+                    OrderId = orderId,
+                    ProductId = product.Id,
+                    ProductName = product.Name,
+                    UnitPrice = product.UnitPrice,
+                    UnitCost = product.UnitCost,
+                    Quantity = quantity,
+                    LineTotal = total
+                }
+            ]
+        };
+
+        product.StockQuantity -= quantity;
+        product.UpdatedAt = DateTimeOffset.UtcNow;
+        db.CustomerOrders.Add(order);
+        db.StockMovements.Add(new StockMovementRecord
+        {
+            Id = Guid.NewGuid(),
+            ProductId = product.Id,
+            OccurredAt = DateTimeOffset.UtcNow,
+            MovementType = "PosSaleIssue",
+            Quantity = quantity,
+            SignedQuantity = -quantity,
+            UnitCost = product.UnitCost,
+            CurrencyCode = product.CurrencyCode,
+            Reference = orderNumber,
+            Note = "POS sale stock issue"
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+        var invoice = await FulfillOrderCoreAsync(orderId, saleDate, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (invoice.TotalAmount > 0m)
+        {
+            await RecordPaymentCoreAsync(invoice.Id, invoice.TotalAmount, paymentMethod, paymentReference,
+                paymentNotes, DateTimeOffset.UtcNow, saleDate, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return invoice;
+    }
+
+    public async Task<PaymentRecord> RecordPaymentAsync(
+        Guid invoiceId,
+        decimal amount,
+        string method,
+        string reference,
+        string notes,
+        DateTimeOffset occurredAt,
+        DateOnly entryDate,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var payment = await RecordPaymentCoreAsync(invoiceId, amount, method, reference, notes,
+            occurredAt, entryDate, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return payment;
+    }
+
+    private async Task<SalesInvoiceRecord> FulfillOrderCoreAsync(
+        Guid orderId,
+        DateOnly issueDate,
+        CancellationToken cancellationToken)
+    {
+        if (orderId == Guid.Empty) throw new ArgumentException("Order ID is required.", nameof(orderId));
+
         var order = await db.CustomerOrders.Include(x => x.Lines)
             .SingleOrDefaultAsync(x => x.Id == orderId, cancellationToken)
             ?? throw new KeyNotFoundException("Customer order was not found.");
@@ -39,6 +168,9 @@ public sealed class SalesAccountingService(BusinessDbContext db)
 
         var invoiceId = Guid.NewGuid();
         var invoiceNumber = $"INV-{order.OrderNumber}";
+        if (invoiceNumber.Length > 40)
+            invoiceNumber = $"INV-{order.Id:N}".ToUpperInvariant();
+
         var invoice = new SalesInvoiceRecord
         {
             Id = invoiceId,
@@ -87,12 +219,10 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         }
 
         order.Status = "Fulfilled";
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         return invoice;
     }
 
-    public async Task<PaymentRecord> RecordPaymentAsync(
+    private async Task<PaymentRecord> RecordPaymentCoreAsync(
         Guid invoiceId,
         decimal amount,
         string method,
@@ -100,7 +230,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         string notes,
         DateTimeOffset occurredAt,
         DateOnly entryDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         if (invoiceId == Guid.Empty) throw new ArgumentException("Invoice ID is required.", nameof(invoiceId));
         ArgumentNullException.ThrowIfNull(method);
@@ -118,7 +248,6 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             _ => throw new ArgumentException("Unsupported payment method.", nameof(method))
         };
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var invoice = await db.SalesInvoices.SingleOrDefaultAsync(x => x.Id == invoiceId, cancellationToken)
             ?? throw new KeyNotFoundException("Sales invoice was not found.");
         var outstanding = checked(invoice.TotalAmount - invoice.PaidAmount);
@@ -164,8 +293,6 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         invoice.Status = invoice.PaidAmount == invoice.TotalAmount ? "Paid" : "PartiallyPaid";
         db.JournalEntries.Add(entry);
         db.Payments.Add(payment);
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         return payment;
     }
 
