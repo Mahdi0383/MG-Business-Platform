@@ -38,6 +38,7 @@ internal static class GameSessionsSchemaModel
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.GameSessionPlayerRecord", b =>
         {
             b.Property<Guid>("Id").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
             b.Property<decimal>("AdditionalAmount").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
