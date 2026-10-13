@@ -283,6 +283,46 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ConfigureFirewall_Click(object sender, RoutedEventArgs e)
+    {
+        var scriptPath = Path.Combine(AppContext.BaseDirectory, "configure-firewall.ps1");
+        if (!File.Exists(scriptPath))
+        {
+            PublicHostingStatusText.Text = "اسکریپت تنظیم فایروال در بسته نصب پیدا نشد.";
+            return;
+        }
+
+        try
+        {
+            PublicHostingStatusText.Text = "برای افزودن قانون ورودی TCP 80 و 443، تأیید پنجره دسترسی مدیر ویندوز لازم است.";
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                PublicHostingStatusText.Text = "راه‌اندازی تنظیم فایروال ناموفق بود.";
+                return;
+            }
+            await process.WaitForExitAsync();
+            PublicHostingStatusText.Text = process.ExitCode == 0
+                ? "قانون فایروال برای TCP 80 و 443 تنظیم شد. انتقال درگاه‌ها در روتر همچنان باید بررسی شود."
+                : $"تنظیم فایروال با کد {process.ExitCode} ناموفق بود.";
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            PublicHostingStatusText.Text = "درخواست دسترسی مدیر لغو شد؛ فایروال تغییر نکرد.";
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"تنظیم فایروال ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void StartPublicHosting_Click(object sender, RoutedEventArgs e)
     {
         var hostname = HostnameInput.Text.Trim().TrimEnd('.').ToLowerInvariant();
@@ -344,7 +384,6 @@ public partial class MainWindow : Window
             PublicHostingStatusText.Text = verification.Success
                 ? "HTTPS عمومی از این رایانه تأیید شد. برای اطمینان نهایی، لینک را با اینترنت موبایل نیز آزمایش کنید."
                 : $"سرویس شروع شده ولی دسترسی عمومی تأیید نشد. {verification.Message}";
-            await LoadSettingsAsync();
         }
         catch (Exception ex)
         {
