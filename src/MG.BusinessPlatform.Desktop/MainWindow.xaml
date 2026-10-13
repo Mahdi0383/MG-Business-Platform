@@ -63,7 +63,7 @@
                             <Button Grid.Column="2" Content="اعمال اصلاح موجودی برای کالای انتخاب‌شده" Click="AdjustStock_Click"/>
                         </Grid>
                     </Border>
-                    <DataGrid x:Name="ProductsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White">
+                    <DataGrid x:Name="ProductsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White" SelectionChanged="ProductsGrid_SelectionChanged">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="کد کالا" Binding="{Binding Sku}" Width="1.1*"/>
                             <DataGridTextColumn Header="نام محصول" Binding="{Binding Name}" Width="2*"/>
@@ -71,7 +71,6 @@
                             <DataGridTextColumn Header="بهای واحد" Binding="{Binding UnitCost}" Width="*"/>
                             <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
                             <DataGridTextColumn Header="موجودی" Binding="{Binding StockQuantity}" Width="*"/>
-                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
                             <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
