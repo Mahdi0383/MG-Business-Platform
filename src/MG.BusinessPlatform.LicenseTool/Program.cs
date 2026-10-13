@@ -21,7 +21,7 @@ internal static class LicenseTool
                 case "keygen":
                     return GenerateKeys(args);
                 case "issue":
-                    return IssueLicense(args);
+                    return await IssueLicenseAsync(args);
                 case "verify":
                     return await VerifyLicenseAsync(args);
                 case "fingerprint":
@@ -62,6 +62,7 @@ internal static class LicenseTool
         catch
         {
             try { File.Delete(privatePath); } catch (IOException) { }
+            try { if (File.Exists(publicPath)) File.Delete(publicPath); } catch (IOException) { }
             throw;
         }
 
@@ -72,7 +73,7 @@ internal static class LicenseTool
         return 0;
     }
 
-    private static int IssueLicense(string[] args)
+    private static async Task<int> IssueLicenseAsync(string[] args)
     {
         if (args.Length is < 8 or > 10)
             throw new ArgumentException("Usage: issue <private-key.pem> <output.json> <software-serial> <hardware-serial> <customer-name> <expiry-yyyy-MM-dd> <modules-csv> [max-branches] [max-users]");
