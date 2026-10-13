@@ -33,6 +33,8 @@ public sealed class LicenseCryptographyTests
 
         Assert.True(LicenseCryptography.PrivateKeyMatchesPublicKey(first.PrivateKeyPem, first.PublicKeyPem));
         Assert.False(LicenseCryptography.PrivateKeyMatchesPublicKey(second.PrivateKeyPem, first.PublicKeyPem));
+        Assert.Throws<CryptographicException>(() =>
+            LicenseCryptography.PrivateKeyMatchesPublicKey(first.PublicKeyPem, first.PublicKeyPem));
     }
 
     [Fact]
