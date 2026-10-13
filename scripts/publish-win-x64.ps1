@@ -68,9 +68,25 @@ New-Item -ItemType Directory -Path $caddyDirectory -Force | Out-Null
 $caddyPath = Join-Path $caddyDirectory "caddy.exe"
 Copy-Item (Join-Path $repoRoot "LICENSES/Caddy-Apache-2.0.txt") (Join-Path $caddyDirectory "LICENSE.txt") -Force
 $caddyUri = "https://caddyserver.com/api/download?os=windows&arch=amd64"
-Invoke-WebRequest -Uri $caddyUri -OutFile $caddyPath -UseBasicParsing
-if (-not (Test-Path $caddyPath) -or (Get-Item $caddyPath).Length -lt 1MB) {
-    throw "Caddy download failed or returned an invalid file."
+$caddyDownloaded = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+        if (Test-Path $caddyPath) { Remove-Item $caddyPath -Force }
+        Invoke-WebRequest -Uri $caddyUri -OutFile $caddyPath -UseBasicParsing -TimeoutSec 90
+        if ((Test-Path $caddyPath) -and (Get-Item $caddyPath).Length -ge 1MB) {
+            $caddyDownloaded = $true
+            break
+        }
+        throw "Downloaded Caddy file is missing or smaller than 1 MB."
+    } catch {
+        if ($attempt -eq 3) {
+            throw "Caddy download failed after $attempt attempts: $($_.Exception.Message)"
+        }
+        Start-Sleep -Seconds 5
+    }
+}
+if (-not $caddyDownloaded) {
+    throw "Caddy download failed; refusing to package a build without the HTTPS reverse proxy."
 }
 $caddyVersion = & $caddyPath version
 if ($LASTEXITCODE -ne 0) { throw "Downloaded Caddy binary failed its version check." }
