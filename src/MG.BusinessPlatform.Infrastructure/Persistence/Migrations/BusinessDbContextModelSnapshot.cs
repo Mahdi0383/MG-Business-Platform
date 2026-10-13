@@ -70,12 +70,14 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<int>("StockQuantity").HasColumnType("INTEGER");
             b.Property<string>("Sku").IsRequired().HasMaxLength(80).HasColumnType("TEXT");
+            b.Property<decimal>("UnitCost").HasColumnType("TEXT");
             b.Property<decimal>("UnitPrice").HasColumnType("TEXT");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
             b.HasKey("Id");
             b.HasIndex("Sku").IsUnique();
             b.ToTable("StoreProducts", t =>
             {
+                t.HasCheckConstraint("CK_StoreProduct_Cost", "CAST(UnitCost AS NUMERIC) >= 0");
                 t.HasCheckConstraint("CK_StoreProduct_Price", "CAST(UnitPrice AS NUMERIC) >= 0");
                 t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0");
             });
@@ -100,6 +102,28 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.ToTable("CustomerOrders", t => t.HasCheckConstraint("CK_CustomerOrder_Total", "CAST(TotalAmount AS NUMERIC) >= 0"));
         });
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StockMovementRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
+            b.Property<string>("MovementType").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("OccurredAt").HasColumnType("TEXT");
+            b.Property<string>("Note").IsRequired().HasMaxLength(500).HasColumnType("TEXT");
+            b.Property<Guid>("ProductId").HasColumnType("TEXT");
+            b.Property<string>("Reference").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
+            b.Property<int>("Quantity").HasColumnType("INTEGER");
+            b.Property<int>("SignedQuantity").HasColumnType("INTEGER");
+            b.Property<decimal>("UnitCost").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("ProductId", "OccurredAt");
+            b.ToTable("StockMovements", t =>
+            {
+                t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0");
+                t.HasCheckConstraint("CK_StockMovement_SignedQuantity", "SignedQuantity = Quantity OR SignedQuantity = -Quantity");
+                t.HasCheckConstraint("CK_StockMovement_UnitCost", "CAST(UnitCost AS NUMERIC) >= 0");
+            });
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -108,12 +132,13 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("ProductName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<int>("Quantity").HasColumnType("INTEGER");
             b.Property<decimal>("LineTotal").HasColumnType("TEXT");
+            b.Property<decimal>("UnitCost").HasColumnType("TEXT");
             b.Property<decimal>("UnitPrice").HasColumnType("TEXT");
             b.HasKey("Id");
             b.HasIndex("OrderId");
             b.ToTable("CustomerOrderLines", t =>
             {
-                t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0");
+                t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0");
                 t.HasCheckConstraint("CK_OrderLine_Quantity", "Quantity > 0");
             });
         });
