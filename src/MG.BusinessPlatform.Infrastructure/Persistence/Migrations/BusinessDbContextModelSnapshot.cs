@@ -8,7 +8,9 @@ namespace MG.BusinessPlatform.Infrastructure.Persistence.Migrations;
 [DbContext(typeof(BusinessDbContext))]
 public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
 {
-    protected override void BuildModel(ModelBuilder modelBuilder)
+    protected override void BuildModel(ModelBuilder modelBuilder) => BuildModelCore(modelBuilder);
+
+    internal static void BuildModelCore(ModelBuilder modelBuilder)
     {
         modelBuilder
             .HasAnnotation("ProductVersion", "10.0.0")
