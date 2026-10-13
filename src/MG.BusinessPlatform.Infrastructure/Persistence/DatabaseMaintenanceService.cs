@@ -53,6 +53,8 @@ public sealed class DatabaseMaintenanceService
             throw new FileNotFoundException("Backup file was not found.", backup);
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        if (File.Exists(target + "-wal") || File.Exists(target + "-shm"))
+            throw new InvalidOperationException("SQLite sidecar files still exist. Stop every process using the database before restoring.");
         var temporaryPath = target + ".restore-" + Guid.NewGuid().ToString("N");
         string? safetyBackupPath = null;
         try
