@@ -119,6 +119,21 @@ Compress-Archive -Path (Join-Path $licenseToolOutput "*") -DestinationPath $lice
 $licenseToolSha = (Get-FileHash $licenseToolZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${licenseToolZipPath}.sha256" -Value "$licenseToolSha  $(Split-Path $licenseToolZipPath -Leaf)" -Encoding ASCII
 
+function Copy-SourceTree {
+    param([string]$SourcePath, [string]$DestinationPath)
+
+    $excludedDirectoryNames = @("bin", "obj", ".vs", ".git", "TestResults", "artifacts", "node_modules", "coverage")
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    foreach ($entry in Get-ChildItem -LiteralPath $SourcePath -Force) {
+        if ($entry.PSIsContainer) {
+            if ($excludedDirectoryNames -contains $entry.Name) { continue }
+            Copy-SourceTree -SourcePath $entry.FullName -DestinationPath (Join-Path $DestinationPath $entry.Name)
+        } else {
+            Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $DestinationPath $entry.Name) -Force
+        }
+    }
+}
+
 function New-SourceArchive {
     param(
         [Parameter(Mandatory = $true)][string[]]$RelativePaths,
@@ -135,7 +150,7 @@ function New-SourceArchive {
             $stagedPath = Join-Path $stagingRoot $relativePath
             if (Test-Path $sourcePath -PathType Container) {
                 New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
-                Copy-Item $sourcePath $stagedPath -Recurse -Force
+                Copy-SourceTree -SourcePath $sourcePath -DestinationPath $stagedPath
             } else {
                 New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
                 Copy-Item $sourcePath $stagedPath -Force

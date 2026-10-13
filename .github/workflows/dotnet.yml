@@ -70,6 +70,27 @@ jobs:
           if (-not (Test-Path "artifacts/MG-License-Manager-SOURCE.zip.sha256")) {
             throw "License manager source ZIP checksum was not produced."
           }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $excludedArchiveSegments = @("bin", "obj", ".vs", ".git", "TestResults", "artifacts", "node_modules", "coverage")
+          foreach ($sourceArchivePath in @("artifacts/MG-Business-Platform-SOURCE.zip", "artifacts/MG-License-Manager-SOURCE.zip")) {
+            if ((Get-Item $sourceArchivePath).Length -gt 50MB) {
+              throw "Source archive is unexpectedly large: $sourceArchivePath"
+            }
+            $sourceArchive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $sourceArchivePath).Path)
+            try {
+              foreach ($entry in $sourceArchive.Entries) {
+                foreach ($segment in $entry.FullName.Split('/')) {
+                  if ($excludedArchiveSegments -contains $segment) {
+                    throw "Source archive includes generated content: $($entry.FullName)"
+                  }
+                }
+              }
+            } finally {
+              $sourceArchive.Dispose()
+            }
+          }
+
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe")) {
             throw "Separate license manager installer EXE was not produced."
           }
