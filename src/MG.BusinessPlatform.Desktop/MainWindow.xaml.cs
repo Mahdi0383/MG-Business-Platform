@@ -439,6 +439,43 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void FulfillOrder_Click(object sender, RoutedEventArgs e)
+    {
+        if (OrdersGrid.SelectedItem is not CustomerOrder selected)
+        {
+            StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
+            return;
+        }
+        if (!ConfirmationDialog.Confirm(this, "ثبت تحویل سفارش",
+            "با ثبت تحویل، سفارش از فهرست سفارش‌های در انتظار خارج می‌شود. این عملیات پرداخت یا سند حسابداری ثبت نمی‌کند.",
+            "ثبت تحویل"))
+            return;
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var order = await db.CustomerOrders.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (order is null)
+            {
+                StatusText.Text = "سفارش پیدا نشد؛ فهرست را تازه‌سازی کنید.";
+                return;
+            }
+            if (!string.Equals(order.Status, "Received", StringComparison.Ordinal))
+            {
+                StatusText.Text = "فقط سفارش‌های دریافت‌شده و تحویل‌نشده قابل تکمیل هستند.";
+                return;
+            }
+            order.Status = "Fulfilled";
+            await db.SaveChangesAsync();
+            StatusText.Text = "تحویل سفارش ثبت شد. پرداخت و حسابداری باید جداگانه ثبت شوند.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت تحویل سفارش ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void CancelOrder_Click(object sender, RoutedEventArgs e)
     {
         if (OrdersGrid.SelectedItem is not CustomerOrder selected)
