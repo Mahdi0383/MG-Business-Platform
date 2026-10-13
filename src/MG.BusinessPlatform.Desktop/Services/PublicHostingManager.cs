@@ -74,7 +74,7 @@ public sealed class PublicHostingManager
             var existingConfig = File.Exists(_configPath)
                 ? await File.ReadAllTextAsync(_configPath, cancellationToken)
                 : string.Empty;
-            if (existingConfig.Contains($"\\n{hostname} {{", StringComparison.Ordinal))
+            if (existingConfig.Contains($"{Environment.NewLine}{hostname} {{", StringComparison.Ordinal))
                 return new(true, "سرویس انتشار HTTPS همین دامنه از قبل در حال اجراست.");
 
             // Do not leave an old domain serving the storefront after the configured
