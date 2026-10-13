@@ -19,6 +19,7 @@ public sealed class AddGameSessions : Migration
                 BranchId = table.Column<Guid>(type: "TEXT", nullable: false),
                 DeviceId = table.Column<Guid>(type: "TEXT", nullable: false),
                 GameName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
+                CreatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
                 RatePerHour = table.Column<decimal>(type: "TEXT", nullable: false),
                 CurrencyCode = table.Column<string>(type: "TEXT", maxLength: 3, nullable: false),
                 StartedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
@@ -41,7 +42,8 @@ public sealed class AddGameSessions : Migration
             columns: table => new
             {
                 Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                GameSessionId = table.Column<Guid>(type: "TEXT", nullable: false),
+                SessionId = table.Column<Guid>(type: "TEXT", nullable: false),
+                CreatedAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
                 DisplayName = table.Column<string>(type: "TEXT", maxLength: 120, nullable: false),
                 EntryAmount = table.Column<decimal>(type: "TEXT", nullable: false),
                 TimeCharge = table.Column<decimal>(type: "TEXT", nullable: false),
@@ -53,13 +55,14 @@ public sealed class AddGameSessions : Migration
                 table.PrimaryKey("PK_GameSessionPlayers", x => x.Id);
                 table.CheckConstraint("CK_GameSessionPlayer_Amounts",
                     "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0");
-                table.ForeignKey("FK_GameSessionPlayers_GameSessions_GameSessionId", x => x.GameSessionId,
+                table.ForeignKey("FK_GameSessionPlayers_GameSessions_SessionId", x => x.SessionId,
                     "GameSessions", "Id", onDelete: ReferentialAction.Cascade);
             });
 
-        migrationBuilder.CreateIndex("IX_GameSessions_BranchId_StartedAtUtc", "GameSessions", new[] { "BranchId", "StartedAtUtc" });
-        migrationBuilder.CreateIndex("IX_GameSessions_DeviceId_Status", "GameSessions", new[] { "DeviceId", "Status" });
-        migrationBuilder.CreateIndex("IX_GameSessionPlayers_GameSessionId", "GameSessionPlayers", "GameSessionId");
+        migrationBuilder.CreateIndex("IX_GameSessions_Status_StartedAtUtc", "GameSessions", new[] { "Status", "StartedAtUtc" });
+        migrationBuilder.CreateIndex("IX_GameSessions_BranchId_DeviceId_Status", "GameSessions", new[] { "BranchId", "DeviceId", "Status" });
+        
+        migrationBuilder.CreateIndex("IX_GameSessionPlayers_SessionId_DisplayName", "GameSessionPlayers", new[] { "SessionId", "DisplayName" });
     }
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
