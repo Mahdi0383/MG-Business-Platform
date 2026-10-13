@@ -14,6 +14,7 @@ public sealed class SalesAccountingServiceTests
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
         await DatabaseInitializer.InitializeAsync(db);
+        Assert.Equal(10, await db.LedgerAccounts.CountAsync());
         var orderId = await SeedOrderAsync(db, total: 200m, unitCost: 40m, quantity: 2);
         var service = new SalesAccountingService(db);
 
