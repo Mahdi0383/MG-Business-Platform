@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Windows;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Desktop.Services;
 
 namespace MG.BusinessPlatform.Desktop;
 
@@ -52,36 +53,49 @@ public partial class App : System.Windows.Application
         if (!settings.OnlineOrderingEnabled)
             return;
 
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-        try
+        var localRunning = false;
+        using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) })
         {
-            using var response = await client.GetAsync("http://127.0.0.1:8080/health/live");
-            if (response.IsSuccessStatusCode)
-                return;
+            try
+            {
+                using var response = await client.GetAsync("http://127.0.0.1:8080/health/live");
+                localRunning = response.IsSuccessStatusCode;
+            }
+            catch (HttpRequestException) { }
+            catch (TaskCanceledException) { }
         }
-        catch (HttpRequestException) { }
-        catch (TaskCanceledException) { }
 
         var baseDirectory = AppContext.BaseDirectory;
-        var candidates = new[]
+        if (!localRunning)
         {
-            Path.Combine(baseDirectory, "storefront", "MG.BusinessPlatform.Storefront.exe"),
-            Path.Combine(baseDirectory, "MG.BusinessPlatform.Storefront.exe")
-        };
-        var executable = candidates.FirstOrDefault(File.Exists);
-        if (executable is null)
-            return;
+            var candidates = new[]
+            {
+                Path.Combine(baseDirectory, "storefront", "MG.BusinessPlatform.Storefront.exe"),
+                Path.Combine(baseDirectory, "MG.BusinessPlatform.Storefront.exe")
+            };
+            var executable = candidates.FirstOrDefault(File.Exists);
+            if (executable is not null)
+            {
+                var start = new ProcessStartInfo(executable)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(executable)!,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                start.Environment["MG_BUSINESS_DB_PATH"] = databasePath;
+                start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:8080";
+                using var process = Process.Start(start);
+                if (process is not null)
+                    await File.WriteAllTextAsync(pidPath, process.Id.ToString(CultureInfo.InvariantCulture));
+            }
+        }
 
-        var start = new ProcessStartInfo(executable)
+        if (settings.PublicPublicationEnabled && !string.IsNullOrWhiteSpace(settings.PublicHostname))
         {
-            WorkingDirectory = Path.GetDirectoryName(executable)!,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        start.Environment["MG_BUSINESS_DB_PATH"] = databasePath;
-        start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:8080";
-        using var process = Process.Start(start);
-        if (process is not null)
-            await File.WriteAllTextAsync(pidPath, process.Id.ToString(CultureInfo.InvariantCulture));
+            var hosting = new PublicHostingManager(baseDirectory, dataDirectory);
+            var result = await hosting.StartAsync(settings.PublicHostname);
+            await File.AppendAllTextAsync(Path.Combine(dataDirectory, "publication-startup.log"),
+                $"{DateTimeOffset.UtcNow:O} {result.Message}{Environment.NewLine}");
+        }
     }
 }
