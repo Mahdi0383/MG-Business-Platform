@@ -33,7 +33,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 .\scripts\publish-win-x64.ps1
 ```
 
-The script restores, builds, runs automated tests, publishes self-contained Windows x64 executables for the desktop app, storefront and separate license manager, downloads the official Caddy binary, creates separate ZIP packages with SHA-256 checksums, and creates two installers when Inno Setup 6 is installed.
+The script restores, builds, runs automated tests, publishes self-contained Windows x64 executables for the desktop app, storefront and separate license manager, downloads the official Caddy binary, creates portable packages and separate main/license-manager source ZIPs with SHA-256 checksums, and creates two installers when Inno Setup 6 is installed.
 
 The expected Windows artifacts are:
 - `artifacts/MG-Business-Platform-win-x64.zip`
