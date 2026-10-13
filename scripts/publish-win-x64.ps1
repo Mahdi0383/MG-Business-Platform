@@ -49,6 +49,8 @@ if (-not (Test-Path (Join-Path $storefrontOutput "MG.BusinessPlatform.Storefront
     throw "Storefront executable was not produced."
 }
 
+Copy-Item (Join-Path $PSScriptRoot "configure-firewall.ps1") (Join-Path $desktopOutput "configure-firewall.ps1") -Force
+
 Write-Host "== Package Caddy HTTPS reverse proxy ==" -ForegroundColor Cyan
 $caddyDirectory = Join-Path $desktopOutput "caddy"
 New-Item -ItemType Directory -Path $caddyDirectory -Force | Out-Null
