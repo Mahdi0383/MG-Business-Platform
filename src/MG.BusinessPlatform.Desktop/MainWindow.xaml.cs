@@ -346,6 +346,177 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void RecordPayment_Click(object sender, RoutedEventArgs e)
+    {
+        if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
+        {
+            StatusText.Text = "ابتدا یک فاکتور را انتخاب کنید.";
+            return;
+        }
+        var rawAmount = PaymentAmountInput.Text.Trim();
+        if ((!decimal.TryParse(rawAmount, NumberStyles.Number, CultureInfo.CurrentCulture, out var amount)
+            && !decimal.TryParse(rawAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out amount))
+            || amount <= 0m)
+        {
+            StatusText.Text = "مبلغ دریافت باید عددی معتبر و بزرگ‌تر از صفر باشد.";
+            return;
+        }
+        if (PaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string method)
+        {
+            StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
+            return;
+        }
+
+        var reference = PaymentReferenceInput.Text.Trim();
+        var notes = PaymentNotesInput.Text.Trim();
+        if (reference.Length > 100 || notes.Length > 500)
+        {
+            StatusText.Text = "طول شماره پیگیری یا توضیحات بیش از حد مجاز است.";
+            return;
+        }
+
+        var accountCode = method switch
+        {
+            "Cash" => "1000",
+            "Card" => "1010",
+            "Bank" => "1020",
+            _ => string.Empty
+        };
+        if (accountCode.Length == 0)
+        {
+            StatusText.Text = "روش دریافت وجه پشتیبانی نمی‌شود.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            var invoice = await db.SalesInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (invoice is null)
+            {
+                StatusText.Text = "فاکتور پیدا نشد؛ فهرست را تازه‌سازی کنید.";
+                return;
+            }
+            var outstanding = checked(invoice.TotalAmount - invoice.PaidAmount);
+            if (invoice.Status == "Voided" || outstanding <= 0m)
+            {
+                StatusText.Text = "این فاکتور مبلغ قابل دریافت ندارد.";
+                return;
+            }
+            if (amount > outstanding)
+            {
+                StatusText.Text = $"مبلغ دریافت از مانده فاکتور بیشتر است. مانده: {outstanding:N2} {invoice.CurrencyCode}.";
+                return;
+            }
+
+            var cashAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == accountCode);
+            var receivableAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == "1100");
+            if (cashAccount is null || receivableAccount is null
+                || !cashAccount.IsActive || !cashAccount.IsPostingAllowed
+                || !receivableAccount.IsActive || !receivableAccount.IsPostingAllowed)
+                throw new InvalidOperationException("حساب صندوق/بانک یا حساب دریافتنی وجود ندارد یا اجازه ثبت سند ندارد.");
+
+            var paymentId = Guid.NewGuid();
+            var journalEntryId = Guid.NewGuid();
+            var entry = new JournalEntryRecord
+            {
+                Id = journalEntryId,
+                EntryNumber = $"JRN-{Guid.NewGuid():N}".ToUpperInvariant(),
+                EntryDate = DateOnly.FromDateTime(DateTime.Today),
+                Description = $"ثبت دریافت فاکتور {invoice.InvoiceNumber}",
+                CurrencyCode = invoice.CurrencyCode,
+                SourceType = "Payment",
+                SourceId = paymentId,
+                CreatedAt = DateTimeOffset.UtcNow,
+                Lines =
+                [
+                    new JournalLineRecord
+                    {
+                        Id = Guid.NewGuid(), AccountId = cashAccount.Id, AccountCode = cashAccount.Code,
+                        AccountName = cashAccount.Name, Side = "Debit", Amount = amount
+                    },
+                    new JournalLineRecord
+                    {
+                        Id = Guid.NewGuid(), AccountId = receivableAccount.Id, AccountCode = receivableAccount.Code,
+                        AccountName = receivableAccount.Name, Side = "Credit", Amount = amount
+                    }
+                ]
+            };
+            db.JournalEntries.Add(entry);
+            db.Payments.Add(new PaymentRecord
+            {
+                Id = paymentId,
+                PaymentNumber = $"PAY-{Guid.NewGuid():N}".ToUpperInvariant(),
+                InvoiceId = invoice.Id,
+                JournalEntryId = journalEntryId,
+                OccurredAt = DateTimeOffset.UtcNow,
+                Method = method,
+                Amount = amount,
+                CurrencyCode = invoice.CurrencyCode,
+                Reference = reference,
+                Notes = notes
+            });
+
+            invoice.PaidAmount = checked(invoice.PaidAmount + amount);
+            invoice.Status = invoice.PaidAmount == invoice.TotalAmount ? "Paid" : "PartiallyPaid";
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            PaymentAmountInput.Clear();
+            PaymentReferenceInput.Clear();
+            PaymentNotesInput.Clear();
+            StatusText.Text = $"دریافت {amount:N2} {invoice.CurrencyCode} ثبت شد و سند دوبل آن ایجاد شد.";
+            await RefreshAsync();
+            await RefreshTrialBalanceAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت دریافت وجه ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e) =>
+        await RefreshTrialBalanceAsync();
+
+    private async Task RefreshTrialBalanceAsync()
+    {
+        try
+        {
+            var asOfDate = DateOnly.FromDateTime(TrialBalanceDateInput.SelectedDate ?? DateTime.Today);
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            var accounts = await db.LedgerAccounts.AsNoTracking().OrderBy(x => x.Code).ToListAsync();
+            var entryIds = await db.JournalEntries.AsNoTracking()
+                .Where(entry => entry.EntryDate <= asOfDate && entry.CurrencyCode == settings.CurrencyCode)
+                .Select(entry => entry.Id).ToListAsync();
+            var journalLines = await db.JournalLines.AsNoTracking()
+                .Where(line => entryIds.Contains(line.JournalEntryId)).ToListAsync();
+
+            var rows = accounts.Select(account =>
+            {
+                var lines = journalLines.Where(line => line.AccountId == account.Id).ToArray();
+                var debit = lines.Where(line => line.Side == "Debit").Aggregate(0m, (sum, line) => checked(sum + line.Amount));
+                var credit = lines.Where(line => line.Side == "Credit").Aggregate(0m, (sum, line) => checked(sum + line.Amount));
+                var net = checked(debit - credit);
+                return new TrialBalanceRow(account.Code, account.Name, account.AccountType, debit, credit,
+                    net > 0m ? net : 0m, net < 0m ? -net : 0m);
+            }).ToList();
+
+            TrialBalanceGrid.ItemsSource = rows;
+            var debitTurnover = rows.Aggregate(0m, (sum, row) => checked(sum + row.DebitTurnover));
+            var creditTurnover = rows.Aggregate(0m, (sum, row) => checked(sum + row.CreditTurnover));
+            var debitBalance = rows.Aggregate(0m, (sum, row) => checked(sum + row.DebitBalance));
+            var creditBalance = rows.Aggregate(0m, (sum, row) => checked(sum + row.CreditBalance));
+            TrialBalanceTotalsText.Text = debitTurnover == creditTurnover && debitBalance == creditBalance
+                ? $"تراز متوازن | گردش بدهکار: {debitTurnover:N2} | گردش بستانکار: {creditTurnover:N2} | مانده بدهکار/بستانکار: {debitBalance:N2}/{creditBalance:N2} {settings.CurrencyCode}"
+                : $"هشدار: تراز نامتوازن | بدهکار: {debitTurnover:N2} | بستانکار: {creditTurnover:N2} {settings.CurrencyCode}";
+        }
+        catch (Exception ex)
+        {
+            TrialBalanceTotalsText.Text = $"محاسبه تراز آزمایشی ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void AddCustomer_Click(object sender, RoutedEventArgs e)
     {
         var name = CustomerNameInput.Text.Trim();
