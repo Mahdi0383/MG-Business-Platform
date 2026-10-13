@@ -131,6 +131,35 @@ public sealed class StoreSettings
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class GameSessionRecord
+{
+    public Guid Id { get; set; }
+    public Guid BranchId { get; set; }
+    public Guid DeviceId { get; set; }
+    public string GameName { get; set; } = string.Empty;
+    public decimal RatePerHour { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public DateTimeOffset StartedAtUtc { get; set; }
+    public DateTimeOffset? PausedAtUtc { get; set; }
+    public DateTimeOffset? EndedAtUtc { get; set; }
+    public long AccumulatedPauseTicks { get; set; }
+    public DateTimeOffset LastTransitionAtUtc { get; set; }
+    public string Status { get; set; } = "Active";
+    public List<GameSessionPlayerRecord> Players { get; set; } = [];
+}
+
+public sealed class GameSessionPlayerRecord
+{
+    public Guid Id { get; set; }
+    public Guid GameSessionId { get; set; }
+    public GameSessionRecord? Session { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public decimal EntryAmount { get; set; }
+    public decimal TimeCharge { get; set; }
+    public decimal AdditionalAmount { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+}
+
 public sealed class CustomerOrder
 {
     public Guid Id { get; set; }
@@ -189,6 +218,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<CustomerOrder> CustomerOrders => Set<CustomerOrder>();
     public DbSet<CustomerOrderLine> CustomerOrderLines => Set<CustomerOrderLine>();
     public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
+    public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
+    public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -326,6 +357,37 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.ToTable(t => t.HasCheckConstraint("CK_CustomerOrder_Total", "CAST(TotalAmount AS NUMERIC) >= 0"));
             entity.HasMany(x => x.Lines).WithOne(x => x.Order).HasForeignKey(x => x.OrderId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GameSessionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.GameName).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            entity.HasIndex(x => new { x.BranchId, x.StartedAtUtc });
+            entity.HasIndex(x => new { x.DeviceId, x.Status });
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_GameSession_Rate", "CAST(RatePerHour AS NUMERIC) >= 0");
+                t.HasCheckConstraint("CK_GameSession_PauseTicks", "AccumulatedPauseTicks >= 0");
+                t.HasCheckConstraint("CK_GameSession_Status", "Status IN ('Active','Paused','Completed','Cancelled')");
+            });
+            entity.HasMany(x => x.Players).WithOne(x => x.Session)
+                .HasForeignKey(x => x.GameSessionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GameSessionPlayerRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.DisplayName).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.HasIndex(x => x.GameSessionId);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
+                    "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0");
+            });
         });
 
         modelBuilder.Entity<StockMovementRecord>(entity =>
