@@ -74,24 +74,24 @@ public sealed class PublicHostingManager
             return new(false, "درگاه 80 یا 443 توسط برنامه دیگری اشغال شده است. IIS یا سرویس وب دیگری را بررسی کنید.");
 
         var safeLogPath = _logPath.Replace('\\', '/');
-        var config = $"""
-{{
+        var config = $$"""
+{
     admin 127.0.0.1:2019
-    log {{
-        output file "{safeLogPath}"
+    log {
+        output file "{{safeLogPath}}"
         format json
-    }}
-}}
+    }
+}
 
-{hostname} {{
+{{hostname}} {
     encode zstd gzip
-    header {{
+    header {
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
         X-Frame-Options "DENY"
-    }}
+    }
     reverse_proxy 127.0.0.1:8080
-}}
+}
 """;
         await File.WriteAllTextAsync(_configPath, config, cancellationToken);
 
