@@ -367,7 +367,7 @@ public partial class MainWindow : Window
 
             var orderRecords = await db.CustomerOrders.AsNoTracking().ToListAsync();
             var onlineOrders = orderRecords
-                .Where(x => !x.OrderNumber.StartsWith("GAME-", StringComparison.Ordinal))
+                .Where(x => x.OrderNumber.StartsWith("WEB-", StringComparison.Ordinal))
                 .ToArray();
             OrdersGrid.ItemsSource = onlineOrders
                 .OrderByDescending(x => x.CreatedAt).Take(500).ToList();
