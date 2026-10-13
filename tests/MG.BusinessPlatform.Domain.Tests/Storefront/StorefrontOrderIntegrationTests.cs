@@ -79,6 +79,61 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task PublicOrder_AggregatesDuplicateProductLinesBeforeStockValidation()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var productId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = productId, Sku = "TEST-DUPLICATE", Name = "Limited stock",
+                UnitPrice = 10m, UnitCost = 4m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Test Customer",
+                customerPhone = "09120000000",
+                items = new[]
+                {
+                    new { productId, quantity = 3, price = 0m },
+                    new { productId, quantity = 3, price = 0m }
+                }
+            })
+        };
+        request.Headers.Add("Idempotency-Key", "integration-duplicate-stock-0001");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Empty(await verificationDb.CustomerOrders.ToListAsync());
+        Assert.Empty(await verificationDb.StockMovements.ToListAsync());
+        Assert.Equal(5, (await verificationDb.StoreProducts.SingleAsync(x => x.Id == productId)).StockQuantity);
+    }
+
+    [Fact]
+    public async Task Storefront_RejectsUnexpectedHostHeader()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Host = "unexpected.example";
+        using var response = await client.GetAsync("/api/storefront/products");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task OrderEndpoint_RejectsMissingIdempotencyKey()
     {
         await using var factory = new StorefrontTestFactory();
