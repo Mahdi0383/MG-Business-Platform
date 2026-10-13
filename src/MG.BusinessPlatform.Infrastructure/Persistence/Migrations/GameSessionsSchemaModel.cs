@@ -40,13 +40,12 @@ internal static class GameSessionsSchemaModel
             b.Property<Guid>("Id").HasColumnType("TEXT");
             b.Property<decimal>("AdditionalAmount").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
-            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
             b.Property<decimal>("EntryAmount").HasColumnType("TEXT");
             b.Property<Guid>("GameSessionId").HasColumnType("TEXT");
             b.Property<decimal>("TimeCharge").HasColumnType("TEXT");
             b.HasKey("Id");
-            b.HasIndex("GameSessionId", "DisplayName");
+            b.HasIndex("GameSessionId");
             b.ToTable("GameSessionPlayers", t => t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
                 "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0"));
         });
