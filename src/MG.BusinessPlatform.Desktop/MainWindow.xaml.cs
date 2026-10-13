@@ -1208,9 +1208,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private bool HasLicensedModule(string module) =>
-        _machineLicenseInfo?.Validation.IsValid == true
-        && _machineLicenseInfo.Validation.Payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
+    private bool HasLicensedModule(string module)
+    {
+        var payload = _machineLicenseInfo?.Validation is { IsValid: true, Payload: { } validPayload }
+            ? validPayload
+            : null;
+        return payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
+    }
 
     private async Task<bool> IsStorefrontRunningAsync()
     {
