@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Desktop.Services;
 
 namespace MG.BusinessPlatform.Desktop;
 
@@ -14,6 +15,7 @@ public partial class MainWindow : Window
     private readonly string _databasePath;
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
+    private readonly PublicHostingManager _publicHostingManager;
     private Process? _storefrontProcess;
     private static readonly HttpClient HealthClient = new() { Timeout = TimeSpan.FromSeconds(1) };
 
@@ -24,6 +26,7 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(dataDirectory);
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
+        _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _refreshTimer.Tick += async (_, _) => await RefreshAsync();
         Loaded += MainWindow_Loaded;
@@ -77,6 +80,9 @@ public partial class MainWindow : Window
         StoreUrlText.Text = string.IsNullOrWhiteSpace(settings.PublicHostname)
             ? "http://127.0.0.1:8080"
             : $"دامنه ثبت‌شده: {settings.PublicHostname} — انتشار عمومی هنوز تأیید نشده است.";
+        PublicHostingStatusText.Text = settings.PublicPublicationEnabled
+            ? "انتشار عمومی برای راه‌اندازی خودکار فعال است؛ وضعیت دسترسی باید بررسی شود."
+            : "انتشار عمومی راه‌اندازی نشده است.";
     }
 
     private async Task RefreshAsync()
@@ -192,6 +198,17 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            if (settings.PublicPublicationEnabled
+                && !string.Equals(settings.PublicHostname, hostname, StringComparison.OrdinalIgnoreCase))
+            {
+                StatusText.Text = "ابتدا انتشار HTTPS را متوقف کنید، سپس دامنه را تغییر دهید.";
+                return;
+            }
+            if (settings.PublicPublicationEnabled && OnlineOrdersInput.IsChecked != true)
+            {
+                StatusText.Text = "ابتدا انتشار HTTPS را متوقف کنید، سپس سفارش آنلاین را غیرفعال کنید.";
+                return;
+            }
             if (!string.Equals(settings.CurrencyCode, currency, StringComparison.Ordinal)
                 && await db.StoreProducts.AnyAsync())
             {
@@ -263,6 +280,115 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"لغو سفارش ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void StartPublicHosting_Click(object sender, RoutedEventArgs e)
+    {
+        var hostname = HostnameInput.Text.Trim().TrimEnd('.').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(hostname) || Uri.CheckHostName(hostname) != UriHostNameType.Dns)
+        {
+            PublicHostingStatusText.Text = "ابتدا دامنه معتبر را در تنظیمات ذخیره کنید.";
+            return;
+        }
+
+        try
+        {
+            await using (var db = new BusinessDbContext(CreateOptions()))
+            {
+                var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+                if (!settings.OnlineOrderingEnabled)
+                {
+                    PublicHostingStatusText.Text = "ابتدا ثبت سفارش آنلاین را در تنظیمات فعال و ذخیره کنید.";
+                    return;
+                }
+                if (!string.Equals(settings.PublicHostname, hostname, StringComparison.OrdinalIgnoreCase))
+                {
+                    PublicHostingStatusText.Text = "ابتدا تنظیمات فروشگاه را ذخیره کنید.";
+                    return;
+                }
+            }
+
+            if (!await IsStorefrontRunningAsync())
+            {
+                PublicHostingStatusText.Text = "ابتدا سرویس وب محلی راه‌اندازی می‌شود…";
+                StartServer_Click(this, new RoutedEventArgs());
+                var ready = false;
+                for (var attempt = 0; attempt < 12; attempt++)
+                {
+                    await Task.Delay(500);
+                    if (await IsStorefrontRunningAsync()) { ready = true; break; }
+                }
+                if (!ready)
+                {
+                    PublicHostingStatusText.Text = "سرویس وب محلی آماده نشد؛ گزارش وضعیت را بررسی کنید.";
+                    return;
+                }
+            }
+
+            var result = await _publicHostingManager.StartAsync(hostname);
+            PublicHostingStatusText.Text = result.Message;
+            if (!result.Success)
+                return;
+
+            await using (var db = new BusinessDbContext(CreateOptions()))
+            {
+                var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+                settings.PublicPublicationEnabled = true;
+                settings.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync();
+            }
+
+            await Task.Delay(2500);
+            var verification = await _publicHostingManager.CheckPublicHttpsAsync(hostname);
+            PublicHostingStatusText.Text = verification.Success
+                ? "HTTPS عمومی از این رایانه تأیید شد. برای اطمینان نهایی، لینک را با اینترنت موبایل نیز آزمایش کنید."
+                : $"سرویس شروع شده ولی دسترسی عمومی تأیید نشد. {verification.Message}";
+            await LoadSettingsAsync();
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"راه‌اندازی انتشار HTTPS ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void CheckPublicHosting_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (string.IsNullOrWhiteSpace(settings.PublicHostname))
+            {
+                PublicHostingStatusText.Text = "دامنه‌ای ثبت نشده است.";
+                return;
+            }
+            var result = await _publicHostingManager.CheckPublicHttpsAsync(settings.PublicHostname);
+            PublicHostingStatusText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"بررسی HTTPS ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void StopPublicHosting_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var result = await _publicHostingManager.StopAsync();
+            PublicHostingStatusText.Text = result.Message;
+            if (!result.Success)
+                return;
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.PublicPublicationEnabled = false;
+            settings.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"توقف انتشار HTTPS ناموفق بود: {ex.Message}";
         }
     }
 
