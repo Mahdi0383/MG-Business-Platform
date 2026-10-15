@@ -113,8 +113,13 @@ public sealed class GameSession
             throw new ArgumentException("Persisted session timestamps are inconsistent.");
         if ((status == GameSessionStatus.Active && (paused is not null || ended is not null))
             || (status == GameSessionStatus.Paused && (paused is null || ended is not null))
-            || (status is GameSessionStatus.Completed or GameSessionStatus.Cancelled && (paused is not null || ended is null)))
+            || (status is GameSessionStatus.Completed or GameSessionStatus.Cancelled
+                && (paused is not null || ended is null || ended != lastTransition)))
             throw new ArgumentException("Persisted session state does not match its timestamps.");
+
+        var elapsedWallClock = (ended ?? paused ?? lastTransition) - start;
+        if (accumulatedPause > elapsedWallClock)
+            throw new ArgumentException("Persisted accumulated pause exceeds the session's elapsed wall-clock time.");
 
         var session = new GameSession(id, branchId, deviceId, gameName, start, ratePerHour, players);
         session.Status = status;
