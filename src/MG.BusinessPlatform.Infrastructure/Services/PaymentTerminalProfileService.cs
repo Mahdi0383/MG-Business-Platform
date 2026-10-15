@@ -76,8 +76,14 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             await using var stream = new FileStream(_profileFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var profiles = await JsonSerializer.DeserializeAsync<List<PaymentTerminalProfile>>(stream, JsonOptions, cancellationToken)
                 ?? [];
-            if (profiles.Any(profile => profile.Id == Guid.Empty))
-                throw new InvalidDataException("A payment-terminal profile has an invalid identifier.");
+            if (profiles.Any(profile => profile.Id == Guid.Empty)
+                || profiles.Select(profile => profile.Id).Distinct().Count() != profiles.Count)
+                throw new InvalidDataException("A payment-terminal profile has an invalid or duplicate identifier.");
+            foreach (var profile in profiles)
+            {
+                try { Validate(profile); }
+                catch (ArgumentException ex) { throw new InvalidDataException($"Stored payment-terminal profile '{profile.Name}' is invalid: {ex.Message}", ex); }
+            }
             return profiles.OrderByDescending(profile => profile.IsDefault).ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         }
         finally
@@ -253,7 +259,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
         RequireLength(profile.TerminalId, 0, 100, nameof(profile.TerminalId));
         RequireLength(profile.AuthenticationReference, 0, 200, nameof(profile.AuthenticationReference));
         if (!Enum.IsDefined(profile.ConnectionType)) throw new ArgumentOutOfRangeException(nameof(profile.ConnectionType));
-        if (profile.CurrencyCode.Length != 3 || profile.CurrencyCode.Any(c => c is < 'A' or > 'Z'))
+        if (string.IsNullOrWhiteSpace(profile.CurrencyCode) || profile.CurrencyCode.Length != 3
+            || profile.CurrencyCode.Any(c => c is < 'A' or > 'Z'))
             throw new ArgumentException("Currency must be a three-letter uppercase code.", nameof(profile.CurrencyCode));
         if (profile.ConnectTimeoutMs is < 250 or > 120000) throw new ArgumentOutOfRangeException(nameof(profile.ConnectTimeoutMs));
         if (profile.ResponseTimeoutMs is < 250 or > 120000) throw new ArgumentOutOfRangeException(nameof(profile.ResponseTimeoutMs));
@@ -273,7 +280,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             if (profile.Port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(profile.Port));
         }
         if (profile.ConnectionType is PaymentConnectionType.Serial or PaymentConnectionType.UsbVirtualCom
-            && !System.Text.RegularExpressions.Regex.IsMatch(profile.SerialPort, @"^COM[1-9][0-9]{0,3}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            && (string.IsNullOrWhiteSpace(profile.SerialPort)
+                || !System.Text.RegularExpressions.Regex.IsMatch(profile.SerialPort, @"^COM[1-9][0-9]{0,3}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
             throw new ArgumentException("Serial port must use a name such as COM3.", nameof(profile.SerialPort));
         if (profile.ConnectionType == PaymentConnectionType.VendorLocalApi)
         {
