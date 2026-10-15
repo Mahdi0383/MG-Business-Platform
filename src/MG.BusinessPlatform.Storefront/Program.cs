@@ -254,11 +254,23 @@ app.MapPost("/api/storefront/reservations", async (
     catch (DbUpdateException ex)
     {
         app.Logger.LogWarning(ex, "Reservation persistence failed.");
+        db.ChangeTracker.Clear();
         var committed = await db.CustomerReservations.AsNoTracking()
             .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
         if (committed is not null)
-            return Results.Ok(new ReservationCreatedResponse(committed.Id, committed.ReservationNumber,
-                committed.ResourceId, committed.StartsAtUtc, committed.EndsAtUtc, committed.Status));
+        {
+            var sameRequest = committed.ResourceId == request.ResourceId
+                && committed.GuestName == request.GuestName.Trim()
+                && committed.GuestPhone == request.GuestPhone.Trim()
+                && committed.GuestCount == request.GuestCount
+                && committed.StartsAtUtc == startsAt
+                && committed.EndsAtUtc == endsAt
+                && committed.Notes == (request.Notes?.Trim() ?? string.Empty);
+            if (sameRequest)
+                return Results.Ok(new ReservationCreatedResponse(committed.Id, committed.ReservationNumber,
+                    committed.ResourceId, committed.StartsAtUtc, committed.EndsAtUtc, committed.Status));
+            return Results.Conflict(new { error = "This idempotency key was already used for a different reservation request." });
+        }
         return Results.Conflict(new { error = "The reservation could not be confirmed. Retry with the same idempotency key." });
     }
     catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
