@@ -236,6 +236,166 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         return invoice;
     }
 
+    /// <summary>
+    /// Issues an invoice for a completed game session without treating player charges as
+    /// inventory sales. The session ID is used as the stable order reference so retries
+    /// return the existing invoice instead of creating duplicate revenue entries.
+    /// Payment is collected separately through RecordPaymentAsync.
+    /// </summary>
+    public async Task<SalesInvoiceRecord> CreateGameSessionInvoiceAsync(
+        Guid sessionId,
+        DateOnly issueDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (sessionId == Guid.Empty)
+            throw new ArgumentException("Game session ID is required.", nameof(sessionId));
+
+        var existingInvoice = await db.SalesInvoices.AsNoTracking()
+            .Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrderId == sessionId, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            var existingOrder = await db.CustomerOrders.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+            if (existingOrder?.OrderNumber.StartsWith("GAME-", StringComparison.Ordinal) == true)
+                return existingInvoice;
+            throw new InvalidOperationException("The session ID is already associated with a non-game invoice.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        existingInvoice = await db.SalesInvoices.AsNoTracking()
+            .Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrderId == sessionId, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            var existingOrder = await db.CustomerOrders.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken);
+            if (existingOrder?.OrderNumber.StartsWith("GAME-", StringComparison.Ordinal) == true)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return existingInvoice;
+            }
+            throw new InvalidOperationException("The session ID is already associated with a non-game invoice.");
+        }
+
+        var session = await db.GameSessions.AsNoTracking()
+            .Include(x => x.Players)
+            .SingleOrDefaultAsync(x => x.Id == sessionId, cancellationToken)
+            ?? throw new KeyNotFoundException("Game session was not found.");
+        if (!string.Equals(session.Status, "Completed", StringComparison.Ordinal) || session.EndedAtUtc is null)
+            throw new InvalidOperationException("Only a completed game session can be invoiced.");
+        if (session.Players.Count == 0)
+            throw new InvalidOperationException("A game session must have at least one player before it can be invoiced.");
+        if (session.CurrencyCode.Length != 3
+            || session.CurrencyCode.Any(c => c is < 'A' or > 'Z'))
+            throw new InvalidOperationException("The game session has an invalid currency code.");
+
+        decimal total = 0m;
+        var lines = new List<CustomerOrderLine>(session.Players.Count);
+        foreach (var player in session.Players.OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.Id))
+        {
+            if (!string.Equals(player.CurrencyCode, session.CurrencyCode, StringComparison.Ordinal)
+                || player.EntryAmount < 0m || player.TimeCharge < 0m || player.AdditionalAmount < 0m)
+                throw new InvalidOperationException($"Player '{player.DisplayName}' has invalid charges or currency.");
+
+            var playerTotal = checked(checked(player.EntryAmount + player.TimeCharge) + player.AdditionalAmount);
+            total = checked(total + playerTotal);
+            var label = $"بازی {session.GameName} - {player.DisplayName}";
+            if (label.Length > 200)
+                label = label[..200];
+
+            lines.Add(new CustomerOrderLine
+            {
+                Id = Guid.NewGuid(),
+                OrderId = sessionId,
+                ProductId = Guid.Empty,
+                ProductName = label,
+                UnitPrice = playerTotal,
+                UnitCost = 0m,
+                Quantity = 1,
+                LineTotal = playerTotal
+            });
+        }
+
+        var orderNumber = $"GAME-{sessionId:N}".ToUpperInvariant();
+        var order = new CustomerOrder
+        {
+            Id = sessionId,
+            OrderNumber = orderNumber,
+            IdempotencyKey = orderNumber,
+            CustomerName = "جلسه بازی",
+            CustomerPhone = string.Empty,
+            DeliveryAddress = string.Empty,
+            Notes = $"صورتحساب جلسه: {session.GameName}",
+            CurrencyCode = session.CurrencyCode,
+            TotalAmount = total,
+            Status = "Fulfilled",
+            CreatedAt = session.EndedAtUtc.Value,
+            Lines = lines
+        };
+        db.CustomerOrders.Add(order);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var invoice = new SalesInvoiceRecord
+        {
+            Id = Guid.NewGuid(),
+            InvoiceNumber = $"G-{sessionId:N}".ToUpperInvariant(),
+            OrderId = sessionId,
+            IssueDate = issueDate,
+            CustomerName = order.CustomerName,
+            CustomerPhone = order.CustomerPhone,
+            CurrencyCode = session.CurrencyCode,
+            TotalAmount = total,
+            CostTotal = 0m,
+            PaidAmount = 0m,
+            Status = total == 0m ? "Paid" : "Issued",
+            CreatedAt = DateTimeOffset.UtcNow,
+            Lines = lines.Select(line => new SalesInvoiceLineRecord
+            {
+                Id = Guid.NewGuid(),
+                ProductId = line.ProductId,
+                ProductName = line.ProductName,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                UnitCost = 0m,
+                LineTotal = line.LineTotal,
+                CostTotal = 0m
+            }).ToList()
+        };
+        db.SalesInvoices.Add(invoice);
+
+        if (total > 0m)
+        {
+            var receivableAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == "1100", cancellationToken)
+                ?? throw new InvalidOperationException("Accounts-receivable ledger account 1100 is missing.");
+            var revenueAccount = await db.LedgerAccounts.SingleOrDefaultAsync(x => x.Code == "4000", cancellationToken)
+                ?? throw new InvalidOperationException("Sales-revenue ledger account 4000 is missing.");
+            EnsurePostingAccount(new Dictionary<string, LedgerAccountRecord>(StringComparer.Ordinal)
+            {
+                [receivableAccount.Code] = receivableAccount,
+                [revenueAccount.Code] = revenueAccount
+            }, "1100");
+            EnsurePostingAccount(new Dictionary<string, LedgerAccountRecord>(StringComparer.Ordinal)
+            {
+                [revenueAccount.Code] = revenueAccount
+            }, "4000");
+
+            db.JournalEntries.Add(CreateJournalEntry(
+                $"فاکتور جلسه بازی {session.GameName}",
+                session.CurrencyCode,
+                "GameSessionInvoice",
+                sessionId,
+                issueDate,
+                (receivableAccount, "Debit", total),
+                (revenueAccount, "Credit", total)));
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return invoice;
+    }
+
     public async Task<PaymentRecord> RecordPaymentAsync(
         Guid invoiceId,
         decimal amount,

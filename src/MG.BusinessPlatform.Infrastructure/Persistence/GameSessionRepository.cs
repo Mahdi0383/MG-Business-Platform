@@ -80,9 +80,38 @@ public sealed class GameSessionRepository(BusinessDbContext db)
         var records = await db.GameSessions.AsNoTracking()
             .Include(x => x.Players)
             .Where(x => x.Status == nameof(GameSessionStatus.Active) || x.Status == nameof(GameSessionStatus.Paused))
-            .OrderBy(x => x.StartedAtUtc)
             .ToListAsync(cancellationToken);
-        return records.Select(Restore).ToArray();
+        return records.OrderBy(x => x.StartedAtUtc).Select(Restore).ToArray();
+    }
+
+    public async Task<IReadOnlyList<GameSession>> FindRecentAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(limit), "The recent-session limit must be between 1 and 1000.");
+
+        var openRecords = await db.GameSessions.AsNoTracking()
+            .Include(x => x.Players)
+            .Where(x => x.Status == nameof(GameSessionStatus.Active)
+                || x.Status == nameof(GameSessionStatus.Paused))
+            .ToListAsync(cancellationToken);
+
+        // SQLite's EF provider cannot translate DateTimeOffset ordering. Use the
+        // stored UTC ISO-8601 text for bounded SQL ordering, then order the merged list
+        // in memory. App-created session timestamps are always normalized to UTC.
+        var completedRecords = await db.GameSessions
+            .FromSqlInterpolated($@"SELECT * FROM GameSessions
+                WHERE Status = {nameof(GameSessionStatus.Completed)}
+                ORDER BY StartedAtUtc DESC LIMIT {limit}")
+            .AsNoTracking()
+            .Include(x => x.Players)
+            .ToListAsync(cancellationToken);
+
+        return openRecords.Concat(completedRecords)
+            .OrderByDescending(x => x.StartedAtUtc)
+            .Select(Restore)
+            .ToArray();
     }
 
     private static GameSession Restore(GameSessionRecord record)
