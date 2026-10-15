@@ -94,6 +94,32 @@ public sealed class GameSessionTests
     }
 
     [Fact]
+    public void Restore_RejectsAccumulatedPauseLongerThanElapsedWallClock()
+    {
+        var pauseAt = Start.AddMinutes(30);
+
+        Assert.Throws<ArgumentException>(() => GameSession.Restore(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Tekken 8", Start,
+            new Money(600m, "IRR"), [], GameSessionStatus.Paused,
+            pauseAt, null, TimeSpan.FromMinutes(31), pauseAt));
+
+        Assert.Throws<ArgumentException>(() => GameSession.Restore(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Tekken 8", Start,
+            new Money(600m, "IRR"), [], GameSessionStatus.Active,
+            null, null, TimeSpan.FromMinutes(31), pauseAt));
+    }
+
+    [Fact]
+    public void Restore_RequiresFinalTransitionToMatchCompletionTimestamp()
+    {
+        var endedAt = Start.AddMinutes(30);
+        Assert.Throws<ArgumentException>(() => GameSession.Restore(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Tekken 8", Start,
+            new Money(600m, "IRR"), [], GameSessionStatus.Completed,
+            null, endedAt, TimeSpan.FromMinutes(5), endedAt.AddMinutes(1)));
+    }
+
+    [Fact]
     public void CancelledSession_HasNoTimeChargeAndCannotResume()
     {
         var session = CreateSession(ratePerHour: 900m);
