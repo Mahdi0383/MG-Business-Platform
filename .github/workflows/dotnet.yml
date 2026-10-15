@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: mg-business-platform-${{ github.workflow }}-${{ github.ref }}
@@ -98,10 +99,37 @@ jobs:
             throw "License manager installer SHA-256 checksum was not produced."
           }
 
+      - name: Reclaim old Actions artifact storage
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $page = 1
+          do {
+            $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=$page"
+            $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
+            foreach ($artifact in $response.artifacts) {
+              if (-not $artifact.expired) {
+                $deleteUri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/$($artifact.id)"
+                Invoke-RestMethod -Method Delete -Uri $deleteUri -Headers $headers
+                Write-Host "Deleted old build artifact $($artifact.name) ($($artifact.size_in_bytes) bytes)"
+              }
+            }
+            $page++
+          } while (($page - 1) * 100 -lt $response.total_count)
+
       - name: Upload main application installer
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-Business-Platform-Installer-win-x64
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
@@ -109,8 +137,10 @@ jobs:
 
       - name: Upload main portable package
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-Business-Platform-Portable-win-x64
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/MG-Business-Platform-win-x64.zip
@@ -118,8 +148,10 @@ jobs:
 
       - name: Upload separate license manager installer
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-License-Manager-Installer-win-x64
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/installer/MG-License-Manager-Setup-win-x64.exe
@@ -127,8 +159,10 @@ jobs:
 
       - name: Upload separate license manager portable package
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-License-Manager-Portable-win-x64
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/MG-License-Manager-win-x64.zip
@@ -136,8 +170,10 @@ jobs:
 
       - name: Upload main source archive
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-Business-Platform-SOURCE
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/MG-Business-Platform-SOURCE.zip
@@ -145,8 +181,10 @@ jobs:
 
       - name: Upload separate license manager source archive
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           name: MG-License-Manager-SOURCE
+          retention-days: 7
           if-no-files-found: error
           path: |
             artifacts/MG-License-Manager-SOURCE.zip
