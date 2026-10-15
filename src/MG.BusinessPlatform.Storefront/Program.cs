@@ -115,6 +115,154 @@ app.MapGet("/api/storefront/products", async (BusinessDbContext db, Cancellation
     return Results.Ok(products);
 }).RequireRateLimiting("public");
 
+app.MapGet("/api/storefront/reservation-resources", async (BusinessDbContext db, CancellationToken ct) =>
+{
+    var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
+    if (!settings.OnlineReservationsEnabled)
+        return Results.Problem("Online reservations are not enabled by the store.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    var resources = await db.ReservationResources.AsNoTracking()
+        .Where(x => x.IsAvailable)
+        .OrderBy(x => x.Name)
+        .Select(x => new ReservationResourceResponse(x.Id, x.Name, x.ResourceType, x.Capacity))
+        .Take(200)
+        .ToListAsync(ct);
+    return Results.Ok(resources);
+}).RequireRateLimiting("public");
+
+app.MapPost("/api/storefront/reservations", async (
+    HttpContext context,
+    CreateReservationRequest? request,
+    BusinessDbContext db,
+    CancellationToken ct) =>
+{
+    var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
+    if (!settings.OnlineReservationsEnabled)
+        return Results.Problem("Online reservations are not enabled by the store.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    if (request is null)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["Request"] = ["A valid reservation request is required."]
+        });
+
+    var key = context.Request.Headers["Idempotency-Key"].ToString().Trim();
+    if (key.Length is < 16 or > 100 || key.Any(char.IsControl))
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["Idempotency-Key"] = ["A 16-100 character idempotency key is required."]
+        });
+
+    if (request.ResourceId == Guid.Empty)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["ResourceId"] = ["Choose a valid reservation resource."]
+        });
+    if (string.IsNullOrWhiteSpace(request.GuestName) || request.GuestName.Trim().Length > 200)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["GuestName"] = ["Guest name is required and must not exceed 200 characters."]
+        });
+    if (string.IsNullOrWhiteSpace(request.GuestPhone) || request.GuestPhone.Trim().Length > 40)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["GuestPhone"] = ["Guest phone is required and must not exceed 40 characters."]
+        });
+    if (request.GuestCount is < 1 or > 1000 || (request.Notes?.Length ?? 0) > 1000)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["GuestCount"] = ["Guest count must be positive and notes cannot exceed 1000 characters."]
+        });
+
+    var startsAt = request.StartsAt.ToUniversalTime();
+    var endsAt = request.EndsAt.ToUniversalTime();
+    var now = DateTimeOffset.UtcNow;
+    if (startsAt < now.AddMinutes(5) || startsAt > now.AddDays(90)
+        || endsAt <= startsAt || endsAt - startsAt < TimeSpan.FromMinutes(30)
+        || endsAt - startsAt > TimeSpan.FromHours(8))
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["StartsAt"] = ["Choose a start time at least 5 minutes from now and within 90 days; duration must be between 30 minutes and 8 hours."]
+        });
+
+    var existing = await db.CustomerReservations.AsNoTracking()
+        .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+    if (existing is not null)
+    {
+        var sameRequest = existing.ResourceId == request.ResourceId
+            && existing.GuestName == request.GuestName.Trim()
+            && existing.GuestPhone == request.GuestPhone.Trim()
+            && existing.GuestCount == request.GuestCount
+            && existing.StartsAtUtc == startsAt
+            && existing.EndsAtUtc == endsAt
+            && existing.Notes == (request.Notes?.Trim() ?? string.Empty);
+        if (!sameRequest)
+            return Results.Conflict(new { error = "This idempotency key was already used for a different reservation request." });
+        return Results.Ok(new ReservationCreatedResponse(existing.Id, existing.ReservationNumber,
+            existing.ResourceId, existing.StartsAtUtc, existing.EndsAtUtc, existing.Status));
+    }
+
+    try
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var resource = await db.ReservationResources.SingleOrDefaultAsync(
+            x => x.Id == request.ResourceId && x.IsAvailable, ct);
+        if (resource is null)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["ResourceId"] = ["This reservation resource is unavailable. Refresh the list and try again."]
+            });
+        if (request.GuestCount > resource.Capacity)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["GuestCount"] = [$"This resource supports up to {resource.Capacity} guests."]
+            });
+
+        var overlaps = await db.CustomerReservations.AnyAsync(x =>
+            x.ResourceId == resource.Id
+            && (x.Status == "Requested" || x.Status == "Confirmed" || x.Status == "CheckedIn")
+            && x.StartsAtUtc < endsAt && startsAt < x.EndsAtUtc, ct);
+        if (overlaps)
+            return Results.Conflict(new { error = "This resource is already reserved during the selected time. Choose another time." });
+
+        var reservation = new CustomerReservationRecord
+        {
+            Id = Guid.NewGuid(),
+            ResourceId = resource.Id,
+            ReservationNumber = $"RSV-{Guid.NewGuid():N}".ToUpperInvariant(),
+            IdempotencyKey = key,
+            GuestName = request.GuestName.Trim(),
+            GuestPhone = request.GuestPhone.Trim(),
+            GuestCount = request.GuestCount,
+            StartsAtUtc = startsAt,
+            EndsAtUtc = endsAt,
+            Status = "Requested",
+            Notes = request.Notes?.Trim() ?? string.Empty,
+            CreatedAtUtc = now
+        };
+        db.CustomerReservations.Add(reservation);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return Results.Json(new ReservationCreatedResponse(reservation.Id, reservation.ReservationNumber,
+            reservation.ResourceId, reservation.StartsAtUtc, reservation.EndsAtUtc, reservation.Status),
+            statusCode: StatusCodes.Status201Created);
+    }
+    catch (DbUpdateException ex)
+    {
+        app.Logger.LogWarning(ex, "Reservation persistence failed.");
+        var committed = await db.CustomerReservations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+        if (committed is not null)
+            return Results.Ok(new ReservationCreatedResponse(committed.Id, committed.ReservationNumber,
+                committed.ResourceId, committed.StartsAtUtc, committed.EndsAtUtc, committed.Status));
+        return Results.Conflict(new { error = "The reservation could not be confirmed. Retry with the same idempotency key." });
+    }
+    catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
+    {
+        app.Logger.LogWarning(ex, "SQLite was busy while processing a reservation.");
+        return Results.Conflict(new { error = "The reservation schedule is being updated. Refresh availability and retry." });
+    }
+}).RequireRateLimiting("public");
+
 app.MapPost("/api/storefront/orders", async (
     HttpContext context,
     CreateOrderRequest? request,
@@ -323,6 +471,11 @@ app.MapGet("/", () => Results.Content(StorefrontHtml.Content, "text/html; charse
 app.Run();
 
 public sealed record StorefrontInfo(string StoreName, string CurrencyCode, bool OnlineOrderingEnabled);
+public sealed record ReservationResourceResponse(Guid Id, string Name, string ResourceType, int Capacity);
+public sealed record CreateReservationRequest(Guid ResourceId, string GuestName, string GuestPhone, int GuestCount,
+    DateTimeOffset StartsAt, DateTimeOffset EndsAt, string? Notes);
+public sealed record ReservationCreatedResponse(Guid Id, string ReservationNumber, Guid ResourceId,
+    DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
 public sealed record ProductResponse(Guid Id, string Sku, string Name, string Description, decimal Price, string CurrencyCode, bool InStock);
 public sealed record CreateOrderRequest(string CustomerName, string CustomerPhone, string? DeliveryAddress, string? Notes, List<CreateOrderItemRequest>? Items);
 public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity);
