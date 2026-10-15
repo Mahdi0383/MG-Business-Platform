@@ -285,6 +285,50 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="رزروها">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="منابع قابل رزرو" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <WrapPanel>
+                            <TextBox x:Name="ReservationResourceNameInput" Width="220" Margin="4" ToolTip="نام میز یا دستگاه"/>
+                            <ComboBox x:Name="ReservationResourceTypeInput" Width="170" Margin="4" SelectedIndex="0">
+                                <ComboBoxItem Content="دستگاه بازی" Tag="GameStation"/>
+                                <ComboBoxItem Content="میز" Tag="Table"/>
+                                <ComboBoxItem Content="اتاق" Tag="Room"/>
+                                <ComboBoxItem Content="بازه خدمات" Tag="ServiceSlot"/>
+                            </ComboBox>
+                            <TextBox x:Name="ReservationResourceCapacityInput" Width="100" Margin="4" Text="1" ToolTip="ظرفیت نفرات"/>
+                            <Button Content="افزودن منبع" Margin="4" Click="AddReservationResource_Click"/>
+                            <Button Content="به‌روزرسانی فهرست" Margin="4" Click="RefreshReservations_Click"/>
+                        </WrapPanel>
+                        <DataGrid x:Name="ReservationResourcesGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Margin="0,8,0,18" MaxHeight="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="نام" Binding="{Binding Name}" Width="*"/>
+                                <DataGridTextColumn Header="نوع" Binding="{Binding ResourceType}" Width="150"/>
+                                <DataGridTextColumn Header="ظرفیت" Binding="{Binding Capacity}" Width="90"/>
+                                <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsAvailable}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBlock Text="درخواست‌های رزرو مشتریان" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="تأیید رزرو انتخاب‌شده" Click="ConfirmReservation_Click" Margin="4"/>
+                            <Button Content="لغو رزرو انتخاب‌شده" Click="CancelReservation_Click" Margin="4"/>
+                        </StackPanel>
+                        <DataGrid x:Name="CustomerReservationsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" MaxHeight="340">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="کد پیگیری" Binding="{Binding ReservationNumber}" Width="220"/>
+                                <DataGridTextColumn Header="مورد رزرو" Binding="{Binding ResourceName}" Width="*"/>
+                                <DataGridTextColumn Header="نام مشتری" Binding="{Binding GuestName}" Width="180"/>
+                                <DataGridTextColumn Header="تماس" Binding="{Binding GuestPhone}" Width="140"/>
+                                <DataGridTextColumn Header="شروع (UTC)" Binding="{Binding StartsAtUtc}" Width="180"/>
+                                <DataGridTextColumn Header="پایان (UTC)" Binding="{Binding EndsAtUtc}" Width="180"/>
+                                <DataGridTextColumn Header="نفرات" Binding="{Binding GuestCount}" Width="70"/>
+                                <DataGridTextColumn Header="وضعیت" Binding="{Binding Status}" Width="110"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
             <TabItem Header="تنظیمات فروشگاه">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Background="White" CornerRadius="12" Padding="24" Margin="14" MaxWidth="760" HorizontalAlignment="Right">
