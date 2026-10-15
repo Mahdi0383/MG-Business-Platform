@@ -299,6 +299,7 @@
                             </ComboBox>
                             <TextBox x:Name="ReservationResourceCapacityInput" Width="100" Margin="4" Text="1" ToolTip="ظرفیت نفرات"/>
                             <Button Content="افزودن منبع" Margin="4" Click="AddReservationResource_Click"/>
+                            <Button Content="فعال/غیرفعال کردن منبع انتخاب‌شده" Margin="4" Click="ToggleReservationResource_Click"/>
                             <Button Content="به‌روزرسانی فهرست" Margin="4" Click="RefreshReservations_Click"/>
                         </WrapPanel>
                         <DataGrid x:Name="ReservationResourcesGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Margin="0,8,0,18" MaxHeight="220">
