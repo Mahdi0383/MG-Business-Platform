@@ -71,55 +71,8 @@ public sealed class AddOnlineReservations : Migration
             new[] { "ResourceId", "StartsAtUtc", "EndsAtUtc" });
     }
 
-    protected override void BuildTargetModel(ModelBuilder modelBuilder)
-    {
+    protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
         BusinessDbContextModelSnapshot.BuildModelCore(modelBuilder);
-        modelBuilder.Entity<StoreSettings>().Property(x => x.OnlineReservationsEnabled).HasColumnType("INTEGER");
-
-        modelBuilder.Entity<ReservationResourceRecord>(entity =>
-        {
-            entity.Property(x => x.Id).HasColumnType("TEXT");
-            entity.Property(x => x.BranchId).HasColumnType("TEXT");
-            entity.Property(x => x.Name).HasMaxLength(160).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.ResourceType).HasMaxLength(30).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.Capacity).HasColumnType("INTEGER");
-            entity.Property(x => x.IsAvailable).HasColumnType("INTEGER");
-            entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.BranchId, x.Name }).IsUnique();
-            entity.ToTable(t =>
-            {
-                t.HasCheckConstraint("CK_ReservationResource_Type", "ResourceType IN ('Table','Room','GameStation','ServiceSlot')");
-                t.HasCheckConstraint("CK_ReservationResource_Capacity", "Capacity > 0");
-            });
-        });
-
-        modelBuilder.Entity<CustomerReservationRecord>(entity =>
-        {
-            entity.Property(x => x.Id).HasColumnType("TEXT");
-            entity.Property(x => x.ResourceId).HasColumnType("TEXT");
-            entity.Property(x => x.ReservationNumber).HasMaxLength(40).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.IdempotencyKey).HasMaxLength(100).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.GuestName).HasMaxLength(200).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.GuestPhone).HasMaxLength(40).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.GuestCount).HasColumnType("INTEGER");
-            entity.Property(x => x.StartsAtUtc).HasColumnType("TEXT");
-            entity.Property(x => x.EndsAtUtc).HasColumnType("TEXT");
-            entity.Property(x => x.Status).HasMaxLength(20).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.Notes).HasMaxLength(1000).IsRequired().HasColumnType("TEXT");
-            entity.Property(x => x.CreatedAtUtc).HasColumnType("TEXT");
-            entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.ReservationNumber).IsUnique();
-            entity.HasIndex(x => x.IdempotencyKey).IsUnique();
-            entity.HasIndex(x => new { x.ResourceId, x.StartsAtUtc, x.EndsAtUtc });
-            entity.HasOne<ReservationResourceRecord>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Restrict);
-            entity.ToTable(t =>
-            {
-                t.HasCheckConstraint("CK_CustomerReservation_GuestCount", "GuestCount > 0");
-                t.HasCheckConstraint("CK_CustomerReservation_Interval", "EndsAtUtc > StartsAtUtc");
-                t.HasCheckConstraint("CK_CustomerReservation_Status", "Status IN ('Requested','Confirmed','CheckedIn','Completed','Cancelled','NoShow')");
-            });
-        });
-    }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
