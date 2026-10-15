@@ -316,6 +316,7 @@
                             <TextBlock Text="دامنه مشتریان (نام میزبان بدون https://، مانند shop.example.com)"/>
                             <TextBox x:Name="HostnameInput"/>
                             <CheckBox x:Name="OnlineOrdersInput" Content="فعال‌سازی ثبت سفارش آنلاین" Margin="8,12"/>
+                            <CheckBox x:Name="OnlineReservationsInput" Content="فعال‌سازی رزرو آنلاین میز و دستگاه" Margin="8,4,8,12"/>
                             <Button Content="ذخیره تنظیمات" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                 <Button Content="ایجاد پشتیبان پایگاه داده" Click="CreateBackup_Click"/>
