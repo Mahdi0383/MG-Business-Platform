@@ -217,10 +217,15 @@ app.MapPost("/api/storefront/reservations", async (
                 ["GuestCount"] = [$"This resource supports up to {resource.Capacity} guests."]
             });
 
-        var overlaps = await db.CustomerReservations.AnyAsync(x =>
-            x.ResourceId == resource.Id
-            && (x.Status == "Requested" || x.Status == "Confirmed" || x.Status == "CheckedIn")
-            && x.StartsAtUtc < endsAt && startsAt < x.EndsAtUtc, ct);
+        // SQLite stores DateTimeOffset as text and cannot reliably translate
+        // range comparisons for this type. Filter by indexed resource/status in SQL,
+        // then compare normalized UTC instants in memory.
+        var activeReservations = await db.CustomerReservations.AsNoTracking()
+            .Where(x => x.ResourceId == resource.Id
+                && (x.Status == "Requested" || x.Status == "Confirmed" || x.Status == "CheckedIn"))
+            .Select(x => new { x.StartsAtUtc, x.EndsAtUtc })
+            .ToListAsync(ct);
+        var overlaps = activeReservations.Any(x => x.StartsAtUtc < endsAt && startsAt < x.EndsAtUtc);
         if (overlaps)
             return Results.Conflict(new { error = "This resource is already reserved during the selected time. Choose another time." });
 
