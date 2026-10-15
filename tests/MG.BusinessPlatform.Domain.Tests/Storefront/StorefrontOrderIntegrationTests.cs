@@ -233,6 +233,127 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task PublicReservation_RejectsOverlapsAndRetriesIdempotently()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var startsAt = DateTimeOffset.UtcNow.AddHours(2);
+        var endsAt = startsAt.AddHours(1);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = branchId, Name = "Station 1",
+                ResourceType = "GameStation", Capacity = 2, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var resourcesResponse = await client.GetAsync("/api/storefront/reservation-resources");
+        resourcesResponse.EnsureSuccessStatusCode();
+        var resources = await resourcesResponse.Content.ReadFromJsonAsync<List<ReservationResourceResponse>>();
+        Assert.NotNull(resources);
+        Assert.Contains(resources, resource => resource.Id == resourceId);
+
+        var payload = new
+        {
+            resourceId,
+            guestName = "Reservation Guest",
+            guestPhone = "09120000000",
+            guestCount = 2,
+            startsAt,
+            endsAt,
+            notes = "Test"
+        };
+        const string key = "integration-reservation-key-0001";
+
+        async Task<HttpResponseMessage> SubmitAsync(string idempotencyKey)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
+            return await client.SendAsync(request);
+        }
+
+        using var first = await SubmitAsync(key);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<ReservationResponse>();
+        Assert.NotNull(firstBody);
+        Assert.Equal("Requested", firstBody.Status);
+
+        using var retry = await SubmitAsync(key);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var retryBody = await retry.Content.ReadFromJsonAsync<ReservationResponse>();
+        Assert.NotNull(retryBody);
+        Assert.Equal(firstBody.Id, retryBody.Id);
+
+        using var overlap = await SubmitAsync("integration-reservation-key-0002");
+        Assert.Equal(HttpStatusCode.Conflict, overlap.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Equal(1, await verificationDb.CustomerReservations.CountAsync());
+    }
+
+    [Fact]
+    public async Task PublicReservation_RequiresFeatureEnabledAndValidTimeWindow()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+
+        using var disabledResponse = await client.PostAsJsonAsync("/api/storefront/reservations", new
+        {
+            resourceId,
+            guestName = "Guest",
+            guestPhone = "09120000000",
+            guestCount = 1,
+            startsAt = DateTimeOffset.UtcNow.AddHours(2),
+            endsAt = DateTimeOffset.UtcNow.AddHours(3),
+            notes = ""
+        });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, disabledResponse.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = Guid.NewGuid(), Name = "Station 2",
+                ResourceType = "GameStation", Capacity = 1, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var invalidRequest = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+        {
+            Content = JsonContent.Create(new
+            {
+                resourceId,
+                guestName = "Guest",
+                guestPhone = "09120000000",
+                guestCount = 1,
+                startsAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                endsAt = DateTimeOffset.UtcNow.AddMinutes(31),
+                notes = ""
+            })
+        };
+        invalidRequest.Headers.Add("Idempotency-Key", "integration-reservation-invalid-0001");
+        using var invalidResponse = await client.SendAsync(invalidRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task Storefront_RejectsUnexpectedHostHeader()
     {
         await using var factory = new StorefrontTestFactory();
@@ -288,6 +409,8 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     private sealed record OrderResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
+    private sealed record ReservationResponse(Guid Id, string ReservationNumber, Guid ResourceId, DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
+    private sealed record ReservationResourceResponse(Guid Id, string Name, string ResourceType, int Capacity);
 }
 
 [CollectionDefinition("StorefrontIntegration", DisableParallelization = true)]
