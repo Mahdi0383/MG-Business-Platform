@@ -160,12 +160,56 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<int>("Id").ValueGeneratedNever().HasColumnType("INTEGER");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<bool>("OnlineOrderingEnabled").HasColumnType("INTEGER");
+            b.Property<bool>("OnlineReservationsEnabled").HasColumnType("INTEGER");
             b.Property<bool>("PublicPublicationEnabled").HasColumnType("INTEGER");
             b.Property<string>("PublicHostname").IsRequired().HasMaxLength(253).HasColumnType("TEXT");
             b.Property<string>("StoreName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
             b.HasKey("Id");
             b.ToTable("StoreSettings", t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.ReservationResourceRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid>("BranchId").HasColumnType("TEXT");
+            b.Property<string>("Name").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
+            b.Property<string>("ResourceType").IsRequired().HasMaxLength(30).HasColumnType("TEXT");
+            b.Property<int>("Capacity").HasColumnType("INTEGER");
+            b.Property<bool>("IsAvailable").HasColumnType("INTEGER");
+            b.HasKey("Id");
+            b.HasIndex("BranchId", "Name").IsUnique();
+            b.ToTable("ReservationResources", t =>
+            {
+                t.HasCheckConstraint("CK_ReservationResource_Type", "ResourceType IN ('Table','Room','GameStation','ServiceSlot')");
+                t.HasCheckConstraint("CK_ReservationResource_Capacity", "Capacity > 0");
+            });
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerReservationRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid>("ResourceId").HasColumnType("TEXT");
+            b.Property<string>("ReservationNumber").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<string>("IdempotencyKey").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
+            b.Property<string>("GuestName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("GuestPhone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<int>("GuestCount").HasColumnType("INTEGER");
+            b.Property<DateTimeOffset>("StartsAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("EndsAtUtc").HasColumnType("TEXT");
+            b.Property<string>("Status").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
+            b.Property<string>("Notes").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("ReservationNumber").IsUnique();
+            b.HasIndex("IdempotencyKey").IsUnique();
+            b.HasIndex("ResourceId", "StartsAtUtc", "EndsAtUtc");
+            b.ToTable("CustomerReservations", t =>
+            {
+                t.HasCheckConstraint("CK_CustomerReservation_GuestCount", "GuestCount > 0");
+                t.HasCheckConstraint("CK_CustomerReservation_Interval", "EndsAtUtc > StartsAtUtc");
+                t.HasCheckConstraint("CK_CustomerReservation_Status", "Status IN ('Requested','Confirmed','CheckedIn','Completed','Cancelled','NoShow')");
+            });
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", b =>
@@ -317,6 +361,15 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrder", b =>
         {
             b.Navigation("Lines");
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerReservationRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.ReservationResourceRecord", null)
+                .WithMany()
+                .HasForeignKey("ResourceId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
         });
 
         GameSessionsSchemaModel.BuildModel(modelBuilder);
