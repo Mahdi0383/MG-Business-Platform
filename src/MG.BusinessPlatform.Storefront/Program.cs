@@ -264,6 +264,28 @@ app.MapPost("/api/storefront/reservations", async (
     catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
     {
         app.Logger.LogWarning(ex, "SQLite was busy while processing a reservation.");
+        db.ChangeTracker.Clear();
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            var committed = await db.CustomerReservations.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+            if (committed is not null)
+            {
+                var sameRequest = committed.ResourceId == request.ResourceId
+                    && committed.GuestName == request.GuestName.Trim()
+                    && committed.GuestPhone == request.GuestPhone.Trim()
+                    && committed.GuestCount == request.GuestCount
+                    && committed.StartsAtUtc == startsAt
+                    && committed.EndsAtUtc == endsAt
+                    && committed.Notes == (request.Notes?.Trim() ?? string.Empty);
+                if (sameRequest)
+                    return Results.Ok(new ReservationCreatedResponse(committed.Id, committed.ReservationNumber,
+                        committed.ResourceId, committed.StartsAtUtc, committed.EndsAtUtc, committed.Status));
+                return Results.Conflict(new { error = "This idempotency key was already used for a different reservation request." });
+            }
+            if (attempt < 5)
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), ct);
+        }
         return Results.Conflict(new { error = "The reservation schedule is being updated. Refresh availability and retry." });
     }
 }).RequireRateLimiting("public");
