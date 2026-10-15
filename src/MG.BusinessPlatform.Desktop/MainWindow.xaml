@@ -343,6 +343,76 @@
                     </Border>
                 </ScrollViewer>
             </TabItem>
+            <TabItem Header="تنظیمات PC-POS">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="3*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="پروفایل‌های اتصال کارت‌خوان و PC-POS" FontSize="20" FontWeight="SemiBold"/>
+                            <TextBlock Text="تنظیمات دستگاه جدا از عملیات پرداخت ذخیره می‌شوند. آزمون اتصال فقط پیکربندی یا دسترسی شبکه را بررسی می‌کند و هیچ مبلغی را کسر نمی‌کند. ارتباط واقعی هر مدل به پروتکل/SDK مستند همان فروشنده نیاز دارد." TextWrapping="Wrap" Foreground="#9A3412" Margin="0,6"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="پروفایل جدید" Click="NewPaymentProfile_Click" Margin="3"/>
+                                <Button Content="ذخیره پروفایل" Click="SavePaymentProfile_Click" Margin="3"/>
+                                <Button Content="آزمون اتصال بدون پرداخت" Click="TestPaymentProfile_Click" Margin="3"/>
+                                <Button Content="حذف پروفایل" Click="DeletePaymentProfile_Click" Margin="3"/>
+                                <Button Content="بارگذاری مجدد" Click="RefreshPaymentProfiles_Click" Margin="3"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="PaymentTerminalProfilesGrid" Grid.Row="1" Margin="0,0,0,10" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionChanged="PaymentTerminalProfilesGrid_SelectionChanged" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="نام پروفایل" Binding="{Binding Name}" Width="1.5*"/>
+                            <DataGridTextColumn Header="فروشنده" Binding="{Binding Vendor}" Width="*"/>
+                            <DataGridTextColumn Header="مدل" Binding="{Binding Model}" Width="*"/>
+                            <DataGridTextColumn Header="نوع اتصال" Binding="{Binding ConnectionTypeText}" Width="1.3*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsEnabled}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="پیش‌فرض" Binding="{Binding IsDefault}" Width="*"/>
+                            <DataGridTextColumn Header="آخرین آزمون" Binding="{Binding LastTestStatus}" Width="1.2*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <Border Background="White" CornerRadius="10" Padding="14">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="4"><TextBlock Text="نام پروفایل *"/><TextBox x:Name="PaymentProfileNameInput"/></StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="4"><TextBlock Text="فروشنده / بانک"/><TextBox x:Name="PaymentProfileVendorInput"/></StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="2" Margin="4"><TextBlock Text="مدل کارت‌خوان"/><TextBox x:Name="PaymentProfileModelInput"/></StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="4"><TextBlock Text="شناسه درایور"/><TextBox x:Name="PaymentProfileDriverInput" Text="manual"/></StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="4"><TextBlock Text="نسخه پروتکل"/><TextBox x:Name="PaymentProfileProtocolInput"/></StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="2" Margin="4"><TextBlock Text="نوع اتصال"/><ComboBox x:Name="PaymentConnectionTypeInput" SelectedValuePath="Tag" SelectedValue="Manual">
+                                    <ComboBoxItem Content="دستی / کارت‌خوان مستقل" Tag="Manual"/>
+                                    <ComboBoxItem Content="شبکه TCP/IP" Tag="TcpIp"/>
+                                    <ComboBoxItem Content="سریال RS-232" Tag="Serial"/>
+                                    <ComboBoxItem Content="USB مجازی COM" Tag="UsbVirtualCom"/>
+                                    <ComboBoxItem Content="API محلی فروشنده" Tag="VendorLocalApi"/>
+                                    <ComboBoxItem Content="سرویس ویندوز" Tag="WindowsService"/>
+                                    <ComboBoxItem Content="SDK اختصاصی فروشنده" Tag="VendorSdk"/>
+                                </ComboBox></StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="0" Margin="4"><TextBlock Text="میزبان / IP"/><TextBox x:Name="PaymentHostInput"/></StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="1" Margin="4"><TextBlock Text="درگاه TCP"/><TextBox x:Name="PaymentPortInput" Text="5000"/></StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="2" Margin="4"><TextBlock Text="درگاه سریال (مثلاً COM3)"/><TextBox x:Name="PaymentSerialPortInput" Text="COM3"/></StackPanel>
+                                <StackPanel Grid.Row="3" Grid.Column="0" Margin="4"><TextBlock Text="Baud rate"/><TextBox x:Name="PaymentBaudRateInput" Text="9600"/></StackPanel>
+                                <StackPanel Grid.Row="3" Grid.Column="1" Margin="4"><TextBlock Text="مهلت اتصال (ms)"/><TextBox x:Name="PaymentConnectTimeoutInput" Text="3000"/></StackPanel>
+                                <StackPanel Grid.Row="3" Grid.Column="2" Margin="4"><TextBlock Text="مهلت پاسخ (ms)"/><TextBox x:Name="PaymentResponseTimeoutInput" Text="5000"/></StackPanel>
+                                <StackPanel Grid.Row="4" Grid.Column="0" Margin="4"><TextBlock Text="واحد پول"/><TextBox x:Name="PaymentCurrencyInput" Text="IRR"/></StackPanel>
+                                <StackPanel Grid.Row="4" Grid.Column="1" Margin="4"><TextBlock Text="شناسه پذیرنده (Merchant ID)"/><TextBox x:Name="PaymentMerchantIdInput"/></StackPanel>
+                                <StackPanel Grid.Row="4" Grid.Column="2" Margin="4"><TextBlock Text="شناسه پایانه (Terminal ID)"/><TextBox x:Name="PaymentTerminalIdInput"/></StackPanel>
+                                <StackPanel Grid.Row="5" Grid.Column="0" Margin="4"><TextBlock Text="نشانی API (بدون رمز در URL)"/><TextBox x:Name="PaymentEndpointInput"/></StackPanel>
+                                <StackPanel Grid.Row="5" Grid.Column="1" Margin="4"><TextBlock Text="مرجع اعتبارنامه امن (نه خود رمز)"/><TextBox x:Name="PaymentAuthReferenceInput"/></StackPanel>
+                                <StackPanel Grid.Row="5" Grid.Column="2" Margin="4,18,4,4">
+                                    <CheckBox x:Name="PaymentEnabledInput" Content="پروفایل فعال" IsChecked="True" Margin="4"/>
+                                    <CheckBox x:Name="PaymentDefaultInput" Content="پروفایل پیش‌فرض" Margin="4"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </ScrollViewer>
+                    <TextBlock x:Name="PaymentProfileStatusText" Grid.Row="3" Margin="4,8" Text="هیچ آزمون پرداختی انجام نشده است." TextWrapping="Wrap" Foreground="#334155"/>
+                </Grid>
+            </TabItem>
             <TabItem Header="جلسات بازی">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="3*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
