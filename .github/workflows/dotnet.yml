@@ -120,7 +120,8 @@ jobs:
             "MG-License-Manager-Installer-win-x64",
             "MG-License-Manager-Portable-win-x64",
             "MG-Business-Platform-SOURCE",
-            "MG-License-Manager-SOURCE"
+            "MG-License-Manager-SOURCE",
+            "MG-Business-Platform-windows-x64"
           )
           $maxPasses = 10
           for ($pass = 1; $pass -le $maxPasses; $pass++) {
