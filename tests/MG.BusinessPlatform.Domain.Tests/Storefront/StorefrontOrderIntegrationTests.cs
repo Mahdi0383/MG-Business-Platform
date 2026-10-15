@@ -295,6 +295,23 @@ public sealed class StorefrontOrderIntegrationTests
         Assert.NotNull(retryBody);
         Assert.Equal(firstBody.Id, retryBody.Id);
 
+        using var mismatchedRetry = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+        {
+            Content = JsonContent.Create(new
+            {
+                resourceId,
+                guestName = "Different Guest",
+                guestPhone = "09120000000",
+                guestCount = 2,
+                startsAt,
+                endsAt,
+                notes = "Test"
+            })
+        };
+        mismatchedRetry.Headers.Add("Idempotency-Key", key);
+        using var mismatchedResponse = await client.SendAsync(mismatchedRetry);
+        Assert.Equal(HttpStatusCode.Conflict, mismatchedResponse.StatusCode);
+
         using var overlap = await SubmitAsync("integration-reservation-key-0002");
         Assert.Equal(HttpStatusCode.Conflict, overlap.StatusCode);
 
