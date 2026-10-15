@@ -36,6 +36,9 @@ public sealed record TrialBalanceRow(string AccountCode, string AccountName, str
 public sealed record FinancialStatementRow(string Statement, string AccountCode, string AccountName,
     string AccountType, decimal Balance);
 
+public sealed record ReservationListRow(Guid Id, string ReservationNumber, string ResourceName, string GuestName,
+    string GuestPhone, int GuestCount, DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
+
 public sealed record GameSessionGridRow(Guid Id, string GameName, string StatusText, string StartedAtText,
     string PlayerNames, decimal ElapsedMinutes, decimal PerPlayerTimeCharge);
 
@@ -188,6 +191,7 @@ public partial class MainWindow : Window
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات فروشگاه" => null,
                 "جلسات بازی" => "GameCafe",
+                "رزروها" => "Reservations",
                 _ => "Core"
             };
             tab.IsEnabled = module is null || payload.Modules.Contains(module, StringComparer.Ordinal);
@@ -313,6 +317,7 @@ public partial class MainWindow : Window
         CurrencyInput.Text = settings.CurrencyCode;
         HostnameInput.Text = settings.PublicHostname;
         OnlineOrdersInput.IsChecked = settings.OnlineOrderingEnabled;
+        OnlineReservationsInput.IsChecked = settings.OnlineReservationsEnabled;
         UpdatePosCartTotal();
         StoreUrlText.Text = string.IsNullOrWhiteSpace(settings.PublicHostname)
             ? "http://127.0.0.1:8080"
@@ -334,6 +339,18 @@ public partial class MainWindow : Window
                 .OrderBy(x => x.DisplayName).ToListAsync();
             SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
+            ReservationResourcesGrid.ItemsSource = await db.ReservationResources.AsNoTracking()
+                .Where(x => x.BranchId == _sessionBranchId)
+                .OrderBy(x => x.Name).ToListAsync();
+            var reservationRows = await (
+                from reservation in db.CustomerReservations.AsNoTracking()
+                join resource in db.ReservationResources.AsNoTracking() on reservation.ResourceId equals resource.Id
+                where resource.BranchId == _sessionBranchId
+                select new ReservationListRow(reservation.Id, reservation.ReservationNumber, resource.Name,
+                    reservation.GuestName, reservation.GuestPhone, reservation.GuestCount,
+                    reservation.StartsAtUtc, reservation.EndsAtUtc, reservation.Status)).ToListAsync();
+            CustomerReservationsGrid.ItemsSource = reservationRows
+                .OrderByDescending(row => row.StartsAtUtc).ToList();
             var stockMovementRows = await (
                 from movement in db.StockMovements.AsNoTracking()
                 join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
@@ -733,7 +750,7 @@ public partial class MainWindow : Window
                 StatusText.Text = "ابتدا انتشار HTTPS را متوقف کنید، سپس دامنه را تغییر دهید.";
                 return;
             }
-            if (settings.PublicPublicationEnabled && OnlineOrdersInput.IsChecked != true)
+            if (settings.PublicPublicationEnabled && OnlineOrdersInput.IsChecked != true && OnlineReservationsInput.IsChecked != true)
             {
                 StatusText.Text = "ابتدا انتشار HTTPS را متوقف کنید، سپس سفارش آنلاین را غیرفعال کنید.";
                 return;
@@ -748,6 +765,7 @@ public partial class MainWindow : Window
             settings.CurrencyCode = currency;
             settings.PublicHostname = hostname;
             settings.OnlineOrderingEnabled = OnlineOrdersInput.IsChecked == true;
+            settings.OnlineReservationsEnabled = OnlineReservationsInput.IsChecked == true;
             settings.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
             StatusText.Text = "تنظیمات ذخیره شد. ثبت دامنه به‌تنهایی به معنی انتشار عمومی نیست.";
@@ -1197,6 +1215,95 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void RefreshReservations_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+
+    private async void AddReservationResource_Click(object sender, RoutedEventArgs e)
+    {
+        var name = ReservationResourceNameInput.Text.Trim();
+        if (name.Length is < 1 or > 160)
+        {
+            StatusText.Text = "نام منبع رزرو باید بین ۱ تا ۱۶۰ نویسه باشد.";
+            return;
+        }
+        if (ReservationResourceTypeInput.SelectedItem is not ComboBoxItem typeItem
+            || typeItem.Tag is not string resourceType)
+        {
+            StatusText.Text = "نوع منبع رزرو را انتخاب کنید.";
+            return;
+        }
+        if (!int.TryParse(ReservationResourceCapacityInput.Text.Trim(), NumberStyles.None,
+                CultureInfo.InvariantCulture, out var capacity) || capacity is < 1 or > 1000)
+        {
+            StatusText.Text = "ظرفیت باید عددی بین ۱ تا ۱۰۰۰ باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            if (await db.ReservationResources.AnyAsync(x => x.BranchId == _sessionBranchId && x.Name == name))
+            {
+                StatusText.Text = "منبعی با این نام در این شعبه وجود دارد.";
+                return;
+            }
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = Guid.NewGuid(),
+                BranchId = _sessionBranchId,
+                Name = name,
+                ResourceType = resourceType,
+                Capacity = capacity,
+                IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+            ReservationResourceNameInput.Clear();
+            StatusText.Text = "منبع رزرو اضافه شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"افزودن منبع رزرو ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void ConfirmReservation_Click(object sender, RoutedEventArgs e) =>
+        await UpdateReservationStatusAsync("Confirmed");
+
+    private async void CancelReservation_Click(object sender, RoutedEventArgs e) =>
+        await UpdateReservationStatusAsync("Cancelled");
+
+    private async Task UpdateReservationStatusAsync(string status)
+    {
+        if (CustomerReservationsGrid.SelectedItem is not ReservationListRow selected)
+        {
+            StatusText.Text = "ابتدا یک درخواست رزرو را انتخاب کنید.";
+            return;
+        }
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var reservation = await db.CustomerReservations.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            if (reservation is null)
+            {
+                StatusText.Text = "رزرو انتخاب‌شده پیدا نشد؛ فهرست را تازه کنید.";
+                return;
+            }
+            if (reservation.Status is not ("Requested" or "Confirmed"))
+            {
+                StatusText.Text = "وضعیت این رزرو دیگر قابل تغییر نیست.";
+                return;
+            }
+            reservation.Status = status;
+            await db.SaveChangesAsync();
+            StatusText.Text = status == "Confirmed" ? "رزرو تأیید شد." : "رزرو لغو شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"به‌روزرسانی وضعیت رزرو ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void AddCustomer_Click(object sender, RoutedEventArgs e)
     {
         var name = CustomerNameInput.Text.Trim();
@@ -1471,7 +1578,7 @@ public partial class MainWindow : Window
             try
             {
                 await LoadSettingsAsync();
-                if (HasLicensedModule("Storefront") && OnlineOrdersInput.IsChecked == true && !await IsStorefrontRunningAsync())
+                if (HasLicensedModule("Storefront") && (OnlineOrdersInput.IsChecked == true || OnlineReservationsInput.IsChecked == true) && !await IsStorefrontRunningAsync())
                 {
                     StartServer_Click(this, new RoutedEventArgs());
                     for (var attempt = 0; attempt < 10 && !await IsStorefrontRunningAsync(); attempt++)
