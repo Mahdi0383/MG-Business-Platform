@@ -58,6 +58,7 @@ The expected Windows artifacts are:
 - [Security and licensing](docs/SECURITY.md)
 - [License Manager usage and key handling](docs/LICENSE_MANAGER.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [PC-POS device integration architecture](docs/PC_POS_INTEGRATION.md)
 - [Contribution and development workflow](CONTRIBUTING.md)
 
 ## Product principles
