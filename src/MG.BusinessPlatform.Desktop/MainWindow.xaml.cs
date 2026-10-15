@@ -1266,6 +1266,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ToggleReservationResource_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReservationResourcesGrid.SelectedItem is not ReservationResourceRecord selected)
+        {
+            StatusText.Text = "ابتدا یک منبع رزرو را انتخاب کنید.";
+            return;
+        }
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var resource = await db.ReservationResources.SingleOrDefaultAsync(x =>
+                x.Id == selected.Id && x.BranchId == _sessionBranchId);
+            if (resource is null)
+            {
+                StatusText.Text = "منبع رزرو انتخاب‌شده پیدا نشد؛ فهرست را تازه کنید.";
+                return;
+            }
+            resource.IsAvailable = !resource.IsAvailable;
+            await db.SaveChangesAsync();
+            StatusText.Text = resource.IsAvailable ? "منبع رزرو دوباره فعال شد." : "منبع رزرو غیرفعال شد؛ رزروهای ثبت‌شده حفظ می‌شوند.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"تغییر وضعیت منبع رزرو ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async void ConfirmReservation_Click(object sender, RoutedEventArgs e) =>
         await UpdateReservationStatusAsync("Confirmed");
 
