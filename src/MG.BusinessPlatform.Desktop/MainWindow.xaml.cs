@@ -437,6 +437,118 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadPaymentTerminalProfilesAsync()
+    {
+        var profiles = await _paymentTerminalProfileService.LoadAsync();
+        PaymentTerminalProfilesGrid.ItemsSource = profiles.Select(profile => new PaymentTerminalProfileGridRow(
+            profile.Id, profile.Name, profile.Vendor, profile.Model, PaymentConnectionTypeTitle(profile.ConnectionType),
+            profile.IsEnabled, profile.IsDefault, profile.LastTestStatus)).ToList();
+        if (_editingPaymentProfileId is Guid selectedId)
+            PaymentTerminalProfilesGrid.SelectedItem = ((IEnumerable<PaymentTerminalProfileGridRow>)PaymentTerminalProfilesGrid.ItemsSource)
+                .FirstOrDefault(row => row.Id == selectedId);
+    }
+
+    private static string PaymentConnectionTypeTitle(PaymentConnectionType type) => type switch
+    {
+        PaymentConnectionType.Manual => "دستی / خارجی",
+        PaymentConnectionType.TcpIp => "شبکه TCP/IP",
+        PaymentConnectionType.Serial => "سریال RS-232",
+        PaymentConnectionType.UsbVirtualCom => "USB مجازی COM",
+        PaymentConnectionType.VendorLocalApi => "API محلی فروشنده",
+        PaymentConnectionType.WindowsService => "سرویس ویندوز",
+        PaymentConnectionType.VendorSdk => "SDK اختصاصی",
+        _ => "نامشخص"
+    };
+
+    private async void PaymentTerminalProfilesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PaymentTerminalProfilesGrid.SelectedItem is not PaymentTerminalProfileGridRow row)
+            return;
+        try
+        {
+            var profile = (await _paymentTerminalProfileService.LoadAsync()).SingleOrDefault(item => item.Id == row.Id);
+            if (profile is not null)
+                ShowPaymentProfile(profile);
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"بارگذاری پروفایل ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void NewPaymentProfile_Click(object sender, RoutedEventArgs e)
+    {
+        _editingPaymentProfileId = Guid.NewGuid();
+        PaymentProfileNameInput.Clear();
+        PaymentProfileVendorInput.Clear();
+        PaymentProfileModelInput.Clear();
+        PaymentProfileDriverInput.Text = "manual";
+        PaymentProfileProtocolInput.Clear();
+        PaymentConnectionTypeInput.SelectedValue = nameof(PaymentConnectionType.Manual);
+        PaymentHostInput.Clear();
+        PaymentPortInput.Text = "5000";
+        PaymentSerialPortInput.Text = "COM3";
+        PaymentBaudRateInput.Text = "9600";
+        PaymentDataBitsInput.Text = "8";
+        PaymentParityInput.SelectedValue = "None";
+        PaymentStopBitsInput.SelectedValue = "One";
+        PaymentFlowControlInput.SelectedValue = "None";
+        PaymentConnectTimeoutInput.Text = "3000";
+        PaymentResponseTimeoutInput.Text = "5000";
+        PaymentCurrencyInput.Text = "IRR";
+        PaymentMerchantIdInput.Clear();
+        PaymentTerminalIdInput.Clear();
+        PaymentEndpointInput.Clear();
+        PaymentAuthReferenceInput.Clear();
+        PaymentEnabledInput.IsChecked = true;
+        PaymentDefaultInput.IsChecked = false;
+        PaymentTerminalProfilesGrid.SelectedItem = null;
+        PaymentProfileStatusText.Text = "پروفایل جدید؛ نوع اتصال را بر اساس مستندات رسمی دستگاه انتخاب کنید.";
+    }
+
+    private PaymentTerminalProfile BuildPaymentProfile()
+    {
+        if (!Enum.TryParse<PaymentConnectionType>(PaymentConnectionTypeInput.SelectedValue?.ToString(), out var connectionType))
+            throw new ArgumentException("نوع اتصال را انتخاب کنید.");
+
+        if (!int.TryParse(PaymentPortInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var port)
+            || !int.TryParse(PaymentBaudRateInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var baudRate)
+            || !int.TryParse(PaymentDataBitsInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var dataBits)
+            || !int.TryParse(PaymentConnectTimeoutInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var connectTimeout)
+            || !int.TryParse(PaymentResponseTimeoutInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var responseTimeout))
+            throw new ArgumentException("درگاه، Baud rate و مهلت‌های زمانی باید عدد صحیح معتبر باشند.");
+
+        var profile = new PaymentTerminalProfile
+        {
+            Id = _editingPaymentProfileId ?? Guid.NewGuid(),
+            Name = PaymentProfileNameInput.Text,
+            Vendor = PaymentProfileVendorInput.Text,
+            Model = PaymentProfileModelInput.Text,
+            DriverId = PaymentProfileDriverInput.Text,
+            ProtocolVersion = PaymentProfileProtocolInput.Text,
+            ConnectionType = connectionType,
+            Host = PaymentHostInput.Text,
+            Port = port,
+            SerialPort = PaymentSerialPortInput.Text,
+            BaudRate = baudRate,
+            DataBits = dataBits,
+            Parity = PaymentParityInput.SelectedValue?.ToString() ?? "None",
+            StopBits = PaymentStopBitsInput.SelectedValue?.ToString() ?? "One",
+            FlowControl = PaymentFlowControlInput.SelectedValue?.ToString() ?? "None",
+            ConnectTimeoutMs = connectTimeout,
+            ResponseTimeoutMs = responseTimeout,
+            CurrencyCode = PaymentCurrencyInput.Text.Trim().ToUpperInvariant(),
+            MerchantId = PaymentMerchantIdInput.Text,
+            TerminalId = PaymentTerminalIdInput.Text,
+            Endpoint = PaymentEndpointInput.Text,
+            AuthenticationReference = PaymentAuthReferenceInput.Text,
+            IsEnabled = PaymentEnabledInput.IsChecked == true,
+            IsDefault = PaymentDefaultInput.IsChecked == true
+        };
+        PaymentTerminalProfileService.Validate(profile);
+        return profile;
+    }
+
     private async Task RefreshGameSessionsAsync(BusinessDbContext db)
     {
         var sessions = await new GameSessionRepository(db).FindRecentAsync();
