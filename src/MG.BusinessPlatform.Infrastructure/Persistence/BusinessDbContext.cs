@@ -30,6 +30,7 @@ public sealed class SalesInvoiceRecord
     public string InvoiceNumber { get; set; } = string.Empty;
     public Guid OrderId { get; set; }
     public DateOnly IssueDate { get; set; }
+    public DateOnly? DueDate { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string CustomerPhone { get; set; } = string.Empty;
     public string CurrencyCode { get; set; } = "IRR";
@@ -101,6 +102,7 @@ public sealed class PurchaseInvoiceRecord
     public Guid BranchId { get; set; }
     public Guid SupplierId { get; set; }
     public DateOnly IssueDate { get; set; }
+    public DateOnly? DueDate { get; set; }
     public string CurrencyCode { get; set; } = "IRR";
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }
