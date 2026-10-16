@@ -498,7 +498,7 @@
                             </StackPanel>
                             <Image x:Name="StorefrontQrImage" Width="220" Height="220" Stretch="Uniform" HorizontalAlignment="Right" Margin="4,8" Visibility="Collapsed"/>
                             <TextBlock Text="QR فقط لینک را رمزگذاری می‌کند؛ قبل از چاپ، دسترسی دامنه را با اینترنت موبایل آزمایش کنید." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,4,4,12"/>
-                            <TextBlock Text="برای HTTPS عمومی، دامنه باید به IP عمومی این رایانه/روتر اشاره کند و TCP 80 و 443 باید از اینترنت به این رایانه هدایت شوند. Caddy گواهی معتبر را خودکار دریافت و تمدید می‌کند؛ شبکه‌های CGNAT یا محدودکننده ممکن است به تونل خروجی نیاز داشته باشند." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
+                            <TextBlock Text="برای HTTPS عمومی، دامنه باید به IP عمومی این رایانه/روتر اشاره کند و TCP 80 و 443 باید از اینترنت به این رایانه هدایت شوند. در روترهای سازگار می‌توانید انتقال درگاه‌ها را با UPnP و تأیید صریح تنظیم کنید؛ در غیر این صورت تنظیم دستی لازم است. Caddy گواهی معتبر را خودکار دریافت و تمدید می‌کند؛ شبکه‌های CGNAT یا محدودکننده ممکن است به IP عمومی یا تونل خروجی نیاز داشته باشند." TextWrapping="Wrap" Foreground="#9A3412" Margin="4,12"/>
                         </StackPanel>
                     </Border>
                 </ScrollViewer>
