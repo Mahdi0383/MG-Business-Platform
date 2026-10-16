@@ -2471,6 +2471,33 @@ public partial class MainWindow : Window
                 }
             }
 
+            var dnsToken = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            if (!string.IsNullOrWhiteSpace(dnsToken))
+            {
+                try
+                {
+                    var dnsResult = await _parsPackDnsService.SyncARecordAsync(hostname, dnsToken);
+                    if (dnsResult.Status == ParsPackDnsSyncStatus.ConfirmationRequired)
+                    {
+                        if (!ConfirmationDialog.Confirm(this, "تغییر رکورد DNS پارس‌پک", dnsResult.Message))
+                        {
+                            PublicHostingStatusText.Text = "انتشار شروع نشد؛ رکورد DNS بدون تغییر باقی ماند.";
+                            return;
+                        }
+
+                        dnsResult = await _parsPackDnsService.SyncARecordAsync(hostname, dnsToken, replaceExisting: true);
+                    }
+
+                    DnsSyncStatusText.Text = dnsResult.Message;
+                }
+                catch (Exception dnsException)
+                {
+                    // Continue to the normal DNS/public-IP diagnostics. Manual DNS may
+                    // already be correct even if the saved provider token has expired.
+                    DnsSyncStatusText.Text = $"همگام‌سازی خودکار DNS انجام نشد؛ بررسی دستی ادامه می‌یابد: {dnsException.Message}";
+                }
+            }
+
             if (!await IsStorefrontRunningAsync())
             {
                 PublicHostingStatusText.Text = "ابتدا سرویس وب محلی راه‌اندازی می‌شود…";
