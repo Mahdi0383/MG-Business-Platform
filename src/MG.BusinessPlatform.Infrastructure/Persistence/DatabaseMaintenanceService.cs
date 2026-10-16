@@ -29,6 +29,7 @@ public sealed class DatabaseMaintenanceService
         {
             await CopyDatabaseAsync(source, temporaryPath, cancellationToken);
             await VerifyIntegrityAsync(temporaryPath, cancellationToken);
+            await VerifyBusinessSchemaAsync(temporaryPath, cancellationToken);
             File.Move(temporaryPath, destination, overwrite: true);
             var info = new FileInfo(destination);
             return new DatabaseBackupResult(destination, info.Length, DateTimeOffset.UtcNow);
@@ -61,6 +62,7 @@ public sealed class DatabaseMaintenanceService
         {
             await CopyDatabaseAsync(backup, temporaryPath, cancellationToken);
             await VerifyIntegrityAsync(temporaryPath, cancellationToken);
+            await VerifyBusinessSchemaAsync(temporaryPath, cancellationToken);
 
             if (File.Exists(target))
             {
@@ -99,6 +101,30 @@ public sealed class DatabaseMaintenanceService
         var result = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
         if (!string.Equals(result, "ok", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"SQLite integrity check failed: {result ?? "no result"}.");
+    }
+
+    private async Task VerifyBusinessSchemaAsync(string databasePath, CancellationToken cancellationToken)
+    {
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.GetFullPath(databasePath),
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        }.ToString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('StoreSettings', 'StoreProducts', '__EFMigrationsHistory');
+            """;
+        var result = Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            System.Globalization.CultureInfo.InvariantCulture);
+        if (result != 3)
+            throw new InvalidDataException(
+                "The selected file is a valid SQLite database but is not an MG Business Platform database. The current data was not replaced.");
     }
 
     private static async Task CopyDatabaseAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
