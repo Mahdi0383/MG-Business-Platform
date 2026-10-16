@@ -35,6 +35,31 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task CrossOriginBrowserMutation_IsRejectedBeforeBusinessDataChanges()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Cross-site caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "https://attacker.example");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "cross-site");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+    }
+
+    [Fact]
     public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
     {
         await using var factory = new StorefrontTestFactory();
