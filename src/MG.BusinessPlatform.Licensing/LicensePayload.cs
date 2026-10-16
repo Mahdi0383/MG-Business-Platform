@@ -17,7 +17,7 @@ public sealed record LicensePayload
     public static readonly string[] SupportedModules =
     [
         "Core", "Accounting", "Inventory", "POS", "Storefront",
-        "Cafe", "GameCafe", "Reservations", "Reports", "MultiBranch"
+        "Cafe", "GameCafe", "Reservations", "CustomerClub", "Reports", "MultiBranch"
     ];
 
     public LicensePayload Validate()
