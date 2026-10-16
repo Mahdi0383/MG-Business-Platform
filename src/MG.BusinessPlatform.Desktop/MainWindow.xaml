@@ -411,12 +411,12 @@
                             <DataGridTextColumn Header="تاریخ فاکتور" Binding="{Binding IssueDate}" Width="110"/>
                             <DataGridTextColumn Header="سررسید تخمینی" Binding="{Binding DueDate}" Width="110"/>
                             <DataGridTextColumn Header="روز تأخیر" Binding="{Binding DaysOverdue}" Width="85"/>
-                            <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount, StringFormat=N2}" Width="*"/>
-                            <DataGridTextColumn Header="سررسیدنشده" Binding="{Binding NotDue, StringFormat=N2}" Width="*"/>
-                            <DataGridTextColumn Header="۱–۳۰ روز" Binding="{Binding Days1To30, StringFormat=N2}" Width="*"/>
-                            <DataGridTextColumn Header="۳۱–۶۰ روز" Binding="{Binding Days31To60, StringFormat=N2}" Width="*"/>
-                            <DataGridTextColumn Header="۶۱–۹۰ روز" Binding="{Binding Days61To90, StringFormat=N2}" Width="*"/>
-                            <DataGridTextColumn Header="بیش از ۹۰ روز" Binding="{Binding Over90Days, StringFormat=N2}" Width="*"/>
+                            <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount, StringFormat={}{0:N2}}" Width="*"/>
+                            <DataGridTextColumn Header="سررسیدنشده" Binding="{Binding NotDue, StringFormat={}{0:N2}}" Width="*"/>
+                            <DataGridTextColumn Header="۱–۳۰ روز" Binding="{Binding Days1To30, StringFormat={}{0:N2}}" Width="*"/>
+                            <DataGridTextColumn Header="۳۱–۶۰ روز" Binding="{Binding Days31To60, StringFormat={}{0:N2}}" Width="*"/>
+                            <DataGridTextColumn Header="۶۱–۹۰ روز" Binding="{Binding Days61To90, StringFormat={}{0:N2}}" Width="*"/>
+                            <DataGridTextColumn Header="بیش از ۹۰ روز" Binding="{Binding Over90Days, StringFormat={}{0:N2}}" Width="*"/>
                             <DataGridTextColumn Header="ارز" Binding="{Binding CurrencyCode}" Width="65"/>
                         </DataGrid.Columns>
                     </DataGrid>
