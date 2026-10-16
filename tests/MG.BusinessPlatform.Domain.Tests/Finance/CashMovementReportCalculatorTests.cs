@@ -31,12 +31,12 @@ public sealed class CashMovementReportCalculatorTests
         Assert.Equal(25m, report.TotalOutflows.Amount);
         Assert.Equal(15m, report.NetMovement.Amount);
         Assert.Equal(115m, report.ClosingBalance.Amount);
-        var cash = Assert.Single(report.Lines.Where(line => line.AccountCode == "1000"));
+        var cash = Assert.Single(report.Lines, line => line.AccountCode == "1000");
         Assert.Equal(100m, cash.OpeningBalance.Amount);
         Assert.Equal(40m, cash.Inflows.Amount);
         Assert.Equal(0m, cash.Outflows.Amount);
         Assert.Equal(140m, cash.ClosingBalance.Amount);
-        var bank = Assert.Single(report.Lines.Where(line => line.AccountCode == "1010"));
+        var bank = Assert.Single(report.Lines, line => line.AccountCode == "1010");
         Assert.Equal(-25m, bank.ClosingBalance.Amount);
     }
 
