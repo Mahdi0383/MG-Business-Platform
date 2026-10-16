@@ -38,7 +38,7 @@ Use the private key that matches the public key embedded in this release. Store 
 .\\MG.BusinessPlatform.LicenseTool.exe issue "D:\\MG-License-Secrets\\license-private.pem" "D:\\MG-License-Out\\license.json" "MGS-PASTE-SOFTWARE-SERIAL" "MGH-PASTE-HARDWARE-SERIAL" "Customer name" "2027-10-13" "Core,Accounting,Inventory,POS,Storefront,GameCafe" 1 5
 ```
 
-The expiry date is interpreted as the end of that date in UTC. Supported modules: Core, Accounting, Inventory, POS, Storefront, Cafe, GameCafe, Reservations, Reports, MultiBranch.
+The expiry date is interpreted as the end of that date in UTC. Supported modules: Core, Accounting, Inventory, POS, Storefront, Cafe, GameCafe, Reservations, Reports, MultiBranch. Dependency rules are validated at issuance and verification: every license includes Core; POS requires both Accounting and Inventory; Reservations requires Storefront.
 
 The GUI performs the same signing-key match check before issuing a license. Never share the private key with customers.
 
