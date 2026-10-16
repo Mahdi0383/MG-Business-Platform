@@ -16,6 +16,22 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("ProductVersion", "10.0.0")
             .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.AuditEventRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("Action").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
+            b.Property<string>("Actor").IsRequired().HasMaxLength(300).HasColumnType("TEXT");
+            b.Property<string>("ChangedFields").IsRequired().HasMaxLength(2000).HasColumnType("TEXT");
+            b.Property<string>("EntityId").IsRequired().HasMaxLength(300).HasColumnType("TEXT");
+            b.Property<string>("EntityType").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("MachineName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("OccurredAtUtc").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("OccurredAtUtc");
+            b.HasIndex("EntityType", "EntityId", "OccurredAtUtc");
+            b.ToTable("AuditEvents");
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.LedgerAccountRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
