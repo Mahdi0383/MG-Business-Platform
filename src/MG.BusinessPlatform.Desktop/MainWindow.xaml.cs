@@ -55,7 +55,7 @@ public sealed record AuditEventGridRow(DateTimeOffset OccurredAtUtc, string Acto
     string Action, string EntityType, string EntityId, string ChangedFields);
 
 public sealed record InvoiceAgingGridRow(string DocumentType, string DocumentNumber, string CounterpartyName,
-    DateOnly IssueDate, DateOnly? DueDate, DateOnly AgingDate, bool UsesIssueDateFallback, int AgeDays,
+    DateOnly IssueDate, DateOnly? DueDate, DateOnly AgingDate, string AgingBasisText, int AgeDays,
     string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
 
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
@@ -1976,7 +1976,7 @@ public partial class MainWindow : Window
             var report = MG.BusinessPlatform.Domain.Finance.InvoiceAgingCalculator.Calculate(documents, asOfDate, settings.CurrencyCode);
             InvoiceAgingGrid.ItemsSource = report.Lines.Select(line => new InvoiceAgingGridRow(
                 line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate,
-                line.DueDate, line.AgingDate, line.UsesIssueDateFallback, line.AgeDays,
+                line.DueDate, line.AgingDate, line.UsesIssueDateFallback ? "تاریخ صدور (جایگزین)" : "سررسید ثبت‌شده", line.AgeDays,
                 InvoiceAgeBucketText(line.Bucket), line.TotalAmount.Amount, line.PaidAmount.Amount,
                 line.OutstandingAmount.Amount)).ToArray();
             InvoiceAgingTotalsText.Text =
@@ -2313,6 +2313,53 @@ public partial class MainWindow : Window
 
     private async void RefreshPurchases_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    private void InvoicesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        InvoiceDueDateInput.SelectedDate = InvoicesGrid.SelectedItem is InvoiceListItem selected
+            ? selected.DueDate?.ToDateTime(TimeOnly.MinValue)
+            : null;
+    }
+
+    private async void UpdateSelectedInvoiceDueDate_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting"))
+        {
+            StatusText.Text = "برای تغییر سررسید، لایسنس معتبر دارای ماژول Accounting لازم است.";
+            return;
+        }
+        if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
+        {
+            StatusText.Text = "ابتدا فاکتور فروش موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        var dueDate = InvoiceDueDateInput.SelectedDate is DateTime selectedDate
+            ? DateOnly.FromDateTime(selectedDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < selected.IssueDate)
+        {
+            StatusText.Text = "سررسید نمی‌تواند قبل از تاریخ صدور فاکتور باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await db.SalesInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id)
+                ?? throw new KeyNotFoundException("فاکتور فروش پیدا نشد.");
+            invoice.DueDate = dueDate;
+            await db.SaveChangesAsync();
+            StatusText.Text = dueDate is null
+                ? $"سررسید فاکتور {invoice.InvoiceNumber} پاک شد؛ گزارش از تاریخ صدور به‌عنوان مبنا استفاده می‌کند."
+                : $"سررسید فاکتور {invoice.InvoiceNumber} به {dueDate:yyyy-MM-dd} تغییر کرد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"تغییر سررسید فاکتور ناموفق بود: {ex.Message}";
+        }
+    }
+
     private void PurchaseInvoicesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         UpdateSupplierPaymentSelection();
 
@@ -2321,12 +2368,55 @@ public partial class MainWindow : Window
         if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
         {
             SupplierPaymentSelectionText.Text = "ابتدا یک فاکتور خرید را انتخاب کنید.";
+            PurchaseDueDateInput.SelectedDate = null;
             return;
         }
+
+        PurchaseDueDateInput.SelectedDate = selected.DueDate?.ToDateTime(TimeOnly.MinValue);
 
         SupplierPaymentSelectionText.Text =
             $"{selected.InvoiceNumber} | مانده: {selected.OutstandingAmount:N2} {selected.CurrencyCode}";
         SupplierPaymentAmountInput.Text = selected.OutstandingAmount.ToString(CultureInfo.CurrentCulture);
+    }
+
+    private async void UpdateSelectedPurchaseDueDate_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
+        {
+            StatusText.Text = "برای تغییر سررسید خرید، لایسنس معتبر دارای ماژول‌های Accounting و Inventory لازم است.";
+            return;
+        }
+        if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
+        {
+            StatusText.Text = "ابتدا فاکتور خرید موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        var dueDate = PurchaseDueDateInput.SelectedDate is DateTime selectedDate
+            ? DateOnly.FromDateTime(selectedDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < selected.IssueDate)
+        {
+            StatusText.Text = "سررسید نمی‌تواند قبل از تاریخ صدور فاکتور خرید باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await db.PurchaseInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id)
+                ?? throw new KeyNotFoundException("فاکتور خرید پیدا نشد.");
+            invoice.DueDate = dueDate;
+            await db.SaveChangesAsync();
+            StatusText.Text = dueDate is null
+                ? $"سررسید فاکتور خرید {invoice.InvoiceNumber} پاک شد؛ گزارش از تاریخ صدور به‌عنوان مبنا استفاده می‌کند."
+                : $"سررسید فاکتور خرید {invoice.InvoiceNumber} به {dueDate:yyyy-MM-dd} تغییر کرد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"تغییر سررسید فاکتور خرید ناموفق بود: {ex.Message}";
+        }
     }
 
     private async void RecordSupplierPayment_Click(object sender, RoutedEventArgs e)
