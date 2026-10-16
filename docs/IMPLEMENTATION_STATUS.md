@@ -33,8 +33,8 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Verification status
 
-- Commit `533aeb2e8d9a5326dbe213b9c94ec167bfd7a833` passed a Windows Release build with zero compiler errors, all 168 automated tests, both Windows installers and package verification.
-- The subsequent storefront catalogue privacy fix and database schema validation change each passed their own Windows CI runs. The combined main-branch build must still be checked on its exact commit before its results are treated as release evidence.
+- Main commit `ad04c96ae09cae606d839a14cd316d0518bf9b34` passed the Windows Release build with zero compiler errors, all 170 automated tests, both Windows installers and package verification.
+- The build/test evidence is tied to this exact commit. Later source changes, including publisher-key bootstrap and source-archive secret filtering, must pass CI separately before their artifacts are considered verified.
 - The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability.
 - Desktop license checks and public storefront license checks are present, but this is not a substitute for server-side authorization on every future administrative API.
