@@ -325,6 +325,24 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task ReservationEndpoint_RequiresReservationsLicenseEntitlement()
+    {
+        await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync("/api/storefront/reservation-resources");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task PublicReservation_RequiresFeatureEnabledAndValidTimeWindow()
     {
         await using var factory = new StorefrontTestFactory();
@@ -408,18 +426,27 @@ public sealed class StorefrontOrderIntegrationTests
 
     private sealed class StorefrontTestFactory : WebApplicationFactory<Program>
     {
+        private readonly string[] _modules;
+
+        public StorefrontTestFactory(string[]? modules = null)
+        {
+            _modules = modules ?? LicensePayload.SupportedModules;
+            Environment.SetEnvironmentVariable("MG_BUSINESS_DB_PATH", _testDatabasePath);
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IStorefrontLicenseGuard>();
-                services.AddSingleton<IStorefrontLicenseGuard, TestStorefrontLicenseGuard>();
+                services.AddSingleton<IStorefrontLicenseGuard>(_ => new TestStorefrontLicenseGuard(_modules));
             });
         }
 
-        private sealed class TestStorefrontLicenseGuard : IStorefrontLicenseGuard
+        private sealed class TestStorefrontLicenseGuard(string[] modules) : IStorefrontLicenseGuard
         {
-            private static readonly LicenseValidationResult ValidTestLicense = new(
+            private readonly LicenseValidationResult _license = new(
+
                 LicenseValidationStatus.Valid,
                 "Integration-test license",
                 new LicensePayload
@@ -430,21 +457,16 @@ public sealed class StorefrontOrderIntegrationTests
                     HardwareSerial = "MGH-00000000000000000000000000000000",
                     IssuedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
                     ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1),
-                    Modules = LicensePayload.SupportedModules,
+                    Modules = modules,
                     MaxBranches = 100,
                     MaxUsers = 100
                 });
 
-            public LicenseValidationResult Validate() => ValidTestLicense;
+            public LicenseValidationResult Validate() => _license;
         }
 
         private readonly string? _previousDatabasePath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH");
         private readonly string _testDatabasePath = Path.Combine(Path.GetTempPath(), $"mg-storefront-{Guid.NewGuid():N}.db");
-
-        public StorefrontTestFactory()
-        {
-            Environment.SetEnvironmentVariable("MG_BUSINESS_DB_PATH", _testDatabasePath);
-        }
 
         public override async ValueTask DisposeAsync()
         {
