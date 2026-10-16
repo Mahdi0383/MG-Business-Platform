@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: mg-business-platform-${{ github.workflow }}-${{ github.ref }}
@@ -98,3 +98,57 @@ jobs:
             throw "License manager installer SHA-256 checksum was not produced."
           }
 
+      # Actions artifact storage may be quota-limited. Publish a single rolling
+      # prerelease instead, replacing the previous build's assets on every main push.
+      - name: Update rolling release tag
+        if: github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = "continuous";
+            const ref = `tags/${tag}`;
+            try {
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha: context.sha,
+                force: true
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/${ref}`,
+                sha: context.sha
+              });
+            }
+
+      - name: Publish rolling Windows release packages
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: continuous
+          name: MG Business Platform — Continuous Windows Build
+          body: |
+            Automatically replaced by the latest successful Windows Release build on main.
+            This is a rolling prerelease, not a claim of full commercial production readiness.
+            Installers, portable ZIPs, source archives and SHA-256 checksums are attached.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
+            artifacts/MG-Business-Platform-win-x64.zip
+            artifacts/MG-Business-Platform-win-x64.zip.sha256
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
+            artifacts/MG-License-Manager-win-x64.zip
+            artifacts/MG-License-Manager-win-x64.zip.sha256
+            artifacts/MG-Business-Platform-SOURCE.zip
+            artifacts/MG-Business-Platform-SOURCE.zip.sha256
+            artifacts/MG-License-Manager-SOURCE.zip
+            artifacts/MG-License-Manager-SOURCE.zip.sha256
