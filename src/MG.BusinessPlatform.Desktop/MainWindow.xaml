@@ -276,6 +276,7 @@
                             <TextBox x:Name="PaymentReferenceInput" Width="180" ToolTip="شماره پیگیری (اختیاری)"/>
                             <TextBox x:Name="PaymentNotesInput" Width="220" ToolTip="توضیحات (اختیاری)"/>
                             <Button Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
+                            <Button Content="چاپ رسید ۵۸ میلی‌متری" Click="PrintSelectedInvoice_Click" Margin="4,0"/>
                         </StackPanel>
                     </Border>
                     <DataGrid x:Name="InvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
