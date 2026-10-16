@@ -2,6 +2,15 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+
+$bootstrapScriptPath = Join-Path $PSScriptRoot "bootstrap-publisher-key.ps1"
+if (Test-Path $bootstrapScriptPath) {
+    $parseTokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($bootstrapScriptPath, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+    if ($parseErrors.Count -gt 0) { throw "Publisher key bootstrap script has PowerShell syntax errors." }
+}
+
 $solution = Join-Path $repoRoot "MG.BusinessPlatform.sln"
 $artifactRoot = Join-Path $repoRoot "artifacts"
 $publishRoot = Join-Path $artifactRoot "publish"
