@@ -155,7 +155,7 @@
                                 <ComboBox x:Name="PurchaseSupplierInput" Width="190" DisplayMemberPath="DisplayName" SelectedValuePath="Id" Margin="4"/>
                                 <TextBlock Text="تاریخ فاکتور" VerticalAlignment="Center" Margin="4"/>
                                 <DatePicker x:Name="PurchaseInvoiceDateInput" Width="145" Margin="4"/>
-                                <TextBlock Text="سررسید انتخاب‌شده" VerticalAlignment="Center" Margin="4"/>
+                                <TextBlock Text="سررسید فاکتور خرید" VerticalAlignment="Center" Margin="4"/>
                                 <DatePicker x:Name="PurchaseDueDateInput" Width="145" Margin="4"/>
                                 <TextBlock Text="کالا" VerticalAlignment="Center" Margin="4"/>
                                 <ComboBox x:Name="PurchaseProductInput" Width="210" DisplayMemberPath="Name" Margin="4"/>
