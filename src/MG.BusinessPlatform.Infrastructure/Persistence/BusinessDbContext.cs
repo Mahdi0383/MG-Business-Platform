@@ -312,18 +312,40 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        AddAuditEvents();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        var generatedAuditEvents = AddAuditEvents();
+        try
+        {
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+        catch
+        {
+            DetachGeneratedAuditEvents(generatedAuditEvents);
+            throw;
+        }
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
-        AddAuditEvents();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var generatedAuditEvents = AddAuditEvents();
+        try
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+        catch
+        {
+            DetachGeneratedAuditEvents(generatedAuditEvents);
+            throw;
+        }
     }
 
-    private void AddAuditEvents()
+    private void DetachGeneratedAuditEvents(IEnumerable<AuditEventRecord> generatedAuditEvents)
+    {
+        foreach (var auditEvent in generatedAuditEvents)
+            Entry(auditEvent).State = EntityState.Detached;
+    }
+
+    private AuditEventRecord[] AddAuditEvents()
     {
         ChangeTracker.DetectChanges();
         var changes = ChangeTracker.Entries()
@@ -361,6 +383,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
         if (changes.Length > 0)
             AuditEvents.AddRange(changes);
+        return changes;
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
