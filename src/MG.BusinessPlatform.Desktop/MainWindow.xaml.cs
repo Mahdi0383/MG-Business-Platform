@@ -2292,6 +2292,14 @@ public partial class MainWindow : Window
         }
 
         var issueDate = DateOnly.FromDateTime(PurchaseInvoiceDateInput.SelectedDate ?? DateTime.Today);
+        var dueDate = PurchaseDueDateInput.SelectedDate is DateTime selectedDueDate
+            ? DateOnly.FromDateTime(selectedDueDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < issueDate)
+        {
+            StatusText.Text = "سررسید فاکتور خرید نمی‌تواند قبل از تاریخ صدور باشد.";
+            return;
+        }
         var lines = _purchaseDraftLines.Select(line => new PurchaseInvoiceLineRequest(
             line.ProductId, line.Quantity, line.UnitCost, line.DiscountPercent / 100m, line.UnitCode)).ToArray();
 
@@ -2299,7 +2307,7 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var invoice = await new PurchasingAccountingService(db).CreatePurchaseInvoiceAsync(
-                supplier.Id, _sessionBranchId, lines, issueDate);
+                supplier.Id, _sessionBranchId, lines, issueDate, dueDate: dueDate);
             _purchaseDraftLines.Clear();
             UpdatePurchaseDraftTotal();
             StatusText.Text = $"فاکتور خرید {invoice.InvoiceNumber} ثبت شد؛ موجودی، میانگین بهای تمام‌شده و دفتر حسابداری به‌روزرسانی شد.";
