@@ -7,7 +7,7 @@ The desktop app can start the customer storefront, generate a Caddy reverse-prox
 1. Add products and verify the local storefront at `http://127.0.0.1:8080`.
 2. Enter the hostname (for example, `shop.example.com`) in Store Settings and enable online orders.
 3. Select **Diagnose domain and network**. The app reports the resolved A/AAAA records, the detected public IPv4 address, whether DNS matches that address, and whether local ports 80/443 are available.
-4. At the domain registrar/DNS provider, configure an A record to the public IPv4 address of the store's internet connection; configure AAAA only if public IPv6 routing is actually available. The app does not need your registrar password and does not silently modify DNS.
+4. If the domain's DNS zone is managed by ParsPack, optionally enter a ParsPack CDN DNS API token in Store Settings and use **Update DNS A record**. The token is stored in the current Windows user's Credential Manager, not the app settings file. Use a token limited to listing zones/records and creating/deleting DNS records. If the existing A record points elsewhere, the app asks before replacing it and refuses ambiguous/multiple A records or a conflicting CNAME. For other providers, configure the A record manually. Configure AAAA only if public IPv6 routing is actually available.
 5. Use the app's firewall action to add Windows Firewall inbound rules for TCP ports 80 and 443. This asks for Windows administrator consent.
 6. In the router, forward TCP 80 and 443 to the Windows computer's reserved LAN IP address. The exact steps differ by router and are not safely automatable for every router model.
 7. Select **Start public HTTPS hosting**. Caddy validates its config, listens on the public web ports, obtains/renews certificates automatically, and proxies requests to the loopback-only storefront.
@@ -24,4 +24,4 @@ The desktop app can start the customer storefront, generate a Caddy reverse-prox
 
 ## Security boundaries
 
-The storefront listens on loopback port 8080 only. Caddy is the public TLS endpoint. The SQLite database file is never exposed over HTTP. Only customer storefront routes are public; management UI and direct database access are not public API endpoints. Public publication is opt-in and the Windows firewall rule is only created after the user explicitly invokes the firewall action and approves UAC.
+The storefront listens on loopback port 8080 only. Caddy is the public TLS endpoint. The SQLite database file is never exposed over HTTP. Only customer storefront routes are public; management UI and direct database access are not public API endpoints. Public publication is opt-in and the Windows firewall rule is only created after the user explicitly invokes the firewall action and approves UAC. ParsPack DNS credentials are stored in Windows Credential Manager for the current Windows account; they are never written to application settings or logs.
