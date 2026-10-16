@@ -137,10 +137,14 @@ app.MapGet("/health/ready", async (BusinessDbContext db, CancellationToken ct) =
         : Results.Problem("Database is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
 }).RequireRateLimiting("public");
 
-app.MapGet("/api/storefront", async (BusinessDbContext db, CancellationToken ct) =>
+app.MapGet("/api/storefront", async (BusinessDbContext db, IStorefrontLicenseGuard licenseGuard, CancellationToken ct) =>
 {
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
-    return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode, settings.OnlineOrderingEnabled, settings.OnlineReservationsEnabled));
+    var license = licenseGuard.Validate();
+    var reservationsEnabled = settings.OnlineReservationsEnabled
+        && license.Payload?.Modules.Contains("Reservations", StringComparer.Ordinal) == true;
+    return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode,
+        settings.OnlineOrderingEnabled, reservationsEnabled));
 }).RequireRateLimiting("public");
 
 app.MapGet("/api/storefront/products", async (BusinessDbContext db, CancellationToken ct) =>
