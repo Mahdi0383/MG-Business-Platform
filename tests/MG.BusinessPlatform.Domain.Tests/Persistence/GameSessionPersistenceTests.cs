@@ -38,6 +38,33 @@ public sealed class GameSessionPersistenceTests
     }
 
     [Fact]
+    public async Task Repository_RejectsSecondActiveSessionOnTheSameDevice()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        var branchId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var startedAt = DateTimeOffset.Parse("2026-10-16T08:00:00+00:00");
+
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+        var repository = new GameSessionRepository(db);
+        var first = new GameSession(Guid.NewGuid(), branchId, deviceId, "Tekken 8", startedAt,
+            new Money(600000m, "IRR"),
+            [new GameSessionPlayer(Guid.NewGuid(), "Ali", Money.Zero("IRR"), Money.Zero("IRR"), Money.Zero("IRR"))]);
+        await repository.SaveAsync(first);
+
+        var second = new GameSession(Guid.NewGuid(), branchId, deviceId, "FC 26", startedAt.AddMinutes(1),
+            new Money(500000m, "IRR"),
+            [new GameSessionPlayer(Guid.NewGuid(), "Sara", Money.Zero("IRR"), Money.Zero("IRR"), Money.Zero("IRR"))]);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveAsync(second));
+        Assert.Contains("already has an active or paused game session", error.Message, StringComparison.Ordinal);
+        Assert.Single(await db.GameSessions.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
     public async Task Migration_PersistsPausedSessionAndPlayerAcrossContextRestart()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
