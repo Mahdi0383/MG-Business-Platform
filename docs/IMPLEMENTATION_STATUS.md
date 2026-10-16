@@ -5,7 +5,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 ## Implemented and covered by automated tests
 
 - .NET 10 solution with Domain, Infrastructure, Storefront, WPF Desktop, signed-license verification, a separate Persian RTL License Manager GUI and a CLI companion.
-- Currency-aware money primitives, chart-of-accounts entities, balanced double-entry journals, financial periods, trial balance, general-ledger running balances, P&L/balance-sheet calculations, cash/bank movement summaries, and receivable/payable aging by invoice issue date.
+- Currency-aware money primitives, chart-of-accounts entities, balanced double-entry journals, financial periods, trial balance, general-ledger running balances, P&L/balance-sheet calculations, cash/bank movement summaries, and receivable/payable aging by recorded due date, with an explicit issue-date fallback for legacy invoices without a due date.
 - Product catalog with edit/availability controls, customers and suppliers, stock movements/history/valuation, multi-line POS checkout, sales invoices, partial payments and sales-to-ledger posting.
 - Supplier purchase invoices, weighted-average unit-cost updates, stock receipts, supplier payments and corresponding accounting journal entries.
 - SQLite persistence, versioned EF Core migrations, initialization, transactional backup/restore, integrity checks and business-schema identity checks before restore. Persistent audit events are automatically recorded for tracked entity creates/updates/deletes, with actor/machine, timestamp, entity key and changed field names (not before/after values), plus a date-filtered read-only desktop history view.
@@ -20,7 +20,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Important limitations — not a complete commercial product yet
 
-- Accounting still needs a formally classified cash-flow statement (the current report summarizes selected cash/bank ledger movements), due-date-based receivable/payable aging (current aging is based on invoice issue dates), tax policies, bank reconciliation, period close/reopen and closing entries, refunds/credit notes, robust reversal workflows, audit-event persistence and comprehensive accounting reconciliation.
+- Accounting still needs a formally classified cash-flow statement (the current report summarizes selected cash/bank ledger movements), migration of legacy invoices to verified contractual due dates (legacy records without due dates fall back to issue-date aging), tax policies, bank reconciliation, period close/reopen and closing entries, refunds/credit notes, robust reversal workflows, audit-event persistence and comprehensive accounting reconciliation.
 - Inventory valuation is not yet fully integrated with purchase cost layers and COGS across every transaction type; tax, discounts and rounding policy need explicit end-to-end coverage.
 - POS now has basic selected-invoice receipt printing through the Windows print driver with a narrow layout suitable for common 58 mm thermal printers. Barcode workflows, configurable receipt templates, returns/exchanges, discounts, shift/end-of-day cash closing and physical printer/payment-terminal validation remain.
 - Cafe/restaurant operations remain incomplete: tables, open tickets, kitchen queue, recipes/ingredients, modifiers, split/merge/transfer bills, service charges, tips and local fiscal receipt rules.
