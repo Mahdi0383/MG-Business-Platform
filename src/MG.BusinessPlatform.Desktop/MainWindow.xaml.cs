@@ -361,6 +361,7 @@ public partial class MainWindow : Window
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
         StoreNameInput.Text = settings.StoreName;
         CurrencyInput.Text = settings.CurrencyCode;
+        GameSessionRateInput.ToolTip = $"نرخ ساعتی هر بازیکن ({settings.CurrencyCode})";
         HostnameInput.Text = settings.PublicHostname;
         OnlineOrdersInput.IsChecked = settings.OnlineOrderingEnabled;
         OnlineReservationsInput.IsChecked = settings.OnlineReservationsEnabled;
@@ -833,20 +834,26 @@ public partial class MainWindow : Window
 
         try
         {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var currencyCode = (await db.StoreSettings.AsNoTracking()
+                .Where(settings => settings.Id == 1)
+                .Select(settings => settings.CurrencyCode)
+                .SingleAsync()).Trim().ToUpperInvariant();
+            _ = Money.Zero(currencyCode);
+
             var players = drafts.Select(player =>
             {
                 if (player.EntryAmount < 0m || player.TimeCharge < 0m || player.AdditionalAmount < 0m)
                     throw new ArgumentOutOfRangeException(nameof(player), "مبالغ بازیکنان نمی‌توانند منفی باشند.");
                 return new GameSessionPlayer(Guid.NewGuid(), player.DisplayName,
-                    new Money(player.EntryAmount, "IRR"),
-                    new Money(player.TimeCharge, "IRR"),
-                    new Money(player.AdditionalAmount, "IRR"));
+                    new Money(player.EntryAmount, currencyCode),
+                    new Money(player.TimeCharge, currencyCode),
+                    new Money(player.AdditionalAmount, currencyCode));
             }).ToArray();
 
             var session = new GameSession(Guid.NewGuid(), _sessionBranchId, _sessionDeviceId,
-                gameName, DateTimeOffset.UtcNow, new Money(hourlyRate, "IRR"), players);
+                gameName, DateTimeOffset.UtcNow, new Money(hourlyRate, currencyCode), players);
 
-            await using var db = new BusinessDbContext(CreateOptions());
             await new GameSessionRepository(db).SaveAsync(session);
             _selectedGameSessionId = session.Id;
             _sessionPlayerDrafts.Clear();
