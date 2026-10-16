@@ -367,6 +367,7 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="سن مطالبات و بدهی"><StackPanel Margin="12"><Button Content="محاسبه سن مطالبات و بدهی" Click="CalculateInvoiceAging_Click"/><TextBlock x:Name="InvoiceAgingTotalsText" Text="گزارش سن مطالبات و بدهی هنوز محاسبه نشده است."/></StackPanel></TabItem>
             <TabItem Header="گردش نقد و بانک">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
