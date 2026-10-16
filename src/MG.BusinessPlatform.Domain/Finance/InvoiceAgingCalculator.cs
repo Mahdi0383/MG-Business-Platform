@@ -87,6 +87,8 @@ public static class InvoiceAgingCalculator
                 throw new ArgumentException("Document number is required and must not exceed 100 characters.", nameof(documents));
             if (string.IsNullOrWhiteSpace(document.CounterpartyName) || document.CounterpartyName.Trim().Length > 200)
                 throw new ArgumentException("Counterparty name is required and must not exceed 200 characters.", nameof(documents));
+            if (document.DueDate is DateOnly dueDate && dueDate < document.IssueDate)
+                throw new InvalidOperationException($"Document {document.DocumentNumber} has a due date before its issue date.");
             var documentCurrency = Money.Zero(document.CurrencyCode).CurrencyCode;
             if (!string.Equals(documentCurrency, currency, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Document {document.DocumentNumber} uses {documentCurrency}, not report currency {currency}.");
