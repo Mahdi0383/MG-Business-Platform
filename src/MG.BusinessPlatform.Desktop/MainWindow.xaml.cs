@@ -2601,8 +2601,15 @@ public partial class MainWindow : Window
 
             if (_routerPortMappingService.HasSavedMappings)
             {
-                var routerResult = await _routerPortMappingService.RemoveWebPortsAsync();
-                RouterPortStatusText.Text = routerResult.Message;
+                try
+                {
+                    var routerResult = await _routerPortMappingService.RemoveWebPortsAsync();
+                    RouterPortStatusText.Text = routerResult.Message;
+                }
+                catch (Exception routerException)
+                {
+                    RouterPortStatusText.Text = $"انتقال درگاه‌های روتر حذف نشد: {routerException.Message}";
+                }
             }
 
             await using var db = new BusinessDbContext(CreateOptions());
