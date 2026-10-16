@@ -101,6 +101,7 @@ public partial class App : System.Windows.Application
                     CreateNoWindow = true
                 };
                 start.Environment["MG_BUSINESS_DB_PATH"] = databasePath;
+                start.Environment["MG_BUSINESS_DATA_PATH"] = dataDirectory;
                 start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:8080";
                 using var process = Process.Start(start);
                 if (process is not null)
