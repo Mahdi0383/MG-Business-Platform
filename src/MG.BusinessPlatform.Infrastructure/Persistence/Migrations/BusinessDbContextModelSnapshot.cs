@@ -25,10 +25,10 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("EntityId").IsRequired().HasMaxLength(300).HasColumnType("TEXT");
             b.Property<string>("EntityType").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<string>("MachineName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
-            b.Property<DateTimeOffset>("OccurredAtUtc").HasColumnType("TEXT");
+            b.Property<long>("OccurredAtUnixMilliseconds").HasColumnType("INTEGER");
             b.HasKey("Id");
-            b.HasIndex("OccurredAtUtc");
-            b.HasIndex("EntityType", "EntityId", "OccurredAtUtc");
+            b.HasIndex("OccurredAtUnixMilliseconds");
+            b.HasIndex("EntityType", "EntityId", "OccurredAtUnixMilliseconds");
             b.ToTable("AuditEvents");
         });
 
