@@ -23,7 +23,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         DateOnly invoiceDate,
         CancellationToken cancellationToken = default) =>
         CreatePurchaseInvoiceAsync(supplierId, branchId, requestedLines, invoiceDate,
-            dueDate: null, cancellationToken);
+            dueDate: null, cancellationToken: cancellationToken);
 
     public async Task<PurchaseInvoiceRecord> CreatePurchaseInvoiceAsync(
         Guid supplierId,
