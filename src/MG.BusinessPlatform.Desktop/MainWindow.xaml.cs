@@ -1967,22 +1967,23 @@ public partial class MainWindow : Window
                 salesInvoices.Count + purchaseInvoices.Count);
             documents.AddRange(salesInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
                 "مطالبات مشتریان", invoice.InvoiceNumber, invoice.CustomerName, invoice.IssueDate,
-                invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+                invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status, invoice.DueDate)));
             documents.AddRange(purchaseInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
                 "بدهی تأمین‌کنندگان", invoice.InvoiceNumber,
                 suppliers.TryGetValue(invoice.SupplierId, out var supplier) ? supplier.DisplayName : "تأمین‌کننده نامشخص",
-                invoice.IssueDate, invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+                invoice.IssueDate, invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status, invoice.DueDate)));
 
             var report = MG.BusinessPlatform.Domain.Finance.InvoiceAgingCalculator.Calculate(documents, asOfDate, settings.CurrencyCode);
             InvoiceAgingGrid.ItemsSource = report.Lines.Select(line => new InvoiceAgingGridRow(
-                line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate, line.AgeDays,
+                line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate,
+                line.DueDate, line.AgingDate, line.UsesIssueDateFallback, line.AgeDays,
                 InvoiceAgeBucketText(line.Bucket), line.TotalAmount.Amount, line.PaidAmount.Amount,
                 line.OutstandingAmount.Amount)).ToArray();
             InvoiceAgingTotalsText.Text =
                 $"مانده باز تا {asOfDate:yyyy-MM-dd} ({report.CurrencyCode}) | آینده‌تاریخ‌دار: {report.FutureDated.Amount:N2} | " +
                 $"۰ تا ۳۰ روز: {report.Current0To30Days.Amount:N2} | ۳۱ تا ۶۰ روز: {report.Days31To60.Amount:N2} | " +
                 $"۶۱ تا ۹۰ روز: {report.Days61To90.Amount:N2} | بیش از ۹۰ روز: {report.Over90Days.Amount:N2} | " +
-                $"مجموع: {report.TotalOutstanding.Amount:N2}. سن بر اساس تاریخ صدور محاسبه شده است، نه تاریخ سررسید قراردادی.";
+                $"مجموع: {report.TotalOutstanding.Amount:N2}. سن بر اساس سررسید ثبت‌شده محاسبه می‌شود؛ اسنادی که سررسید ندارند بر اساس تاریخ صدور محاسبه و در ستون مبنای سن مشخص می‌شوند.";
         }
         catch (Exception ex)
         {
