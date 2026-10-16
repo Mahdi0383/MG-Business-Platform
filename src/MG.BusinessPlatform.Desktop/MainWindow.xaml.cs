@@ -136,6 +136,14 @@ public partial class MainWindow : Window
             await DatabaseInitializer.InitializeAsync(db);
 
             await LoadSettingsAsync();
+            try
+            {
+                await LoadPaymentTerminalProfilesAsync();
+            }
+            catch (Exception profileException)
+            {
+                PaymentProfileStatusText.Text = $"فایل پروفایل‌های PC-POS بارگذاری نشد؛ سایر بخش‌های برنامه در دسترس می‌مانند: {profileException.Message}";
+            }
             RefreshLicenseStatus();
             await RefreshAsync();
             _refreshTimer.Start();
