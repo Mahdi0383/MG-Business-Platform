@@ -103,6 +103,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261013040000_AddGameSessions", appliedMigrations);
         Assert.Contains("20261016000000_AddOnlineReservations", appliedMigrations);
         Assert.Contains("20261016010000_AddPurchasingAccounting", appliedMigrations);
+        Assert.Contains("20261016020000_AddAuditEvents", appliedMigrations);
     }
 
     [Fact]
