@@ -731,6 +731,7 @@ public partial class MainWindow : Window
 
     private async void RefreshPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "نمایش پروفایل‌های PC-POS", "POS")) return;
         try
         {
             await LoadPaymentTerminalProfilesAsync();
@@ -908,8 +909,11 @@ public partial class MainWindow : Window
     private async void CompleteGameSession_Click(object sender, RoutedEventArgs e) =>
         await ChangeSelectedGameSessionAsync(GameSessionTransition.Complete);
 
-    private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e) =>
+    private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(GameSessionStatusText, "نمایش جلسات بازی", "GameCafe")) return;
         await RefreshAsync();
+    }
 
     private async void CreateGameSessionInvoice_Click(object sender, RoutedEventArgs e)
     {
@@ -947,6 +951,7 @@ public partial class MainWindow : Window
 
     private async Task ChangeSelectedGameSessionAsync(GameSessionTransition transition)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "مدیریت جلسه بازی", "GameCafe")) return;
         if (GameSessionsGrid.SelectedItem is not GameSessionGridRow row)
         {
             GameSessionStatusText.Text = "ابتدا یک جلسه را از فهرست انتخاب کنید.";
@@ -1800,8 +1805,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateFinancialStatements_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateFinancialStatements_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("محاسبه صورت‌های مالی", "Accounting")) return;
         await CalculateFinancialStatementsAsync();
+    }
 
     private async Task CalculateFinancialStatementsAsync()
     {
@@ -1866,8 +1874,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateCashMovement_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateCashMovement_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("گزارش گردش نقد و بانک", "Accounting")) return;
         await CalculateCashMovementAsync();
+    }
 
     private async Task CalculateCashMovementAsync()
     {
@@ -1975,8 +1986,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("گزارش سن مطالبات و بدهی", "Accounting")) return;
         await CalculateInvoiceAgingAsync();
+    }
 
     private async Task CalculateInvoiceAgingAsync()
     {
@@ -2029,8 +2043,11 @@ public partial class MainWindow : Window
         _ => "نامشخص"
     };
 
-    private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e) =>
+    private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("نمایش تراز آزمایشی", "Accounting")) return;
         await RefreshTrialBalanceAsync();
+    }
 
     private async Task RefreshTrialBalanceAsync()
     {
@@ -2071,7 +2088,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void RefreshReservations_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+    private async void RefreshReservations_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("نمایش رزروها", "Reservations")) return;
+        await RefreshAsync();
+    }
 
     private async void AddReservationResource_Click(object sender, RoutedEventArgs e)
     {
@@ -2162,6 +2183,7 @@ public partial class MainWindow : Window
 
     private async Task UpdateReservationStatusAsync(string status)
     {
+        if (!RequireLicensedModules("تغییر وضعیت رزرو", "Reservations")) return;
         if (CustomerReservationsGrid.SelectedItem is not ReservationListRow selected)
         {
             StatusText.Text = "ابتدا یک درخواست رزرو را انتخاب کنید.";
