@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using QRCoder;
 using System.Windows.Threading;
@@ -1512,6 +1513,121 @@ public partial class MainWindow : Window
         {
             StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
         }
+    }
+
+    private async void PrintSelectedInvoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting"))
+        {
+            StatusText.Text = "برای چاپ فاکتور، لایسنس معتبر دارای ماژول Accounting لازم است.";
+            return;
+        }
+
+        if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
+        {
+            StatusText.Text = "ابتدا فاکتور موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await db.SalesInvoices.AsNoTracking()
+                .Include(item => item.Lines)
+                .SingleOrDefaultAsync(item => item.Id == selected.Id);
+            if (invoice is null)
+            {
+                StatusText.Text = "فاکتور پیدا نشد؛ فهرست را به‌روزرسانی کنید.";
+                return;
+            }
+
+            var store = await db.StoreSettings.AsNoTracking().SingleAsync(item => item.Id == 1);
+            var receipt = BuildReceiptVisual(store.StoreName, invoice);
+            var dialog = new PrintDialog();
+            if (dialog.ShowDialog() != true)
+                return;
+
+            // 205 DIP is approximately 54 mm of printable content, leaving small margins
+            // for common 58 mm thermal printers. Paper size remains controlled by the
+            // selected Windows printer driver so unsupported custom media is not forced.
+            receipt.Measure(new Size(205, 10000));
+            receipt.Arrange(new Rect(0, 0, 205, receipt.DesiredSize.Height));
+            receipt.UpdateLayout();
+            dialog.PrintVisual(receipt, $"MG receipt {invoice.InvoiceNumber}");
+            StatusText.Text = $"رسید فاکتور {invoice.InvoiceNumber} به چاپگر انتخاب‌شده ارسال شد.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"چاپ رسید ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private static StackPanel BuildReceiptVisual(string storeName, SalesInvoiceRecord invoice)
+    {
+        var receipt = new StackPanel
+        {
+            Width = 205,
+            Background = Brushes.White,
+            FlowDirection = FlowDirection.RightToLeft,
+            Margin = new Thickness(0)
+        };
+
+        void AddText(string text, double fontSize = 10, bool bold = false, TextAlignment alignment = TextAlignment.Right)
+        {
+            receipt.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontFamily = new FontFamily("Tahoma"),
+                FontSize = fontSize,
+                FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
+                TextAlignment = alignment,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Brushes.Black,
+                Margin = new Thickness(2, 3, 2, 3)
+            });
+        }
+
+        void AddDivider()
+        {
+            receipt.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Brushes.Black,
+                Margin = new Thickness(2, 4, 2, 4)
+            });
+        }
+
+        AddText(string.IsNullOrWhiteSpace(storeName) ? "فروشگاه" : storeName.Trim(), 13, true, TextAlignment.Center);
+        AddText("رسید فروش", 11, true, TextAlignment.Center);
+        AddDivider();
+        AddText($"شماره فاکتور: {invoice.InvoiceNumber}", 9);
+        AddText($"تاریخ: {invoice.IssueDate.ToString("yyyy/MM/dd", CultureInfo.GetCultureInfo("fa-IR"))}", 9);
+        AddText($"مشتری: {invoice.CustomerName}", 9);
+        if (!string.IsNullOrWhiteSpace(invoice.CustomerPhone))
+            AddText($"تلفن: {invoice.CustomerPhone}", 9);
+        AddDivider();
+
+        foreach (var line in invoice.Lines.OrderBy(item => item.ProductName, StringComparer.Ordinal))
+        {
+            AddText($"{line.ProductName} × {line.Quantity}", 9, true);
+            AddText($"هر واحد: {FormatReceiptAmount(line.UnitPrice, invoice.CurrencyCode)}", 8);
+            AddText($"جمع: {FormatReceiptAmount(line.LineTotal, invoice.CurrencyCode)}", 9, false);
+        }
+
+        AddDivider();
+        AddText($"جمع کل: {FormatReceiptAmount(invoice.TotalAmount, invoice.CurrencyCode)}", 11, true);
+        AddText($"پرداخت‌شده: {FormatReceiptAmount(invoice.PaidAmount, invoice.CurrencyCode)}", 9);
+        AddText($"مانده: {FormatReceiptAmount(checked(invoice.TotalAmount - invoice.PaidAmount), invoice.CurrencyCode)}", 10, true);
+        AddText($"وضعیت: {invoice.Status}", 9);
+        AddDivider();
+        AddText("با تشکر از خرید شما", 10, true, TextAlignment.Center);
+        return receipt;
+    }
+
+    private static string FormatReceiptAmount(decimal amount, string currencyCode)
+    {
+        var digits = string.Equals(currencyCode, "IRR", StringComparison.OrdinalIgnoreCase) ? "N0" : "N2";
+        return $"{amount.ToString(digits, CultureInfo.GetCultureInfo("fa-IR"))} {currencyCode}";
     }
 
     private async void RecordPayment_Click(object sender, RoutedEventArgs e)
