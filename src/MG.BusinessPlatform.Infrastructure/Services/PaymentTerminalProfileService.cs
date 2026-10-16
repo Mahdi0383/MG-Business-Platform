@@ -32,6 +32,7 @@ public sealed record PaymentTerminalProfile
     public int DataBits { get; init; } = 8;
     public string Parity { get; init; } = "None";
     public string StopBits { get; init; } = "One";
+    public string FlowControl { get; init; } = "None";
     public int ConnectTimeoutMs { get; init; } = 3000;
     public int ResponseTimeoutMs { get; init; } = 5000;
     public string CurrencyCode { get; init; } = "IRR";
@@ -352,6 +353,7 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
         RequireLength(profile.Endpoint, 0, 2048, nameof(profile.Endpoint));
         RequireLength(profile.Parity, 1, 20, nameof(profile.Parity));
         RequireLength(profile.StopBits, 1, 20, nameof(profile.StopBits));
+        RequireLength(profile.FlowControl, 1, 20, nameof(profile.FlowControl));
         RequireLength(profile.LastTestStatus, 1, 40, nameof(profile.LastTestStatus));
         RequireLength(profile.LastTestMessage, 0, 1000, nameof(profile.LastTestMessage));
         if (!Enum.IsDefined(profile.ConnectionType)) throw new ArgumentOutOfRangeException(nameof(profile.ConnectionType));
@@ -367,6 +369,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             throw new ArgumentException("Unsupported serial parity.", nameof(profile.Parity));
         if (profile.StopBits is not ("One" or "OnePointFive" or "Two"))
             throw new ArgumentException("Unsupported serial stop bits.", nameof(profile.StopBits));
+        if (profile.FlowControl is not ("None" or "Hardware" or "Software"))
+            throw new ArgumentException("Unsupported serial flow control.", nameof(profile.FlowControl));
 
         if (profile.ConnectionType == PaymentConnectionType.TcpIp)
         {
