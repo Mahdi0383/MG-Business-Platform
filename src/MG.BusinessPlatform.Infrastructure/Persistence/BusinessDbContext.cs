@@ -383,6 +383,49 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.ToTable(t => t.HasCheckConstraint("CK_Payment_Amount", "CAST(Amount AS NUMERIC) > 0"));
         });
 
+        modelBuilder.Entity<PurchaseInvoiceRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.InvoiceNumber).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            entity.HasIndex(x => x.InvoiceNumber).IsUnique();
+            entity.HasIndex(x => new { x.SupplierId, x.IssueDate });
+            entity.ToTable(t => t.HasCheckConstraint("CK_PurchaseInvoice_Amounts",
+                "CAST(TotalAmount AS NUMERIC) > 0 AND CAST(PaidAmount AS NUMERIC) >= 0 AND CAST(PaidAmount AS NUMERIC) <= CAST(TotalAmount AS NUMERIC)"));
+            entity.HasMany(x => x.Lines).WithOne(x => x.Invoice).HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SupplierRecord>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PurchaseInvoiceLineRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.UnitCode).HasMaxLength(20).IsRequired();
+            entity.HasIndex(x => x.InvoiceId);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_PurchaseInvoiceLine_Quantity", "Quantity > 0");
+                t.HasCheckConstraint("CK_PurchaseInvoiceLine_Amounts",
+                    "CAST(UnitCost AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) <= 1 AND CAST(LineTotal AS NUMERIC) >= 0");
+            });
+        });
+
+        modelBuilder.Entity<SupplierPaymentRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PaymentNumber).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Method).HasMaxLength(30).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Reference).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Notes).HasMaxLength(500).IsRequired();
+            entity.HasIndex(x => x.PaymentNumber).IsUnique();
+            entity.HasIndex(x => x.PurchaseInvoiceId);
+            entity.HasOne<PurchaseInvoiceRecord>().WithMany().HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<JournalEntryRecord>().WithMany().HasForeignKey(x => x.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t => t.HasCheckConstraint("CK_SupplierPayment_Amount", "CAST(Amount AS NUMERIC) > 0"));
+        });
+
         modelBuilder.Entity<CustomerRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
