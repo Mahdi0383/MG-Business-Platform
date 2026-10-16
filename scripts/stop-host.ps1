@@ -20,7 +20,8 @@ function Stop-OwnedProcess([string]$PidFile, [string[]]$ExpectedExecutables, [st
         return
     }
 
-    $rawPid = (Get-Content -LiteralPath $PidFile -Raw -ErrorAction SilentlyContinue).Trim()
+    $rawPid = [string](Get-Content -LiteralPath $PidFile -Raw -ErrorAction SilentlyContinue)
+    $rawPid = $rawPid.Trim()
     $processId = 0
     if (-not [int]::TryParse($rawPid, [ref]$processId) -or $processId -le 4) {
         Write-CleanupLog "$Label PID file was invalid; removing stale file."
