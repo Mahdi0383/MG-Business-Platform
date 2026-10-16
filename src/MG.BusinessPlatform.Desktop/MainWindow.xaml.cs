@@ -15,6 +15,7 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Infrastructure.Services;
 using MG.BusinessPlatform.Domain.Finance;
 using MG.BusinessPlatform.Domain.GameCafe;
 using MG.BusinessPlatform.Licensing;
@@ -41,6 +42,9 @@ public sealed record ReservationListRow(Guid Id, string ReservationNumber, strin
 
 public sealed record GameSessionGridRow(Guid Id, string GameName, string StatusText, string StartedAtText,
     string PlayerNames, decimal ElapsedMinutes, decimal PerPlayerTimeCharge);
+
+public sealed record PaymentTerminalProfileGridRow(Guid Id, string Name, string Vendor, string Model,
+    string ConnectionTypeText, bool IsEnabled, bool IsDefault, string LastTestStatus);
 
 public sealed class GameSessionPlayerDraft : INotifyPropertyChanged
 {
