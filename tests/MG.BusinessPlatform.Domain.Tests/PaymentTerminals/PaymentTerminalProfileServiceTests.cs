@@ -93,6 +93,24 @@ public sealed class PaymentTerminalProfileServiceTests
     }
 
     [Fact]
+    public async Task TestConnection_PropagatesCallerCancellation()
+    {
+        var service = new PaymentTerminalProfileService(Path.Combine(Path.GetTempPath(), $"mg-pcpos-{Guid.NewGuid():N}.json"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var profile = new PaymentTerminalProfile
+        {
+            Name = "Cancelled diagnostic",
+            ConnectionType = PaymentConnectionType.TcpIp,
+            Host = "127.0.0.1",
+            Port = 5000
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.TestConnectionAsync(profile, cancellation.Token));
+    }
+
+    [Fact]
     public async Task ExportAndImport_RoundTripNonSecretProfileSettings()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-pcpos-{Guid.NewGuid():N}");
