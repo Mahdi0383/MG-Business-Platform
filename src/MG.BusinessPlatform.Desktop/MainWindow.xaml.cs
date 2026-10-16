@@ -25,7 +25,7 @@ using MG.BusinessPlatform.Desktop.Services;
 namespace MG.BusinessPlatform.Desktop;
 
 public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string CustomerName, string CustomerPhone,
-    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
+    DateOnly IssueDate, DateOnly? DueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
 
 public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, string CurrencyCode)
 {
@@ -39,7 +39,7 @@ public sealed record PurchaseInvoiceDraftLine(Guid ProductId, string ProductName
 }
 
 public sealed record PurchaseInvoiceGridRow(Guid Id, string InvoiceNumber, string SupplierName,
-    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
+    DateOnly IssueDate, DateOnly? DueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
     string CurrencyCode, string Status);
 
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
@@ -55,7 +55,8 @@ public sealed record AuditEventGridRow(DateTimeOffset OccurredAtUtc, string Acto
     string Action, string EntityType, string EntityId, string ChangedFields);
 
 public sealed record InvoiceAgingGridRow(string DocumentType, string DocumentNumber, string CounterpartyName,
-    DateOnly IssueDate, int AgeDays, string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
+    DateOnly IssueDate, DateOnly? DueDate, DateOnly AgingDate, bool UsesIssueDateFallback, int AgeDays,
+    string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
 
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
     decimal Debit, decimal Credit, decimal RunningBalance);
@@ -451,7 +452,7 @@ public partial class MainWindow : Window
                 .ThenByDescending(x => x.CreatedAt)
                 .Take(500)
                 .Select(x => new InvoiceListItem(x.Id, x.InvoiceNumber, x.CustomerName, x.CustomerPhone,
-                    x.IssueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
+                    x.IssueDate, x.DueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
                 .ToList();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
@@ -460,7 +461,7 @@ public partial class MainWindow : Window
                 from purchase in db.PurchaseInvoices.AsNoTracking()
                 join supplier in db.Suppliers.AsNoTracking() on purchase.SupplierId equals supplier.Id
                 select new PurchaseInvoiceGridRow(purchase.Id, purchase.InvoiceNumber, supplier.DisplayName,
-                    purchase.IssueDate, purchase.TotalAmount, purchase.PaidAmount,
+                    purchase.IssueDate, purchase.DueDate, purchase.TotalAmount, purchase.PaidAmount,
                     purchase.TotalAmount - purchase.PaidAmount, purchase.CurrencyCode, purchase.Status))
                 .ToListAsync();
             PurchaseInvoicesGrid.ItemsSource = purchaseRows
