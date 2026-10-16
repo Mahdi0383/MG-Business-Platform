@@ -107,7 +107,7 @@ public sealed class DatabaseMigrationTests
         Assert.Equal("Test Supplier", (await db.Suppliers.SingleAsync()).DisplayName);
         var persistedPurchase = await db.PurchaseInvoices.SingleAsync();
         Assert.Equal(issueDate, persistedPurchase.IssueDate);
-        Assert.Equal(dueDate, persistedPurchase.DueDate);
+        Assert.Equal(dueDate, persistedPurchase.DueDate!.Value);
         Assert.True(await db.AuditEvents.AnyAsync());
         var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
         Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
