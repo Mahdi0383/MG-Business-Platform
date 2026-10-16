@@ -206,7 +206,20 @@ foreach ($sourceArchivePath in @($mainSourceZipPath, $licenseSourceZipPath)) {
     try {
         foreach ($entry in $archive.Entries) {
             $fileName = [System.IO.Path]::GetFileName($entry.FullName)
-            if ($fileName -match '^(?i:license-private.*|secrets\.json|license\.json|\.env(?:\..*)?) = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
+            if (
+                $fileName -match '^(?i:license-private.*|secrets\.json|license\.json|\.env(?:\..*)?)$' -or
+                $fileName -match '(?i)\.(pfx|p12|snk|key)$' -or
+                ($fileName -match '(?i)\.pem$' -and $fileName -cne "TrustedLicensePublicKey.pem")
+            ) {
+                throw "Source archive contains a sensitive file: $($entry.FullName)"
+            }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
+$mainSourceSha = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${mainSourceZipPath}.sha256" -Value "$mainSourceSha  $(Split-Path $mainSourceZipPath -Leaf)" -Encoding ASCII
 $licenseSourceSha = (Get-FileHash $licenseSourceZipPath -Algorithm SHA256).Hash
 Set-Content -Path "${licenseSourceZipPath}.sha256" -Value "$licenseSourceSha  $(Split-Path $licenseSourceZipPath -Leaf)" -Encoding ASCII
