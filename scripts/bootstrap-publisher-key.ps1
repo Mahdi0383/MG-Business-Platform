@@ -67,5 +67,6 @@ try {
 }
 catch {
     [System.IO.File]::WriteAllBytes($trustedPath, $previousPublicKey)
+    Write-Warning "The previous trust anchor was restored. Do not distribute any packages left in the artifacts folder from this failed run."
     throw
 }
