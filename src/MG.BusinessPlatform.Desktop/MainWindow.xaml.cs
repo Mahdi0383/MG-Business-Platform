@@ -70,6 +70,8 @@ public partial class MainWindow : Window
     private readonly string _databasePath;
     private readonly string _dataDirectory;
     private readonly LicenseService _licenseService = new();
+    private PaymentTerminalProfileService _paymentTerminalProfileService = null!;
+    private Guid? _editingPaymentProfileId;
     private MachineLicenseInfo? _machineLicenseInfo;
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
