@@ -422,6 +422,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Notes).HasMaxLength(500).IsRequired();
             entity.HasIndex(x => x.PaymentNumber).IsUnique();
             entity.HasIndex(x => x.PurchaseInvoiceId);
+            entity.HasIndex(x => x.JournalEntryId);
             entity.HasOne<PurchaseInvoiceRecord>().WithMany().HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<JournalEntryRecord>().WithMany().HasForeignKey(x => x.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t => t.HasCheckConstraint("CK_SupplierPayment_Amount", "CAST(Amount AS NUMERIC) > 0"));
