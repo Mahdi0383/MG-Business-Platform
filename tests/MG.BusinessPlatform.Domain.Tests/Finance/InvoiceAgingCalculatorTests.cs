@@ -90,6 +90,15 @@ public sealed class InvoiceAgingCalculatorTests
     }
 
     [Fact]
+    public void Calculate_RejectsDueDateBeforeIssueDate()
+    {
+        var invalid = Doc("INVALID-DUE", AsOf, dueDate: AsOf.AddDays(-1));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            InvoiceAgingCalculator.Calculate([invalid], AsOf, "IRR"));
+    }
+
+    [Fact]
     public void Calculate_RejectsInvalidDocumentIdentity()
     {
         var invalid = Doc(" ", AsOf);
