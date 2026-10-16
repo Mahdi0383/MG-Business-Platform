@@ -5,7 +5,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 ## Implemented and covered by automated tests
 
 - .NET 10 solution with Domain, Infrastructure, Storefront, WPF Desktop, signed-license verification, a separate Persian RTL License Manager GUI and a CLI companion.
-- Currency-aware money primitives, chart-of-accounts entities, balanced double-entry journals, financial periods, trial balance, general-ledger running balances, P&L/balance-sheet calculations, and a cash/bank movement summary with opening balances, period inflows/outflows and closing balances.
+- Currency-aware money primitives, chart-of-accounts entities, balanced double-entry journals, financial periods, trial balance, general-ledger running balances, P&L/balance-sheet calculations, cash/bank movement summaries, and receivable/payable aging by invoice issue date.
 - Product catalog with edit/availability controls, customers and suppliers, stock movements/history/valuation, multi-line POS checkout, sales invoices, partial payments and sales-to-ledger posting.
 - Supplier purchase invoices, weighted-average unit-cost updates, stock receipts, supplier payments and corresponding accounting journal entries.
 - SQLite persistence, versioned EF Core migrations, initialization, transactional backup/restore, integrity checks and business-schema identity checks before restore.
@@ -20,7 +20,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Important limitations — not a complete commercial product yet
 
-- Accounting still needs a formally classified cash-flow statement (the current report summarizes selected cash/bank ledger movements), accounts-receivable/payable aging, tax policies, bank reconciliation, period close/reopen and closing entries, refunds/credit notes, robust reversal workflows, audit-event persistence and comprehensive accounting reconciliation.
+- Accounting still needs a formally classified cash-flow statement (the current report summarizes selected cash/bank ledger movements), due-date-based receivable/payable aging (current aging is based on invoice issue dates), tax policies, bank reconciliation, period close/reopen and closing entries, refunds/credit notes, robust reversal workflows, audit-event persistence and comprehensive accounting reconciliation.
 - Inventory valuation is not yet fully integrated with purchase cost layers and COGS across every transaction type; tax, discounts and rounding policy need explicit end-to-end coverage.
 - POS now has basic selected-invoice receipt printing through the Windows print driver with a narrow layout suitable for common 58 mm thermal printers. Barcode workflows, configurable receipt templates, returns/exchanges, discounts, shift/end-of-day cash closing and physical printer/payment-terminal validation remain.
 - Cafe/restaurant operations remain incomplete: tables, open tickets, kitchen queue, recipes/ingredients, modifiers, split/merge/transfer bills, service charges, tips and local fiscal receipt rules.
@@ -33,8 +33,8 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Verification status
 
-- Main commit `ace28a7ed4f09361428260f1333ec6420103320b` passed Windows CI run `38848124192`: Release build succeeded with zero compiler errors, all 190 automated tests passed, both Windows installers and portable package were produced, separate License Manager packages and source archives were verified, and SHA-256 checksums were generated.
-- The main desktop package SHA-256 for that run is `C73CB59652DE577369A699C10798246105E78C8C90DC29D730225AFB60834451`; the separate License Manager package SHA-256 is `26D799A9E2F08BB1BA4AE94A8CFA3E6371A7C26A03D6454B88488EB6463F0D45`. Do not treat a CI artifact as proof of real router, printer or payment-terminal operation.
+- Main commit `c111c279a09272acf9a763df806468a9ecabc248` passed Windows CI run `38849065240`: Release build succeeded with zero compiler errors, all 194 automated tests passed, both Windows installers and portable package were produced, separate License Manager packages and source archives were verified, and SHA-256 checksums were generated.
+- The main desktop package SHA-256 for that run is `1F4AB4624FFEFDA43A5E03E1C94B4FB1E05E211DC9BFB6EDC12ED9CB4371628F`; the separate License Manager package SHA-256 is `D0718AD9ED1E357CA6F3028D6ED9F931175C03AC7378E04D881C3B47C93D9DC4`. Do not treat a CI artifact as proof of real router, printer or payment-terminal operation.
 - The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability. The separate `release-windows.yml` workflow publishes versioned prereleases on `[release]` commits or manual dispatch; it does not run on every ordinary commit.
 - Desktop license checks and public storefront license checks are present, but this is not a substitute for server-side authorization on every future administrative API.
