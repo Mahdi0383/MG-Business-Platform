@@ -1,3 +1,4 @@
+using System.Xml;
 using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -142,7 +143,7 @@ public sealed class RouterPortMappingService
             return new(false, $"فایل وضعیت انتقال درگاه‌ها قابل خواندن نیست و برای ایمنی حذف نشد: {ex.Message}");
         }
 
-        if (state is null || !IPAddress.TryParse(state.GatewayAddress, out var savedGateway)
+        if (state is null || state.Ports is null || !IPAddress.TryParse(state.GatewayAddress, out var savedGateway)
             || !IPAddress.TryParse(state.LocalAddress, out var savedLocalAddress))
             return new(false, "فایل وضعیت انتقال درگاه‌ها معتبر نیست؛ برای جلوگیری از حذف اشتباه، تنظیمات روتر دست‌نخورده ماند.");
 
@@ -267,7 +268,7 @@ public sealed class RouterPortMappingService
                 continue;
 
             var description = await Http.GetStringAsync(location, timeout.Token);
-            var document = XDocument.Parse(description);
+            var document = ParseXmlSafely(description);
             foreach (var service in document.Descendants().Where(element => element.Name.LocalName == "service"))
             {
                 var serviceType = service.Elements().FirstOrDefault(element => element.Name.LocalName == "serviceType")?.Value;
@@ -289,9 +290,28 @@ public sealed class RouterPortMappingService
     }
 
     private static bool IsSupportedServiceType(string? serviceType) =>
-        !string.IsNullOrWhiteSpace(serviceType)
-        && (serviceType.StartsWith("urn:schemas-upnp-org:service:WANIPConnection:", StringComparison.OrdinalIgnoreCase)
-            || serviceType.StartsWith("urn:schemas-upnp-org:service:WANPPPConnection:", StringComparison.OrdinalIgnoreCase));
+        serviceType is not null
+        && new[]
+        {
+            "urn:schemas-upnp-org:service:WANIPConnection:1",
+            "urn:schemas-upnp-org:service:WANIPConnection:2",
+            "urn:schemas-upnp-org:service:WANIPConnection:3",
+            "urn:schemas-upnp-org:service:WANPPPConnection:1",
+            "urn:schemas-upnp-org:service:WANPPPConnection:2",
+            "urn:schemas-upnp-org:service:WANPPPConnection:3"
+        }.Contains(serviceType, StringComparer.OrdinalIgnoreCase);
+
+    private static XDocument ParseXmlSafely(string content)
+    {
+        using var stringReader = new StringReader(content);
+        using var reader = XmlReader.Create(stringReader, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = 1_000_000
+        });
+        return XDocument.Load(reader);
+    }
 
     private static async Task<PortMappingInfo?> GetSpecificMappingAsync(RouterContext router, int port, CancellationToken cancellationToken)
     {
@@ -382,7 +402,7 @@ public sealed class RouterPortMappingService
         try
         {
             if (!string.IsNullOrWhiteSpace(content))
-                document = XDocument.Parse(content);
+                document = ParseXmlSafely(content);
         }
         catch (System.Xml.XmlException)
         {
