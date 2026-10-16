@@ -2,6 +2,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
+public sealed class AuditEventRecord
+{
+    public Guid Id { get; set; }
+    public long OccurredAtUnixMilliseconds { get; set; }
+    public string Actor { get; set; } = string.Empty;
+    public string MachineName { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string ChangedFields { get; set; } = string.Empty;
+}
+
 public sealed class LedgerAccountRecord
 {
     public Guid Id { get; set; }
@@ -278,6 +290,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 {
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
     public DbSet<LedgerAccountRecord> LedgerAccounts => Set<LedgerAccountRecord>();
+    public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
     public DbSet<SalesInvoiceRecord> SalesInvoices => Set<SalesInvoiceRecord>();
     public DbSet<SalesInvoiceLineRecord> SalesInvoiceLines => Set<SalesInvoiceLineRecord>();
     public DbSet<JournalEntryRecord> JournalEntries => Set<JournalEntryRecord>();
@@ -297,8 +310,69 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<ReservationResourceRecord> ReservationResources => Set<ReservationResourceRecord>();
     public DbSet<CustomerReservationRecord> CustomerReservations => Set<CustomerReservationRecord>();
 
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        AddAuditEvents();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        AddAuditEvents();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void AddAuditEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var changes = ChangeTracker.Entries()
+            .Where(entry => entry.Entity is not AuditEventRecord
+                && entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(entry =>
+            {
+                var key = entry.Properties
+                    .Where(property => property.Metadata.IsPrimaryKey())
+                    .Select(property => property.CurrentValue ?? property.OriginalValue)
+                    .Where(value => value is not null)
+                    .Select(value => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture))
+                    .ToArray();
+                var fields = entry.State == EntityState.Modified
+                    ? entry.Properties.Where(property => property.IsModified).Select(property => property.Metadata.Name)
+                    : entry.Properties.Select(property => property.Metadata.Name);
+                return new AuditEventRecord
+                {
+                    Id = Guid.NewGuid(),
+                    OccurredAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Actor = $"{Environment.UserDomainName}\\{Environment.UserName}",
+                    MachineName = Environment.MachineName,
+                    Action = entry.State.ToString(),
+                    EntityType = entry.Metadata.ClrType.Name,
+                    EntityId = key.Length == 0 ? "(unknown)" : string.Join(",", key),
+                    ChangedFields = string.Join(",", fields.Distinct(StringComparer.Ordinal).Take(100))
+                };
+            })
+            .ToArray();
+
+        if (changes.Length > 0)
+            AuditEvents.AddRange(changes);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AuditEventRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.MachineName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Action).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.EntityType).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.EntityId).HasMaxLength(300).IsRequired();
+            entity.Property(x => x.ChangedFields).HasMaxLength(2000).IsRequired();
+            entity.HasIndex(x => x.OccurredAtUnixMilliseconds);
+            entity.HasIndex(x => new { x.EntityType, x.EntityId, x.OccurredAtUnixMilliseconds });
+        });
+
         modelBuilder.Entity<StoreProduct>(entity =>
         {
             entity.HasKey(x => x.Id);
