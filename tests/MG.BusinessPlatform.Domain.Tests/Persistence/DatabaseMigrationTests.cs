@@ -77,11 +77,21 @@ public sealed class DatabaseMigrationTests
             Id = Guid.NewGuid(), DisplayName = "Test Customer", Phone = "0912", Email = string.Empty,
             Address = string.Empty, CreatedAt = DateTimeOffset.UtcNow, IsActive = true
         });
+        var supplierId = Guid.NewGuid();
         db.Suppliers.Add(new SupplierRecord
         {
-            Id = Guid.NewGuid(), DisplayName = "Test Supplier", Phone = "021", Email = string.Empty,
+            Id = supplierId, DisplayName = "Test Supplier", Phone = "021", Email = string.Empty,
             Address = string.Empty, TaxIdentifier = string.Empty, PaymentTerms = string.Empty,
             CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+        });
+        var issueDate = new DateOnly(2026, 10, 1);
+        var dueDate = new DateOnly(2026, 11, 15);
+        db.PurchaseInvoices.Add(new PurchaseInvoiceRecord
+        {
+            Id = Guid.NewGuid(), InvoiceNumber = "PUR-DUE-TEST", BranchId = Guid.NewGuid(),
+            SupplierId = supplierId, IssueDate = issueDate, DueDate = dueDate,
+            CurrencyCode = "IRR", TotalAmount = 100m, PaidAmount = 0m,
+            Status = "Received", CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
 
@@ -95,6 +105,9 @@ public sealed class DatabaseMigrationTests
         Assert.Equal(8, (await db.StockMovements.SingleAsync()).Quantity);
         Assert.Equal("Test Customer", (await db.Customers.SingleAsync()).DisplayName);
         Assert.Equal("Test Supplier", (await db.Suppliers.SingleAsync()).DisplayName);
+        var persistedPurchase = await db.PurchaseInvoices.SingleAsync();
+        Assert.Equal(issueDate, persistedPurchase.IssueDate);
+        Assert.Equal(dueDate, persistedPurchase.DueDate);
         Assert.True(await db.AuditEvents.AnyAsync());
         var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
         Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
@@ -105,6 +118,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261016000000_AddOnlineReservations", appliedMigrations);
         Assert.Contains("20261016010000_AddPurchasingAccounting", appliedMigrations);
         Assert.Contains("20261016020000_AddAuditEvents", appliedMigrations);
+        Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
     }
 
     [Fact]
