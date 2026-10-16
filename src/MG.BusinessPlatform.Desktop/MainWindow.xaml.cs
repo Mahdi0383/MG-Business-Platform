@@ -47,6 +47,9 @@ public sealed record TrialBalanceRow(string AccountCode, string AccountName, str
 public sealed record FinancialStatementRow(string Statement, string AccountCode, string AccountName,
     string AccountType, decimal Balance);
 
+public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
+    decimal Debit, decimal Credit, decimal RunningBalance);
+
 public sealed record ReservationListRow(Guid Id, string ReservationNumber, string ResourceName, string GuestName,
     string GuestPhone, int GuestCount, DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
 
@@ -99,6 +102,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         TrialBalanceDateInput.SelectedDate = DateTime.Today;
+        GeneralLedgerFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
+        GeneralLedgerToDateInput.SelectedDate = DateTime.Today;
         FinancialToDateInput.SelectedDate = DateTime.Today;
         FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
@@ -222,7 +227,7 @@ public partial class MainWindow : Window
                 "محصولات" or "گردش انبار" => "Inventory",
                 "مشتریان" or "تأمین‌کنندگان" => "Core",
                 "فروش حضوری (POS)" => "POS",
-                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" => "Accounting",
+                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات PC-POS" => "POS",
                 "تنظیمات فروشگاه" => null,
@@ -368,6 +373,16 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
+            var selectedLedgerAccountCode = GeneralLedgerAccountInput.SelectedValue as string;
+            var ledgerAccountsForPicker = await db.LedgerAccounts.AsNoTracking()
+                .Where(account => account.IsActive && account.IsPostingAllowed)
+                .OrderBy(account => account.Code).ToListAsync();
+            GeneralLedgerAccountInput.ItemsSource = ledgerAccountsForPicker;
+            if (!string.IsNullOrWhiteSpace(selectedLedgerAccountCode))
+                GeneralLedgerAccountInput.SelectedValue = selectedLedgerAccountCode;
+            if (GeneralLedgerAccountInput.SelectedItem is null && ledgerAccountsForPicker.Count > 0)
+                GeneralLedgerAccountInput.SelectedIndex = 0;
+
             var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
@@ -1444,6 +1459,68 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت دریافت وجه ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void LoadGeneralLedger_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting"))
+        {
+            GeneralLedgerTotalsText.Text = "برای مشاهده دفتر کل، لایسنس معتبر دارای ماژول Accounting لازم است.";
+            return;
+        }
+        if (GeneralLedgerAccountInput.SelectedItem is not LedgerAccountRecord selectedAccount)
+        {
+            GeneralLedgerTotalsText.Text = "یک حساب قابل ثبت را انتخاب کنید.";
+            return;
+        }
+
+        var fromDate = DateOnly.FromDateTime(GeneralLedgerFromDateInput.SelectedDate
+            ?? new DateTime(DateTime.Today.Year, 1, 1));
+        var toDate = DateOnly.FromDateTime(GeneralLedgerToDateInput.SelectedDate ?? DateTime.Today);
+        if (fromDate > toDate)
+        {
+            GeneralLedgerTotalsText.Text = "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            var ledgerAccounts = await db.LedgerAccounts.AsNoTracking().ToListAsync();
+            var journalRecords = await db.JournalEntries.AsNoTracking()
+                .Include(entry => entry.Lines)
+                .Where(entry => entry.EntryDate <= toDate && entry.CurrencyCode == settings.CurrencyCode)
+                .ToListAsync();
+
+            var accounts = ledgerAccounts.Select(account => new MG.BusinessPlatform.Domain.Finance.Account(
+                account.Code, account.Name,
+                Enum.Parse<MG.BusinessPlatform.Domain.Finance.AccountType>(account.AccountType, ignoreCase: false),
+                isPostingAllowed: account.IsPostingAllowed, isActive: account.IsActive)).ToArray();
+            var entries = journalRecords.Select(entry => new MG.BusinessPlatform.Domain.Finance.JournalEntry(
+                entry.Id, entry.EntryDate, entry.Description,
+                entry.Lines.Select(line => new MG.BusinessPlatform.Domain.Finance.JournalLine(
+                    line.AccountCode, line.AccountName,
+                    Enum.Parse<MG.BusinessPlatform.Domain.Finance.EntrySide>(line.Side, ignoreCase: false),
+                    new MG.BusinessPlatform.Domain.Finance.Money(line.Amount, entry.CurrencyCode))))).ToArray();
+
+            var report = MG.BusinessPlatform.Domain.Finance.GeneralLedgerCalculator.Calculate(
+                accounts, entries, selectedAccount.Code, fromDate, toDate, settings.CurrencyCode);
+            var entryNumbers = journalRecords.ToDictionary(entry => entry.Id, entry => entry.EntryNumber);
+            GeneralLedgerGrid.ItemsSource = report.Lines.Select(line => new GeneralLedgerGridRow(
+                line.EntryDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                entryNumbers.TryGetValue(line.EntryId, out var entryNumber) ? entryNumber : line.EntryId.ToString("N")[..8],
+                line.Description, line.Debit.Amount, line.Credit.Amount, line.RunningBalance.Amount)).ToList();
+            GeneralLedgerTotalsText.Text =
+                $"حساب {report.AccountCode} - {report.AccountName} | مانده اول دوره: {report.OpeningBalance.Amount:N2} {report.CurrencyCode} | " +
+                $"گردش بدهکار: {report.PeriodDebits.Amount:N2} | گردش بستانکار: {report.PeriodCredits.Amount:N2} | " +
+                $"مانده پایان دوره: {report.ClosingBalance.Amount:N2} {report.CurrencyCode}";
+            StatusText.Text = $"دفتر کل حساب {report.AccountCode} بارگذاری شد.";
+        }
+        catch (Exception ex)
+        {
+            GeneralLedgerTotalsText.Text = $"بارگذاری دفتر کل ناموفق بود: {ex.Message}";
         }
     }
 

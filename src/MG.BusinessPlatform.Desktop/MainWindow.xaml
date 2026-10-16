@@ -315,6 +315,33 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="دفتر کل">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                        <WrapPanel>
+                            <TextBlock Text="حساب" VerticalAlignment="Center" Margin="4"/>
+                            <ComboBox x:Name="GeneralLedgerAccountInput" Width="230" DisplayMemberPath="Name" SelectedValuePath="Code" Margin="4"/>
+                            <TextBlock Text="از تاریخ" VerticalAlignment="Center" Margin="4"/>
+                            <DatePicker x:Name="GeneralLedgerFromDateInput" Width="145" Margin="4"/>
+                            <TextBlock Text="تا تاریخ" VerticalAlignment="Center" Margin="4"/>
+                            <DatePicker x:Name="GeneralLedgerToDateInput" Width="145" Margin="4"/>
+                            <Button Content="نمایش گردش و مانده حساب" Click="LoadGeneralLedger_Click" Margin="4"/>
+                        </WrapPanel>
+                    </Border>
+                    <TextBlock x:Name="GeneralLedgerTotalsText" Grid.Row="1" Text="حساب و بازه زمانی را انتخاب کنید." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <DataGrid x:Name="GeneralLedgerGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="تاریخ" Binding="{Binding EntryDate}" Width="*"/>
+                            <DataGridTextColumn Header="شماره سند" Binding="{Binding EntryNumber}" Width="1.5*"/>
+                            <DataGridTextColumn Header="شرح سند" Binding="{Binding Description}" Width="2.5*"/>
+                            <DataGridTextColumn Header="بدهکار" Binding="{Binding Debit}" Width="*"/>
+                            <DataGridTextColumn Header="بستانکار" Binding="{Binding Credit}" Width="*"/>
+                            <DataGridTextColumn Header="مانده جاری" Binding="{Binding RunningBalance}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="صورت‌های مالی">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
