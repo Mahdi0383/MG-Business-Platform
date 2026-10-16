@@ -161,6 +161,21 @@ public sealed class StorefrontOrderIntegrationTests
         Assert.NotNull(retryBody);
         Assert.Equal(firstBody.Id, retryBody.Id);
 
+        using var mismatchedRetryRequest = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Different Customer",
+                customerPhone = "09120000000",
+                deliveryAddress = "Test Address",
+                notes = "",
+                items = new[] { new { productId, quantity = 2, price = 0m } }
+            })
+        };
+        mismatchedRetryRequest.Headers.Add("Idempotency-Key", idempotencyKey);
+        using var mismatchedRetryResponse = await client.SendAsync(mismatchedRetryRequest);
+        Assert.Equal(HttpStatusCode.Conflict, mismatchedRetryResponse.StatusCode);
+
         await using var verificationScope = factory.Services.CreateAsyncScope();
         var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
         Assert.Equal(1, await verificationDb.CustomerOrders.CountAsync());
