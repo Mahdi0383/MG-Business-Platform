@@ -20,7 +20,7 @@ internal static class WindowsCredentialStore
     {
         public uint Flags;
         public uint Type;
-        [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? TargetName;
         [MarshalAs(UnmanagedType.LPWStr)] public string? Comment;
         public long LastWritten;
         public uint CredentialBlobSize;
@@ -88,7 +88,10 @@ internal static class WindowsCredentialStore
         finally
         {
             CryptographicOperations.ZeroMemory(bytes);
-            Marshal.ZeroFreeHGlobal(blob);
+            var zeroBuffer = new byte[bytes.Length];
+            Marshal.Copy(zeroBuffer, 0, blob, zeroBuffer.Length);
+            CryptographicOperations.ZeroMemory(zeroBuffer);
+            Marshal.FreeHGlobal(blob);
         }
     }
 
