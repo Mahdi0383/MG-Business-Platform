@@ -253,6 +253,28 @@ app.MapPost("/api/storefront/reservations", async (
     try
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+        // The initial idempotency lookup is a fast path, not a concurrency guarantee.
+        // Recheck after opening the write transaction so a simultaneous retry returns
+        // the first committed reservation instead of trying to create another one.
+        var existingInTransaction = await db.CustomerReservations.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+        if (existingInTransaction is not null)
+        {
+            var sameRequest = existingInTransaction.ResourceId == request.ResourceId
+                && existingInTransaction.GuestName == request.GuestName.Trim()
+                && existingInTransaction.GuestPhone == request.GuestPhone.Trim()
+                && existingInTransaction.GuestCount == request.GuestCount
+                && existingInTransaction.StartsAtUtc == startsAt
+                && existingInTransaction.EndsAtUtc == endsAt
+                && existingInTransaction.Notes == (request.Notes?.Trim() ?? string.Empty);
+            if (!sameRequest)
+                return Results.Conflict(new { error = "This idempotency key was already used for a different reservation request." });
+            await transaction.CommitAsync(ct);
+            return Results.Ok(new ReservationCreatedResponse(existingInTransaction.Id, existingInTransaction.ReservationNumber,
+                existingInTransaction.ResourceId, existingInTransaction.StartsAtUtc, existingInTransaction.EndsAtUtc, existingInTransaction.Status));
+        }
+
         var resource = await db.ReservationResources.SingleOrDefaultAsync(
             x => x.Id == request.ResourceId && x.IsAvailable, ct);
         if (resource is null)
