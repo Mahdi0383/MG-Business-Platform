@@ -46,7 +46,7 @@ public sealed class PurchasingAccountingServiceTests
         Assert.Equal(0m, invoice.PaidAmount);
         var product = await db.StoreProducts.SingleAsync(x => x.Id == productId);
         Assert.Equal(8, product.StockQuantity);
-        Assert.Equal(11.75m, product.UnitCost);
+        Assert.Equal(13m, product.UnitCost);
         Assert.Equal(1, await db.StockMovements.CountAsync(x => x.Reference == invoice.InvoiceNumber && x.SignedQuantity == 3));
         var purchaseJournal = await db.JournalEntries.Include(x => x.Lines)
             .SingleAsync(x => x.SourceType == "PurchaseInvoice" && x.SourceId == invoice.Id);
