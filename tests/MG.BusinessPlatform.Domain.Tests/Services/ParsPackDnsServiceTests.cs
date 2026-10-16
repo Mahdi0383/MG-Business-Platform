@@ -10,7 +10,7 @@ public sealed class ParsPackDnsServiceTests
     [Fact]
     public async Task SyncARecordAsync_CreatesRootARecordWhenMissing()
     {
-        var handler = new StubHandler(_ => EmptyRecords);
+        var handler = new StubHandler(EmptyRecords);
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
@@ -30,7 +30,7 @@ public sealed class ParsPackDnsServiceTests
     [Fact]
     public async Task SyncARecordAsync_ExistingMatchingRecordDoesNotMutateDns()
     {
-        var handler = new StubHandler(_ => RecordsWithA("8.8.8.8"));
+        var handler = new StubHandler(RecordsWithA("8.8.8.8"));
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
@@ -43,7 +43,7 @@ public sealed class ParsPackDnsServiceTests
     [Fact]
     public async Task SyncARecordAsync_MismatchedRecordRequiresConfirmationBeforeMutation()
     {
-        var handler = new StubHandler(_ => RecordsWithA("9.9.9.9"));
+        var handler = new StubHandler(RecordsWithA("9.9.9.9"));
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
@@ -75,7 +75,7 @@ public sealed class ParsPackDnsServiceTests
         const string cnameRecords = """
             {"success":true,"message":"","data":[{"host":"@","type":"CNAME","proxy":"direct","ttl":300,"records":[{"content":"origin.example.net"}]}]}
             """;
-        var handler = new StubHandler(_ => cnameRecords);
+        var handler = new StubHandler(cnameRecords);
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
@@ -94,7 +94,7 @@ public sealed class ParsPackDnsServiceTests
               {"host":"@","type":"A","proxy":"direct","ttl":300,"records":[{"content":"9.9.9.9"}]}
             ]}
             """;
-        var handler = new StubHandler(_ => multipleRecords);
+        var handler = new StubHandler(multipleRecords);
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
@@ -112,8 +112,11 @@ public sealed class ParsPackDnsServiceTests
     private static string RecordsWithA(string address) =>
         $$"""{"success":true,"message":"","data":[{"host":"@","type":"A","proxy":"direct","ttl":300,"records":[{"content":"{{address}}"}]}]}""";
 
-    private sealed class StubHandler(Func<HttpRequestMessage, string?, string> responseFactory) : HttpMessageHandler
+    private sealed class StubHandler(string recordsJson) : HttpMessageHandler
     {
+        private const string ZonesJson = """{"success":true,"message":"","data":[{"uuid":"zone-1","target_domain":"mgalexander.cam"}]}""";
+        private const string SuccessJson = """{"success":true,"message":"ok","data":[]}""";
+
         public List<CapturedRequest> Requests { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -121,16 +124,22 @@ public sealed class ParsPackDnsServiceTests
             var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add(new CapturedRequest(request.Method, request.RequestUri!, body));
 
+            string responseBody;
             if (request.RequestUri!.Host == "api.ipify.org")
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("8.8.8.8") };
+            if (request.RequestUri.AbsolutePath.EndsWith("/external/api/v1/zones", StringComparison.Ordinal))
+                responseBody = ZonesJson;
+            else if (request.Method == HttpMethod.Get
+                && request.RequestUri.AbsolutePath.EndsWith("/dns-records", StringComparison.Ordinal))
+                responseBody = recordsJson;
+            else
+                responseBody = SuccessJson;
 
-            var responseBody = responseFactory(request, body);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
             };
         }
     }
-
     private sealed record CapturedRequest(HttpMethod Method, Uri Uri, string? Body);
 }
