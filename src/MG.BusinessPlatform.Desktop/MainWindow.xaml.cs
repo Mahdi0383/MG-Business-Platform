@@ -2459,9 +2459,9 @@ public partial class MainWindow : Window
             await using (var db = new BusinessDbContext(CreateOptions()))
             {
                 var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
-                if (!settings.OnlineOrderingEnabled)
+                if (!settings.OnlineOrderingEnabled && !settings.OnlineReservationsEnabled)
                 {
-                    PublicHostingStatusText.Text = "ابتدا ثبت سفارش آنلاین را در تنظیمات فعال و ذخیره کنید.";
+                    PublicHostingStatusText.Text = "ابتدا سفارش آنلاین یا رزرو آنلاین را در تنظیمات فعال و ذخیره کنید.";
                     return;
                 }
                 if (!string.Equals(settings.PublicHostname, hostname, StringComparison.OrdinalIgnoreCase))
