@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.HttpOverrides;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Licensing;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 64 * 1024);
@@ -19,6 +20,7 @@ Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
 builder.Services.AddDbContext<BusinessDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath};Cache=Shared;Default Timeout=15"));
 builder.Services.AddProblemDetails();
+builder.Services.AddSingleton<IStorefrontLicenseGuard, StorefrontLicenseGuard>();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
@@ -63,6 +65,43 @@ app.Use(async (context, next) =>
 
 // Apply endpoint rate limits before the host allow-list performs a database lookup.
 app.UseRateLimiter();
+
+// The customer-facing process enforces the signed license itself, including after
+// the desktop UI closes or a license expires while this process remains alive.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/health"))
+    {
+        await next();
+        return;
+    }
+
+    var validation = context.RequestServices.GetRequiredService<IStorefrontLicenseGuard>().Validate();
+    if (!validation.IsValid || validation.Payload is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new { error = "The store's software license is missing, invalid, or expired." }, context.RequestAborted);
+        return;
+    }
+
+    if (!validation.Payload.Modules.Contains("Storefront", StringComparer.Ordinal))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "The current license does not include the online storefront module." }, context.RequestAborted);
+        return;
+    }
+
+    if ((context.Request.Path.StartsWithSegments("/api/storefront/reservations")
+            || context.Request.Path.StartsWithSegments("/api/storefront/reservation-resources"))
+        && !validation.Payload.Modules.Contains("Reservations", StringComparer.Ordinal))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { error = "The current license does not include online reservations." }, context.RequestAborted);
+        return;
+    }
+
+    await next();
+});
 
 app.Use(async (context, next) =>
 {
