@@ -472,6 +472,10 @@ public partial class MainWindow : Window
         PaymentPortInput.Text = "5000";
         PaymentSerialPortInput.Text = "COM3";
         PaymentBaudRateInput.Text = "9600";
+        PaymentDataBitsInput.Text = "8";
+        PaymentParityInput.SelectedValue = "None";
+        PaymentStopBitsInput.SelectedValue = "One";
+        PaymentFlowControlInput.SelectedValue = "None";
         PaymentConnectTimeoutInput.Text = "3000";
         PaymentResponseTimeoutInput.Text = "5000";
         PaymentCurrencyInput.Text = "IRR";
@@ -492,6 +496,7 @@ public partial class MainWindow : Window
 
         if (!int.TryParse(PaymentPortInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var port)
             || !int.TryParse(PaymentBaudRateInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var baudRate)
+            || !int.TryParse(PaymentDataBitsInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var dataBits)
             || !int.TryParse(PaymentConnectTimeoutInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var connectTimeout)
             || !int.TryParse(PaymentResponseTimeoutInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var responseTimeout))
             throw new ArgumentException("درگاه، Baud rate و مهلت‌های زمانی باید عدد صحیح معتبر باشند.");
@@ -509,6 +514,10 @@ public partial class MainWindow : Window
             Port = port,
             SerialPort = PaymentSerialPortInput.Text,
             BaudRate = baudRate,
+            DataBits = dataBits,
+            Parity = PaymentParityInput.SelectedValue?.ToString() ?? "None",
+            StopBits = PaymentStopBitsInput.SelectedValue?.ToString() ?? "One",
+            FlowControl = PaymentFlowControlInput.SelectedValue?.ToString() ?? "None",
             ConnectTimeoutMs = connectTimeout,
             ResponseTimeoutMs = responseTimeout,
             CurrencyCode = PaymentCurrencyInput.Text.Trim().ToUpperInvariant(),
@@ -536,6 +545,10 @@ public partial class MainWindow : Window
         PaymentPortInput.Text = profile.Port.ToString(CultureInfo.InvariantCulture);
         PaymentSerialPortInput.Text = profile.SerialPort;
         PaymentBaudRateInput.Text = profile.BaudRate.ToString(CultureInfo.InvariantCulture);
+        PaymentDataBitsInput.Text = profile.DataBits.ToString(CultureInfo.InvariantCulture);
+        PaymentParityInput.SelectedValue = profile.Parity;
+        PaymentStopBitsInput.SelectedValue = profile.StopBits;
+        PaymentFlowControlInput.SelectedValue = profile.FlowControl;
         PaymentConnectTimeoutInput.Text = profile.ConnectTimeoutMs.ToString(CultureInfo.InvariantCulture);
         PaymentResponseTimeoutInput.Text = profile.ResponseTimeoutMs.ToString(CultureInfo.InvariantCulture);
         PaymentCurrencyInput.Text = profile.CurrencyCode;
