@@ -395,10 +395,6 @@ app.MapPost("/api/storefront/orders", async (
             ["DeliveryAddress"] = ["Address and notes must not exceed 1000 characters."]
         });
 
-    var existing = await db.CustomerOrders.AsNoTracking().SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
-    if (existing is not null)
-        return Results.Ok(new OrderCreatedResponse(existing.Id, existing.OrderNumber, existing.TotalAmount, existing.CurrencyCode, existing.Status));
-
     var requested = new Dictionary<Guid, int>();
     foreach (var item in request.Items)
     {
@@ -415,6 +411,16 @@ app.MapPost("/api/storefront/orders", async (
             });
     }
 
+    var existing = await db.CustomerOrders.AsNoTracking()
+        .Include(x => x.Lines)
+        .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
+    if (existing is not null)
+    {
+        if (!MatchesOrderRequest(existing, request, requested))
+            return Results.Conflict(new { error = "This idempotency key was already used for a different order request." });
+        return Results.Ok(new OrderCreatedResponse(existing.Id, existing.OrderNumber, existing.TotalAmount, existing.CurrencyCode, existing.Status));
+    }
+
     try
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
@@ -422,10 +428,13 @@ app.MapPost("/api/storefront/orders", async (
         // Recheck after acquiring the write transaction. The first lookup above is
         // only a fast path; two concurrent retries can both pass that initial lookup.
         var existingInTransaction = await db.CustomerOrders.AsNoTracking()
+            .Include(x => x.Lines)
             .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
         if (existingInTransaction is not null)
         {
             await transaction.CommitAsync(ct);
+            if (!MatchesOrderRequest(existingInTransaction, request, requested))
+                return Results.Conflict(new { error = "This idempotency key was already used for a different order request." });
             return Results.Ok(new OrderCreatedResponse(existingInTransaction.Id, existingInTransaction.OrderNumber,
                 existingInTransaction.TotalAmount, existingInTransaction.CurrencyCode, existingInTransaction.Status));
         }
@@ -521,10 +530,15 @@ app.MapPost("/api/storefront/orders", async (
         // A concurrent request with the same key may have committed first. Treat
         // the unique-key conflict as a successful idempotent retry when possible.
         var committedOrder = await db.CustomerOrders.AsNoTracking()
+            .Include(x => x.Lines)
             .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
         if (committedOrder is not null)
+        {
+            if (!MatchesOrderRequest(committedOrder, request, requested))
+                return Results.Conflict(new { error = "This idempotency key was already used for a different order request." });
             return Results.Ok(new OrderCreatedResponse(committedOrder.Id, committedOrder.OrderNumber,
                 committedOrder.TotalAmount, committedOrder.CurrencyCode, committedOrder.Status));
+        }
         return Results.Conflict(new { error = "The order could not be confirmed. Retry with the same idempotency key." });
     }
     catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
@@ -534,10 +548,15 @@ app.MapPost("/api/storefront/orders", async (
         for (var attempt = 0; attempt < 6; attempt++)
         {
             committedOrder = await db.CustomerOrders.AsNoTracking()
+                .Include(x => x.Lines)
                 .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
             if (committedOrder is not null)
+            {
+                if (!MatchesOrderRequest(committedOrder, request, requested))
+                    return Results.Conflict(new { error = "This idempotency key was already used for a different order request." });
                 return Results.Ok(new OrderCreatedResponse(committedOrder.Id, committedOrder.OrderNumber,
                     committedOrder.TotalAmount, committedOrder.CurrencyCode, committedOrder.Status));
+            }
             if (attempt < 5)
                 await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), ct);
         }
@@ -570,6 +589,22 @@ public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity);
 public sealed record OrderCreatedResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
 
 public partial class Program { }
+
+internal static bool MatchesOrderRequest(
+    CustomerOrder order,
+    CreateOrderRequest request,
+    IReadOnlyDictionary<Guid, int> requested)
+{
+    if (!string.Equals(order.CustomerName, request.CustomerName.Trim(), StringComparison.Ordinal)
+        || !string.Equals(order.CustomerPhone, request.CustomerPhone.Trim(), StringComparison.Ordinal)
+        || !string.Equals(order.DeliveryAddress, request.DeliveryAddress?.Trim() ?? string.Empty, StringComparison.Ordinal)
+        || !string.Equals(order.Notes, request.Notes?.Trim() ?? string.Empty, StringComparison.Ordinal)
+        || order.Lines.Count != requested.Count)
+        return false;
+
+    return order.Lines.All(line =>
+        requested.TryGetValue(line.ProductId, out var quantity) && line.Quantity == quantity);
+}
 
 internal static class StorefrontHtml
 {
