@@ -91,6 +91,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _refreshTimer;
     private readonly string _storefrontPidPath;
     private readonly PublicHostingManager _publicHostingManager;
+    private readonly RouterPortMappingService _routerPortMappingService;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
     private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
@@ -123,6 +124,7 @@ public partial class MainWindow : Window
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
         _storefrontPidPath = Path.Combine(dataDirectory, "storefront.pid");
         _publicHostingManager = new PublicHostingManager(AppContext.BaseDirectory, dataDirectory);
+        _routerPortMappingService = new RouterPortMappingService(dataDirectory);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _refreshTimer.Tick += async (_, _) =>
         {
