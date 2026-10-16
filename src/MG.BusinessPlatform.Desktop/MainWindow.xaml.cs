@@ -1920,18 +1920,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var fromUtc = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Local)).ToUniversalTime();
-            var toUtcExclusive = new DateTimeOffset(toDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Local)).ToUniversalTime();
+            var fromUtcMilliseconds = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Local))
+                .ToUniversalTime().ToUnixTimeMilliseconds();
+            var toUtcExclusiveMilliseconds = new DateTimeOffset(
+                toDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Local))
+                .ToUniversalTime().ToUnixTimeMilliseconds();
             await using var db = new BusinessDbContext(CreateOptions());
             var events = await db.AuditEvents.AsNoTracking()
-                .Where(item => item.OccurredAtUtc >= fromUtc && item.OccurredAtUtc < toUtcExclusive)
-                .OrderByDescending(item => item.OccurredAtUtc)
+                .Where(item => item.OccurredAtUnixMilliseconds >= fromUtcMilliseconds
+                    && item.OccurredAtUnixMilliseconds < toUtcExclusiveMilliseconds)
+                .OrderByDescending(item => item.OccurredAtUnixMilliseconds)
                 .Take(1000)
                 .ToListAsync();
 
             AuditEventsGrid.ItemsSource = events.Select(item => new AuditEventGridRow(
-                item.OccurredAtUtc, item.Actor, item.MachineName, item.Action,
-                item.EntityType, item.EntityId, item.ChangedFields)).ToArray();
+                DateTimeOffset.FromUnixTimeMilliseconds(item.OccurredAtUnixMilliseconds),
+                item.Actor, item.MachineName, item.Action, item.EntityType, item.EntityId, item.ChangedFields)).ToArray();
             AuditEventsStatusText.Text = $"رویدادهای {fromDate:yyyy-MM-dd} تا {toDate:yyyy-MM-dd}: {events.Count}. " +
                 "نمایش حداکثر ۱۰۰۰ رویداد؛ برای کاهش نگهداری داده حساس فقط نام فیلدهای تغییرکرده ثبت می‌شود، نه مقادیر قبل و بعد.";
         }
