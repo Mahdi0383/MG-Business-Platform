@@ -340,6 +340,11 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 var fields = entry.State == EntityState.Modified
                     ? entry.Properties.Where(property => property.IsModified).Select(property => property.Metadata.Name)
                     : entry.Properties.Select(property => property.Metadata.Name);
+                var changedFields = string.Join(",", fields.Distinct(StringComparer.Ordinal).Take(100));
+                // Audit metadata must never prevent an otherwise valid business save
+                // simply because a future entity introduces many/long property names.
+                if (changedFields.Length > 2000)
+                    changedFields = changedFields[..1997] + "...";
                 return new AuditEventRecord
                 {
                     Id = Guid.NewGuid(),
@@ -349,7 +354,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                     Action = entry.State.ToString(),
                     EntityType = entry.Metadata.ClrType.Name,
                     EntityId = key.Length == 0 ? "(unknown)" : string.Join(",", key),
-                    ChangedFields = string.Join(",", fields.Distinct(StringComparer.Ordinal).Take(100))
+                    ChangedFields = changedFields
                 };
             })
             .ToArray();
