@@ -740,6 +740,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (OnlineOrdersInput.IsChecked == true && !HasLicensedModule("Storefront"))
+        {
+            StatusText.Text = "برای فعال‌سازی سفارش آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+        if (OnlineReservationsInput.IsChecked == true
+            && (!HasLicensedModule("Storefront") || !HasLicensedModule("Reservations")))
+        {
+            StatusText.Text = "برای فعال‌سازی رزرو آنلاین، لایسنس معتبر دارای هر دو ماژول Storefront و Reservations لازم است.";
+            return;
+        }
+
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -1967,6 +1979,7 @@ public partial class MainWindow : Window
                 CreateNoWindow = true
             };
             start.Environment["MG_BUSINESS_DB_PATH"] = _databasePath;
+            start.Environment["MG_BUSINESS_DATA_PATH"] = _dataDirectory;
             start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:8080";
             _storefrontProcess = Process.Start(start);
             if (_storefrontProcess is not null)
