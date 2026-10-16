@@ -93,6 +93,7 @@ public partial class MainWindow : Window
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
+        _paymentTerminalProfileService = new PaymentTerminalProfileService(Path.Combine(dataDirectory, "payment-terminal-profiles.json"));
         _sessionBranchId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
         _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
         SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
