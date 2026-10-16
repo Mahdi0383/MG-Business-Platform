@@ -436,6 +436,62 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task ConcurrentOverlappingReservations_OnlyOneRequestCanReserveResource()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+        var startsAt = DateTimeOffset.UtcNow.AddHours(4);
+        var endsAt = startsAt.AddHours(1);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = Guid.NewGuid(), Name = "Overlap test station",
+                ResourceType = "GameStation", Capacity = 4, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var payload = new
+        {
+            resourceId,
+            guestName = "Overlap Guest",
+            guestPhone = "09120000000",
+            guestCount = 2,
+            startsAt,
+            endsAt,
+            notes = ""
+        };
+
+        async Task<HttpResponseMessage> SubmitAsync(string key)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return await client.SendAsync(request);
+        }
+
+        var responses = await Task.WhenAll(
+            SubmitAsync("integration-overlap-reservation-0001"),
+            SubmitAsync("integration-overlap-reservation-0002"));
+        using var first = responses[0];
+        using var second = responses[1];
+        Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Created));
+        Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Equal(1, await verificationDb.CustomerReservations.CountAsync());
+    }
+
+    [Fact]
     public async Task ReservationEndpoint_RequiresReservationsLicenseEntitlement()
     {
         await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
