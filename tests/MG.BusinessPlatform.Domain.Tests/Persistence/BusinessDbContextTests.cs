@@ -109,9 +109,17 @@ public sealed class BusinessDbContextTests
 
         db.CustomerOrders.Add(NewOrder("retry-key-00000001"));
         await db.SaveChangesAsync();
-        db.CustomerOrders.Add(NewOrder("retry-key-00000001"));
+        var duplicate = NewOrder("retry-key-00000001");
+        db.CustomerOrders.Add(duplicate);
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+
+        // A failed business write must not leave an orphan audit event that is
+        // accidentally committed by a later, unrelated successful save.
+        db.Entry(duplicate).State = EntityState.Detached;
+        await db.SaveChangesAsync();
+        Assert.DoesNotContain(await db.AuditEvents.AsNoTracking().ToListAsync(),
+            auditEvent => auditEvent.EntityId == duplicate.Id.ToString());
     }
 
     private static CustomerOrder NewOrder(string key) => new()
