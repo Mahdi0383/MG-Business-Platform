@@ -90,6 +90,10 @@ public sealed class DatabaseMaintenanceServiceTests
             }
 
             await Assert.ThrowsAsync<InvalidDataException>(() =>
+                service.CreateBackupAsync(unrelatedBackupPath, Path.Combine(directory, "invalid-copy.db")));
+            Assert.False(File.Exists(Path.Combine(directory, "invalid-copy.db")));
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
                 service.RestoreBackupAsync(unrelatedBackupPath, databasePath));
 
             Assert.Equal("Preserve business data", await ReadStoreNameAsync(databasePath));
