@@ -254,22 +254,26 @@ public sealed class ParsPackDnsService
 
     private class ApiResponse
     {
+        public ApiResponse() { }
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
     }
 
     private sealed class ZonesResponse : ApiResponse
     {
+        public ZonesResponse() { }
         public List<ZoneDto> Data { get; set; } = [];
     }
 
     private sealed class DnsRecordsResponse : ApiResponse
     {
+        public DnsRecordsResponse() { }
         public List<DnsRecordDto> Data { get; set; } = [];
     }
 
     private sealed class ZoneDto
     {
+        public ZoneDto() { }
         public string Uuid { get; set; } = string.Empty;
         [JsonPropertyName("target_domain")]
         public string TargetDomain { get; set; } = string.Empty;
@@ -277,6 +281,7 @@ public sealed class ParsPackDnsService
 
     private sealed class DnsRecordDto
     {
+        public DnsRecordDto() { }
         public string Host { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public string Proxy { get; set; } = string.Empty;
@@ -286,6 +291,7 @@ public sealed class ParsPackDnsService
 
     private sealed class DnsRecordValueDto
     {
+        public DnsRecordValueDto() { }
         public string Content { get; set; } = string.Empty;
         public int? Port { get; set; }
         public int? Weight { get; set; }
