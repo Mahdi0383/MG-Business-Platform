@@ -367,6 +367,31 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="گردش نقد و بانک">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="از تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <DatePicker x:Name="CashMovementFromDateInput" Width="150" Margin="0,0,12,0"/>
+                            <TextBlock Text="تا تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <DatePicker x:Name="CashMovementToDateInput" Width="150" Margin="0,0,12,0"/>
+                            <Button Content="محاسبه گردش نقد و بانک" Click="CalculateCashMovement_Click"/>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock x:Name="CashMovementTotalsText" Grid.Row="1" Text="گردش نقد و بانک هنوز محاسبه نشده است." TextWrapping="Wrap" Margin="0,0,0,10"/>
+                    <DataGrid x:Name="CashMovementGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="کد حساب" Binding="{Binding AccountCode}" Width="*"/>
+                            <DataGridTextColumn Header="حساب نقد/بانک" Binding="{Binding AccountName}" Width="2*"/>
+                            <DataGridTextColumn Header="مانده اول دوره" Binding="{Binding OpeningBalance}" Width="*"/>
+                            <DataGridTextColumn Header="ورودی دوره" Binding="{Binding Inflows}" Width="*"/>
+                            <DataGridTextColumn Header="خروجی دوره" Binding="{Binding Outflows}" Width="*"/>
+                            <DataGridTextColumn Header="مانده پایان دوره" Binding="{Binding ClosingBalance}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
