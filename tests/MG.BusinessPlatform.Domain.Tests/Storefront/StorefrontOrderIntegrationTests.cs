@@ -35,6 +35,52 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task OnlineOrdering_RequiresAccountingAndInventoryEntitlements()
+    {
+        await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = Guid.NewGuid(), Sku = "LICENSE-ORDER-1", Name = "Licensed item",
+                UnitPrice = 10m, UnitCost = 5m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var infoResponse = await client.GetAsync("/api/storefront");
+        infoResponse.EnsureSuccessStatusCode();
+        using var info = JsonDocument.Parse(await infoResponse.Content.ReadAsStringAsync());
+        Assert.False(info.RootElement.GetProperty("onlineOrderingEnabled").GetBoolean());
+
+        var products = await client.GetFromJsonAsync<JsonElement[]>("/api/storefront/products");
+        Assert.Empty(products!);
+
+        using var orderRequest = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Test customer",
+                customerPhone = "09120000000",
+                items = new[] { new { productId = Guid.NewGuid(), quantity = 1 } }
+            })
+        };
+        orderRequest.Headers.Add("Idempotency-Key", "integration-order-dep-missing-0001");
+        using var orderResponse = await client.SendAsync(orderRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, orderResponse.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Empty(await verificationDb.CustomerOrders.ToListAsync());
+    }
+
+    [Fact]
     public async Task CrossOriginBrowserMutation_IsRejectedBeforeBusinessDataChanges()
     {
         await using var factory = new StorefrontTestFactory();
