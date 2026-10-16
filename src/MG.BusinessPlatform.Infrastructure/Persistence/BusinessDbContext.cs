@@ -82,6 +82,49 @@ public sealed class PaymentRecord
     public string Notes { get; set; } = string.Empty;
 }
 
+public sealed class PurchaseInvoiceRecord
+{
+    public Guid Id { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public Guid BranchId { get; set; }
+    public Guid SupplierId { get; set; }
+    public DateOnly IssueDate { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public decimal TotalAmount { get; set; }
+    public decimal PaidAmount { get; set; }
+    public string Status { get; set; } = "Received";
+    public DateTimeOffset CreatedAt { get; set; }
+    public List<PurchaseInvoiceLineRecord> Lines { get; set; } = [];
+}
+
+public sealed class PurchaseInvoiceLineRecord
+{
+    public Guid Id { get; set; }
+    public Guid InvoiceId { get; set; }
+    public PurchaseInvoiceRecord? Invoice { get; set; }
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string UnitCode { get; set; } = "EA";
+    public int Quantity { get; set; }
+    public decimal UnitCost { get; set; }
+    public decimal DiscountRate { get; set; }
+    public decimal LineTotal { get; set; }
+}
+
+public sealed class SupplierPaymentRecord
+{
+    public Guid Id { get; set; }
+    public string PaymentNumber { get; set; } = string.Empty;
+    public Guid PurchaseInvoiceId { get; set; }
+    public Guid JournalEntryId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public string Method { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public string Reference { get; set; } = string.Empty;
+    public string Notes { get; set; } = string.Empty;
+}
+
 public sealed class StoreProduct
 {
     public Guid Id { get; set; }
@@ -240,6 +283,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<JournalEntryRecord> JournalEntries => Set<JournalEntryRecord>();
     public DbSet<JournalLineRecord> JournalLines => Set<JournalLineRecord>();
     public DbSet<PaymentRecord> Payments => Set<PaymentRecord>();
+    public DbSet<PurchaseInvoiceRecord> PurchaseInvoices => Set<PurchaseInvoiceRecord>();
+    public DbSet<PurchaseInvoiceLineRecord> PurchaseInvoiceLines => Set<PurchaseInvoiceLineRecord>();
+    public DbSet<SupplierPaymentRecord> SupplierPayments => Set<SupplierPaymentRecord>();
     public DbSet<CustomerRecord> Customers => Set<CustomerRecord>();
     public DbSet<SupplierRecord> Suppliers => Set<SupplierRecord>();
     public DbSet<StoreSettings> StoreSettings => Set<StoreSettings>();
