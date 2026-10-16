@@ -16,7 +16,7 @@ public sealed class AddAuditEvents : Migration
             columns: table => new
             {
                 Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                OccurredAtUtc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                OccurredAtUnixMilliseconds = table.Column<long>(type: "INTEGER", nullable: false),
                 Actor = table.Column<string>(type: "TEXT", maxLength: 300, nullable: false),
                 MachineName = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
                 Action = table.Column<string>(type: "TEXT", maxLength: 20, nullable: false),
@@ -29,12 +29,12 @@ public sealed class AddAuditEvents : Migration
         migrationBuilder.CreateIndex(
             name: "IX_AuditEvents_OccurredAtUtc",
             table: "AuditEvents",
-            column: "OccurredAtUtc");
+            column: "OccurredAtUnixMilliseconds");
 
         migrationBuilder.CreateIndex(
             name: "IX_AuditEvents_EntityType_EntityId_OccurredAtUtc",
             table: "AuditEvents",
-            columns: new[] { "EntityType", "EntityId", "OccurredAtUtc" });
+            columns: new[] { "EntityType", "EntityId", "OccurredAtUnixMilliseconds" });
     }
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
