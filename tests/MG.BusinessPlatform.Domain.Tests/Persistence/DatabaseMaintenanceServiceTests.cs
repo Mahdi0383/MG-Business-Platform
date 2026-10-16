@@ -65,6 +65,45 @@ public sealed class DatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task RestoreBackup_WithUnrelatedButValidSqliteDatabase_LeavesCurrentDatabaseUntouched()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var unrelatedBackupPath = Path.Combine(directory, "unrelated.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Preserve business data");
+            await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                {
+                    DataSource = unrelatedBackupPath,
+                    Pooling = false
+                }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY, value TEXT NOT NULL);";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                service.RestoreBackupAsync(unrelatedBackupPath, databasePath));
+
+            Assert.Equal("Preserve business data", await ReadStoreNameAsync(databasePath));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task CreateBackup_RejectsSameSourceAndDestination()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
