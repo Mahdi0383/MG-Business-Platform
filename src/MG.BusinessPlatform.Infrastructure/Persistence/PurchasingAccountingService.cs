@@ -21,8 +21,11 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         Guid branchId,
         IReadOnlyCollection<PurchaseInvoiceLineRequest> requestedLines,
         DateOnly invoiceDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateOnly? dueDate = null)
     {
+        if (dueDate is DateOnly due && due < invoiceDate)
+            throw new ArgumentException("Purchase invoice due date cannot precede its issue date.", nameof(dueDate));
         if (supplierId == Guid.Empty) throw new ArgumentException("Supplier ID is required.", nameof(supplierId));
         if (branchId == Guid.Empty) throw new ArgumentException("Branch ID is required.", nameof(branchId));
         ArgumentNullException.ThrowIfNull(requestedLines);
@@ -84,6 +87,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             BranchId = branchId,
             SupplierId = supplierId,
             IssueDate = invoiceDate,
+            DueDate = dueDate,
             CurrencyCode = currency,
             TotalAmount = total,
             PaidAmount = 0m,
