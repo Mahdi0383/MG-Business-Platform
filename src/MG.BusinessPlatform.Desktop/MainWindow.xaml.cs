@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     private readonly string _databasePath;
     private readonly string _dataDirectory;
     private readonly LicenseService _licenseService = new();
+    private readonly ParsPackDnsService _parsPackDnsService = new();
+    private const string ParsPackDnsCredentialTarget = "MG.BusinessPlatform.ParsPackDnsApiToken";
     private PaymentTerminalProfileService _paymentTerminalProfileService = null!;
     private Guid? _editingPaymentProfileId;
     private MachineLicenseInfo? _machineLicenseInfo;
@@ -1057,6 +1059,102 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره محصول ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void SaveParsPackDnsToken_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            DnsSyncStatusText.Text = "برای مدیریت DNS فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        try
+        {
+            var token = ParsPackDnsTokenInput.Password.Trim();
+            if (token.Length == 0)
+            {
+                DnsSyncStatusText.Text = "ابتدا توکن API پارس‌پک را وارد کنید.";
+                return;
+            }
+
+            WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, token);
+            ParsPackDnsTokenInput.Clear();
+            DnsSyncStatusText.Text = "توکن در Windows Credential Manager برای همین حساب ویندوز ذخیره شد؛ در فایل تنظیمات برنامه ذخیره نمی‌شود.";
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"ذخیره امن توکن ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void SyncParsPackDns_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            DnsSyncStatusText.Text = "برای مدیریت DNS فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        var hostname = HostnameInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(hostname))
+        {
+            DnsSyncStatusText.Text = "ابتدا دامنه فروشگاه را وارد کنید.";
+            return;
+        }
+
+        try
+        {
+            var enteredToken = ParsPackDnsTokenInput.Password.Trim();
+            if (enteredToken.Length > 0)
+            {
+                WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, enteredToken);
+                ParsPackDnsTokenInput.Clear();
+            }
+
+            var token = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                DnsSyncStatusText.Text = "برای همگام‌سازی خودکار، توکن API پارس‌پک را وارد و ذخیره کنید.";
+                return;
+            }
+
+            var result = await _parsPackDnsService.SyncARecordAsync(hostname, token);
+            if (result.Status == ParsPackDnsSyncStatus.ConfirmationRequired)
+            {
+                if (!ConfirmationDialog.Confirm(this, "تغییر رکورد DNS پارس‌پک", result.Message))
+                {
+                    DnsSyncStatusText.Text = "رکورد DNS تغییری نکرد.";
+                    return;
+                }
+
+                result = await _parsPackDnsService.SyncARecordAsync(hostname, token, replaceExisting: true);
+            }
+
+            DnsSyncStatusText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"همگام‌سازی DNS پارس‌پک ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void DeleteParsPackDnsToken_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmationDialog.Confirm(this, "حذف توکن DNS پارس‌پک",
+            "توکن ذخیره‌شده از Windows Credential Manager این حساب حذف شود؟"))
+            return;
+
+        try
+        {
+            WindowsCredentialStore.Delete(ParsPackDnsCredentialTarget);
+            ParsPackDnsTokenInput.Clear();
+            DnsSyncStatusText.Text = "توکن ذخیره‌شده حذف شد.";
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"حذف توکن ناموفق بود: {ex.Message}";
         }
     }
 
