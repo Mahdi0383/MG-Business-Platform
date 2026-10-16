@@ -74,6 +74,9 @@ public sealed class BusinessDbContextTests
             Assert.False(auditEvent.ChangedFields.Contains("15", StringComparison.Ordinal));
             Assert.False(string.IsNullOrWhiteSpace(auditEvent.Actor));
             Assert.False(string.IsNullOrWhiteSpace(auditEvent.MachineName));
+            Assert.InRange(auditEvent.ChangedFields.Length, 0, 2000);
+            Assert.InRange(auditEvent.EntityType.Length, 1, 200);
+            Assert.InRange(auditEvent.EntityId.Length, 1, 300);
         });
     }
 
