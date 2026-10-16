@@ -35,6 +35,46 @@ public sealed class BusinessDbContextTests
     }
 
     [Fact]
+    public async Task Database_AutomaticallyAuditsCreateAndUpdateWithoutPersistingFieldValues()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "AUDIT-01", Name = "Original name", UnitPrice = 10m,
+            CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 3, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        product.Name = "Changed name";
+        product.UnitPrice = 15m;
+        await db.SaveChangesAsync();
+
+        var events = await db.AuditEvents.AsNoTracking()
+            .Where(x => x.EntityType == nameof(StoreProduct))
+            .OrderBy(x => x.OccurredAtUtc)
+            .ToListAsync();
+        Assert.Equal(2, events.Count);
+        Assert.Contains(events, x => x.Action == "Added" && x.ChangedFields.Contains(nameof(StoreProduct.Name), StringComparison.Ordinal));
+        Assert.Contains(events, x => x.Action == "Modified"
+            && x.ChangedFields.Contains(nameof(StoreProduct.Name), StringComparison.Ordinal)
+            && x.ChangedFields.Contains(nameof(StoreProduct.UnitPrice), StringComparison.Ordinal));
+        Assert.All(events, auditEvent =>
+        {
+            Assert.False(auditEvent.ChangedFields.Contains("Original name", StringComparison.Ordinal));
+            Assert.False(auditEvent.ChangedFields.Contains("Changed name", StringComparison.Ordinal));
+            Assert.False(auditEvent.ChangedFields.Contains("15", StringComparison.Ordinal));
+            Assert.False(string.IsNullOrWhiteSpace(auditEvent.Actor));
+            Assert.False(string.IsNullOrWhiteSpace(auditEvent.MachineName));
+        });
+    }
+
+    [Fact]
     public async Task Database_RejectsNegativeStockAtDatabaseLevel()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
