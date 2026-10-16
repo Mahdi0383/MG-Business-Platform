@@ -8,6 +8,19 @@ namespace MG.BusinessPlatform.Domain.Tests.Services;
 public sealed class ParsPackDnsServiceTests
 {
     [Fact]
+    public async Task SyncARecordAsync_RejectsUrlBeforeMakingNetworkRequests()
+    {
+        var handler = new StubHandler(EmptyRecords);
+        using var client = new HttpClient(handler);
+        var service = CreateService(client);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.SyncARecordAsync("https://mgalexander.cam/path", "test-token"));
+
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task SyncARecordAsync_CreatesRootARecordWhenMissing()
     {
         var handler = new StubHandler(EmptyRecords);
