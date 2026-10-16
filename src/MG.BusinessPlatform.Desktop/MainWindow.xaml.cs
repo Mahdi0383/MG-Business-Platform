@@ -549,6 +549,8 @@ public partial class MainWindow : Window
 
     private void NewPaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ساخت پروفایل PC-POS", "POS")) return;
+
         _editingPaymentProfileId = Guid.NewGuid();
         PaymentProfileNameInput.Clear();
         PaymentProfileVendorInput.Clear();
@@ -653,6 +655,8 @@ public partial class MainWindow : Window
 
     private async void SavePaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ذخیره پروفایل PC-POS", "POS")) return;
+
         try
         {
             var profile = BuildPaymentProfile();
@@ -669,6 +673,8 @@ public partial class MainWindow : Window
 
     private async void TestPaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "آزمایش اتصال PC-POS", "POS")) return;
+
         try
         {
             var profile = BuildPaymentProfile();
@@ -695,6 +701,8 @@ public partial class MainWindow : Window
 
     private async void DeletePaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "حذف پروفایل PC-POS", "POS")) return;
+
         var id = PaymentTerminalProfilesGrid.SelectedItem is PaymentTerminalProfileGridRow selected
             ? selected.Id
             : _editingPaymentProfileId;
@@ -736,6 +744,8 @@ public partial class MainWindow : Window
 
     private async void ExportPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "خروجی پروفایل‌های PC-POS", "POS")) return;
+
         var dialog = new SaveFileDialog
         {
             Title = "ذخیره پشتیبان پروفایل‌های PC-POS",
@@ -759,6 +769,8 @@ public partial class MainWindow : Window
 
     private async void ImportPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ورود پروفایل‌های PC-POS", "POS")) return;
+
         var dialog = new OpenFileDialog
         {
             Title = "انتخاب پشتیبان پروفایل‌های PC-POS",
@@ -814,6 +826,8 @@ public partial class MainWindow : Window
 
     private void AddSessionPlayer_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "افزودن بازیکن جلسه بازی", "GameCafe")) return;
+
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft
@@ -824,6 +838,8 @@ public partial class MainWindow : Window
 
     private async void StartGameSession_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "شروع جلسه بازی", "GameCafe")) return;
+
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
 
@@ -1001,6 +1017,8 @@ public partial class MainWindow : Window
 
     private async void AddProduct_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن کالا", "Inventory")) return;
+
         var sku = SkuInput.Text.Trim();
         var name = NameInput.Text.Trim();
         if (sku.Length is < 1 or > 80 || name.Length is < 1 or > 200)
@@ -1269,6 +1287,8 @@ public partial class MainWindow : Window
 
     private async void UpdateSelectedProduct_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ویرایش کالا", "Inventory")) return;
+
         if (ProductsGrid.SelectedItem is not StoreProduct selected)
         {
             StatusText.Text = "برای ویرایش، ابتدا کالا را از فهرست انتخاب کنید.";
@@ -1335,6 +1355,8 @@ public partial class MainWindow : Window
 
     private async void AdjustStock_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("اصلاح موجودی", "Inventory")) return;
+
         if (ProductsGrid.SelectedItem is not StoreProduct selected)
         {
             StatusText.Text = "ابتدا کالا را از فهرست انتخاب کنید.";
@@ -1422,6 +1444,8 @@ public partial class MainWindow : Window
 
     private void AddPosCartItem_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن کالا به سبد فروش", "POS", "Inventory")) return;
+
         if (PosProductInput.SelectedItem is not StoreProduct product)
         {
             StatusText.Text = "ابتدا کالا را انتخاب کنید.";
@@ -1460,6 +1484,8 @@ public partial class MainWindow : Window
 
     private void RemovePosCartItem_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("حذف کالا از سبد فروش", "POS", "Inventory")) return;
+
         if (PosCartGrid.SelectedItem is not PosCartLineDraft selected)
         {
             StatusText.Text = "برای حذف، یک ردیف از سبد را انتخاب کنید.";
@@ -1485,6 +1511,8 @@ public partial class MainWindow : Window
 
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ثبت فروش حضوری", "POS", "Accounting", "Inventory")) return;
+
         var cart = _posCartLines.ToArray();
         if (cart.Length == 0)
         {
@@ -1662,6 +1690,8 @@ public partial class MainWindow : Window
 
     private async void RecordPayment_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ثبت دریافت وجه", "Accounting")) return;
+
         if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
         {
             StatusText.Text = "ابتدا یک فاکتور را انتخاب کنید.";
@@ -2045,6 +2075,8 @@ public partial class MainWindow : Window
 
     private async void AddReservationResource_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن منبع رزرو", "Reservations")) return;
+
         var name = ReservationResourceNameInput.Text.Trim();
         if (name.Length is < 1 or > 160)
         {
@@ -2094,6 +2126,8 @@ public partial class MainWindow : Window
 
     private async void ToggleReservationResource_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("تغییر وضعیت منبع رزرو", "Reservations")) return;
+
         if (ReservationResourcesGrid.SelectedItem is not ReservationResourceRecord selected)
         {
             StatusText.Text = "ابتدا یک منبع رزرو را انتخاب کنید.";
@@ -2160,6 +2194,8 @@ public partial class MainWindow : Window
 
     private async void AddCustomer_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن مشتری", "Core")) return;
+
         var name = CustomerNameInput.Text.Trim();
         var phone = CustomerPhoneInput.Text.Trim();
         var email = CustomerEmailInput.Text.Trim();
@@ -2204,6 +2240,8 @@ public partial class MainWindow : Window
 
     private void AddPurchaseLine_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن ردیف خرید", "Accounting", "Inventory")) return;
+
         if (PurchaseProductInput.SelectedItem is not StoreProduct product)
         {
             StatusText.Text = "برای افزودن ردیف خرید، یک کالا انتخاب کنید.";
@@ -2370,6 +2408,8 @@ public partial class MainWindow : Window
 
     private async void AddSupplier_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن تأمین‌کننده", "Core")) return;
+
         var name = SupplierNameInput.Text.Trim();
         var phone = SupplierPhoneInput.Text.Trim();
         var email = SupplierEmailInput.Text.Trim();
@@ -2419,6 +2459,8 @@ public partial class MainWindow : Window
 
     private async void FulfillOrder_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("تحویل سفارش آنلاین", "Storefront", "Accounting", "Inventory")) return;
+
         if (OrdersGrid.SelectedItem is not CustomerOrder selected)
         {
             StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
@@ -2446,6 +2488,8 @@ public partial class MainWindow : Window
 
     private async void CancelOrder_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("لغو سفارش آنلاین", "Storefront")) return;
+
         if (OrdersGrid.SelectedItem is not CustomerOrder selected)
         {
             StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
@@ -2621,6 +2665,8 @@ public partial class MainWindow : Window
 
     private async void ConfigureFirewall_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "تنظیم فایروال انتشار عمومی", "Storefront")) return;
+
         var scriptPath = Path.Combine(AppContext.BaseDirectory, "configure-firewall.ps1");
         if (!File.Exists(scriptPath))
         {
@@ -2683,6 +2729,8 @@ public partial class MainWindow : Window
 
     private async void GenerateStorefrontQr_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "ساخت QR فروشگاه آنلاین", "Storefront")) return;
+
         try
         {
             var qr = await BuildStorefrontQrAsync();
@@ -2979,6 +3027,19 @@ public partial class MainWindow : Window
             ? validPayload
             : null;
         return payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
+    }
+
+    private bool RequireLicensedModules(string operation, params string[] modules) =>
+        RequireLicensedModules(StatusText, operation, modules);
+
+    private bool RequireLicensedModules(TextBlock target, string operation, params string[] modules)
+    {
+        var missing = modules.Where(module => !HasLicensedModule(module)).ToArray();
+        if (missing.Length == 0)
+            return true;
+
+        target.Text = $"برای {operation}، لایسنس معتبر دارای ماژول‌های {string.Join("، ", missing)} لازم است.";
+        return false;
     }
 
     private async Task<bool> IsStorefrontRunningAsync()
