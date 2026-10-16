@@ -1,7 +1,5 @@
 using System.IO;
 using System.Security.Cryptography;
-using System.Text;
-using Microsoft.Win32;
 using MG.BusinessPlatform.Licensing;
 
 namespace MG.BusinessPlatform.Desktop.Services;
@@ -54,26 +52,7 @@ public sealed class LicenseService
         }
     }
 
-    public static string GetHardwareSerial()
-    {
-        string machineId;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography", writable: false);
-            machineId = key?.GetValue("MachineGuid")?.ToString() ?? Environment.MachineName;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            machineId = Environment.MachineName;
-        }
-        catch (System.Security.SecurityException)
-        {
-            machineId = Environment.MachineName;
-        }
-
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(machineId.Trim().ToUpperInvariant()));
-        return "MGH-" + Convert.ToHexString(hash.AsSpan(0, 16));
-    }
+    public static string GetHardwareSerial() => LicenseRuntimeValidator.GetHardwareSerial();
 
     private static string LoadOrCreateSoftwareSerial(string path)
     {
