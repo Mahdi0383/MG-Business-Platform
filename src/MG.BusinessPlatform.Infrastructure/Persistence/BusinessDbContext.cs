@@ -339,7 +339,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 $"Sales invoice {invalidSalesInvoice.Entity.InvoiceNumber} cannot have a due date before its issue date.");
 
         var invalidPurchaseInvoice = ChangeTracker.Entries<PurchaseInvoiceRecord>()
-            .FirstOrDefault(entry => entry.State is EntityState.Added or EntityState.Modified
+            .FirstOrDefault(entry => (entry.State is EntityState.Added or EntityState.Modified)
                 && entry.Entity.DueDate is DateOnly dueDate
                 && dueDate < entry.Entity.IssueDate);
         if (invalidPurchaseInvoice is not null)
