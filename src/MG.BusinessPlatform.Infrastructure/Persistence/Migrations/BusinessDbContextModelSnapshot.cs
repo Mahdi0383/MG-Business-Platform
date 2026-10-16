@@ -54,6 +54,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("CustomerName").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
             b.Property<string>("CustomerPhone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
             b.Property<string>("InvoiceNumber").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<DateOnly?>("DueDate").HasColumnType("TEXT");
             b.Property<DateOnly>("IssueDate").HasColumnType("TEXT");
             b.Property<Guid>("OrderId").HasColumnType("TEXT");
             b.Property<decimal>("PaidAmount").HasColumnType("TEXT");
