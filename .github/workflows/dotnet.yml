@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mg-business-platform-${{ github.workflow }}-${{ github.ref }}
@@ -98,32 +98,3 @@ jobs:
             throw "License manager installer SHA-256 checksum was not produced."
           }
 
-      - name: Publish downloadable Windows release assets
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: mg-business-platform-preview-${{ github.run_number }}
-          name: MG Business Platform Preview ${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
-          draft: false
-          prerelease: true
-          fail_on_unmatched_files: true
-          body: |
-            Automated Windows x64 preview build.
-            Release build and all automated tests must pass before this release is created.
-            Verify downloaded packages with the included SHA-256 checksum files.
-          files: |
-            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
-            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
-            artifacts/MG-Business-Platform-win-x64.zip
-            artifacts/MG-Business-Platform-win-x64.zip.sha256
-            artifacts/MG-License-Manager-win-x64.zip
-            artifacts/MG-License-Manager-win-x64.zip.sha256
-            artifacts/MG-Business-Platform-SOURCE.zip
-            artifacts/MG-Business-Platform-SOURCE.zip.sha256
-            artifacts/MG-License-Manager-SOURCE.zip
-            artifacts/MG-License-Manager-SOURCE.zip.sha256
-            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
-            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
