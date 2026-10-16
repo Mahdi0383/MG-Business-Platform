@@ -192,8 +192,9 @@ app.MapGet("/api/storefront", async (BusinessDbContext db, IStorefrontLicenseGua
 {
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
     var license = licenseGuard.Validate();
-    var canOrder = license.Payload?.Modules.Contains("Accounting", StringComparer.Ordinal) == true
-        && license.Payload.Modules.Contains("Inventory", StringComparer.Ordinal);
+    var canOrder = license.Payload is { } payload
+        && payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+        && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
     var reservationsEnabled = settings.OnlineReservationsEnabled
         && license.Payload?.Modules.Contains("Reservations", StringComparer.Ordinal) == true;
     return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode,
@@ -208,8 +209,9 @@ app.MapGet("/api/storefront/products", async (
     // Returning an empty array preserves the customer page contract for reservation-only stores.
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
     var license = licenseGuard.Validate();
-    var canOrder = license.Payload?.Modules.Contains("Accounting", StringComparer.Ordinal) == true
-        && license.Payload.Modules.Contains("Inventory", StringComparer.Ordinal) == true;
+    var canOrder = license.Payload is { } payload
+        && payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+        && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
     if (!settings.OnlineOrderingEnabled || !canOrder)
         return Results.Ok(Array.Empty<ProductResponse>());
 
