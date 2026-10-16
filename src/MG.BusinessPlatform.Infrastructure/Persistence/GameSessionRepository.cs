@@ -15,6 +15,19 @@ public sealed class GameSessionRepository(BusinessDbContext db)
         ArgumentNullException.ThrowIfNull(session);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
+        if (session.Status is GameSessionStatus.Active or GameSessionStatus.Paused)
+        {
+            var deviceIsOccupied = await db.GameSessions.AsNoTracking()
+                .AnyAsync(x => x.DeviceId == session.DeviceId
+                    && x.Id != session.Id
+                    && (x.Status == nameof(GameSessionStatus.Active)
+                        || x.Status == nameof(GameSessionStatus.Paused)),
+                    cancellationToken);
+            if (deviceIsOccupied)
+                throw new InvalidOperationException(
+                    "This device already has an active or paused game session. Complete or cancel it before starting another session on the same device.");
+        }
+
         var record = await db.GameSessions
             .Include(x => x.Players)
             .SingleOrDefaultAsync(x => x.Id == session.Id, cancellationToken);
