@@ -113,14 +113,33 @@ public sealed class RouterPortMappingService
                 createdThisRun.Add(port);
                 state.Ports.Add(new RouterPortState { Port = port, OwnedByApplication = true });
             }
+            catch (OperationCanceledException)
+            {
+                var possibleMappings = createdThisRun.Append(port);
+                await RollbackCreatedMappingsAsync(router, network.LocalAddress, possibleMappings, CancellationToken.None);
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
+                return new(false, $"عملیات UPnP برای TCP {port} به پایان زمان مجاز رسید؛ انتقال‌های ایجادشده در این تلاش بازگردانده شدند.");
+            }
             catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidOperationException or IOException or System.Xml.XmlException)
             {
-                await RollbackCreatedMappingsAsync(router, network.LocalAddress, createdThisRun, cancellationToken);
+                await RollbackCreatedMappingsAsync(router, network.LocalAddress, createdThisRun, CancellationToken.None);
                 return new(false, $"تنظیم انتقال درگاه‌های روتر ناموفق بود: {ex.Message}");
             }
         }
 
-        await File.WriteAllTextAsync(_statePath, JsonSerializer.Serialize(state, JsonOptions), cancellationToken);
+        try
+        {
+            await File.WriteAllTextAsync(_statePath, JsonSerializer.Serialize(state, JsonOptions), cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            await RollbackCreatedMappingsAsync(router, network.LocalAddress, createdThisRun, CancellationToken.None);
+            if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                throw;
+            return new(false, $"وضعیت انتقال درگاه‌ها ذخیره نشد؛ انتقال‌هایی که در این تلاش ساخته شدند بازگردانده شدند: {ex.Message}");
+        }
+
         var manual = state.Ports.Any(port => !port.OwnedByApplication);
         return new(true, manual
             ? "درگاه‌های TCP 80 و 443 به این رایانه هدایت می‌شوند؛ انتقال‌هایی که قبلاً دستی ساخته شده بودند، تحت مالکیت برنامه قرار نگرفتند."
@@ -375,7 +394,7 @@ public sealed class RouterPortMappingService
                     && string.Equals(mapping.Description, MappingDescription, StringComparison.Ordinal))
                     await DeleteMappingAsync(router, port, cancellationToken);
             }
-            catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidOperationException or IOException or System.Xml.XmlException)
+            catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidOperationException or IOException or System.Xml.XmlException or OperationCanceledException)
             {
                 // Preserve the original failure; the UI still offers manual router management.
             }
