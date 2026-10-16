@@ -1,0 +1,97 @@
+name: Verified Windows Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mg-business-platform-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]'))
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Restore, build, test and publish release packages
+        shell: pwsh
+        run: ./scripts/publish-win-x64.ps1
+
+      - name: Verify all release packages and source archives
+        shell: pwsh
+        run: |
+          $required = @(
+            "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe",
+            "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256",
+            "artifacts/MG-Business-Platform-win-x64.zip",
+            "artifacts/MG-Business-Platform-win-x64.zip.sha256",
+            "artifacts/installer/MG-License-Manager-Setup-win-x64.exe",
+            "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256",
+            "artifacts/MG-License-Manager-win-x64.zip",
+            "artifacts/MG-License-Manager-win-x64.zip.sha256",
+            "artifacts/MG-Business-Platform-SOURCE.zip",
+            "artifacts/MG-Business-Platform-SOURCE.zip.sha256",
+            "artifacts/MG-License-Manager-SOURCE.zip",
+            "artifacts/MG-License-Manager-SOURCE.zip.sha256"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required release file is missing: $path" }
+          }
+          foreach ($path in @("artifacts/MG-Business-Platform-SOURCE.zip", "artifacts/MG-License-Manager-SOURCE.zip")) {
+            if ((Get-Item $path).Length -gt 50MB) { throw "Source archive is unexpectedly large: $path" }
+          }
+          $sourceArchives = @(
+            @{ Path = "artifacts/MG-Business-Platform-SOURCE.zip"; HashPath = "artifacts/MG-Business-Platform-SOURCE.zip.sha256" },
+            @{ Path = "artifacts/MG-License-Manager-SOURCE.zip"; HashPath = "artifacts/MG-License-Manager-SOURCE.zip.sha256" }
+          )
+          foreach ($archive in $sourceArchives) {
+            $actual = (Get-FileHash $archive.Path -Algorithm SHA256).Hash
+            $expectedLine = (Get-Content $archive.HashPath -Raw).Trim()
+            if (-not $expectedLine.StartsWith($actual, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "Source archive checksum mismatch: $($archive.Path)"
+            }
+          }
+
+      - name: Publish verified Windows packages as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mg-build-${{ github.run_number }}-${{ github.sha }}
+          name: MG Business Platform build ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          body: |
+            Automated Windows x64 prerelease build.
+            Source commit: ${{ github.sha }}
+            Build, automated tests, installer creation and package verification completed in GitHub Actions.
+            This is a development prerelease, not a production-ready accounting system. Review the repository's README and release gates before live use.
+          files: |
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
+            artifacts/MG-Business-Platform-win-x64.zip
+            artifacts/MG-Business-Platform-win-x64.zip.sha256
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
+            artifacts/MG-License-Manager-win-x64.zip
+            artifacts/MG-License-Manager-win-x64.zip.sha256
+            artifacts/MG-Business-Platform-SOURCE.zip
+            artifacts/MG-Business-Platform-SOURCE.zip.sha256
+            artifacts/MG-License-Manager-SOURCE.zip
+            artifacts/MG-License-Manager-SOURCE.zip.sha256
