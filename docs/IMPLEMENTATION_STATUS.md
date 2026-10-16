@@ -5,34 +5,37 @@ This document distinguishes source-code presence from verified behavior. A featu
 ## Implemented and covered by automated tests
 
 - .NET 10 solution with Domain, Infrastructure, Storefront, WPF Desktop, signed-license verification, a separate Persian RTL License Manager GUI and a CLI companion.
-- Currency-aware money value object, chart-of-accounts primitives, balanced double-entry journal validation, financial-period boundaries, trial-balance and P&L/balance-sheet calculations.
-- Product catalog, customer/supplier records, stock movements and valuation calculations, sales invoices, partial payments and sales-to-ledger posting.
-- SQLite persistence, versioned EF Core migrations, database initialization, backup/restore service, migration and recovery tests.
-- Desktop workflows for product creation/editing/availability, inventory adjustments/history, customer/supplier records, single-item POS checkout, invoice payment collection, online order fulfillment/cancellation, trial balance, financial statements, store settings, backup/restore, activation diagnostics and public HTTPS publication.
+- Currency-aware money primitives, chart-of-accounts entities, balanced double-entry journals, financial periods, trial balance, general-ledger running balances, and P&L/balance-sheet calculations.
+- Product catalog with edit/availability controls, customers and suppliers, stock movements/history/valuation, multi-line POS checkout, sales invoices, partial payments and sales-to-ledger posting.
+- Supplier purchase invoices, weighted-average unit-cost updates, stock receipts, supplier payments and corresponding accounting journal entries.
+- SQLite persistence, versioned EF Core migrations, initialization, transactional backup/restore, integrity checks and business-schema identity checks before restore.
+- Desktop workflows for inventory adjustments, customer/supplier management, POS, invoice payments, purchase invoices/payments, online order fulfillment/cancellation, trial balance, general ledger, financial statements, store settings, database backup/restore and license diagnostics.
 - Game-cafe session domain aggregate with pause/resume/completion/cancellation transitions, recoverable paused timers, billable-minute rounding, per-player entry/time/additional charges, SQLite persistence and desktop session controls.
-- Customer storefront API/UI with server-side pricing and stock validation, transactional order creation, same-key idempotent retries, rate limits, host allow-listing, request-size limits and basic security headers.
-- Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, publication status checks and optional Windows firewall configuration. Settings can display the customer HTTPS URL, preview a generated QR code and save it as PNG. Actual public access still depends on DNS, router/NAT, ISP policy and inbound reachability.
-- RSA-PSS signed offline license payloads, device/software serial binding, expiry and module validation, separate license generation/verification UI and CLI, independent installers/source archives, and desktop module gating based on verified entitlements. The private signing key must remain outside the main app and outside source control.
-- Windows CI pipeline that restores, builds, runs tests, publishes self-contained Windows packages, compiles both installers, verifies package presence and uploads artifacts. Latest verified run passed 146/146 tests.
-- Latest completed main-branch validation for commit `a092659fcb142b655a6966dd83686c1e9bf7852d`: Release build succeeded with zero compiler errors, all 146 automated tests passed, both Windows installers compiled, and required package artifacts were verified. The run includes multi-line POS validation, hardened license key handling, and storefront QR generation/export.
+- Customer storefront API/UI with server-side price and stock validation, transactional order creation, same-key idempotent retries, rate limits, host allow-listing, request-size limits and basic security headers.
+- Online reservation resources and booking requests with validation, idempotency, overlap checks and desktop confirmation/cancellation controls.
+- PC-POS profile settings for manual, TCP/IP, serial/USB virtual COM, vendor local API, Windows service and vendor SDK connection types. TCP diagnostics verify transport only; they do not claim payment approval or replace model-specific vendor protocol adapters.
+- Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, HTTPS status checks, generated customer QR links and optional Windows firewall configuration. Public access still depends on DNS, router/NAT, ISP policy and inbound reachability.
+- RSA-PSS signed offline license payloads, software/hardware serial binding, expiry and module validation, separate license-generation/verification UI and CLI, desktop module gating, and independent Windows packaging. The private signing key must remain outside the application and source control.
+- Windows CI/release workflows that restore, build, run tests, publish self-contained Windows packages, compile both installers, validate source archives and produce SHA-256 checksums.
 
 ## Important limitations — not a complete commercial product yet
 
-- Accounting still lacks a full general-ledger browsing workflow, cash-flow statement, complete accounts receivable/payable aging, purchase invoices and supplier-payment workflow, tax policies, bank reconciliation, period closing/reopening and closing entries, refunds/credit notes, and comprehensive reversal/audit controls.
-- Inventory valuation is not yet fully integrated with purchase cost layers/weighted-average costing and accounting COGS across all transaction types.
-- POS supports a multi-line cart and transactional checkout; discounts, returns, barcode workflows, receipt-printer setup and end-of-day cash close remain.
+- Accounting still needs cash-flow reporting, accounts-receivable/payable aging, tax policies, bank reconciliation, period close/reopen and closing entries, refunds/credit notes, robust reversal workflows, audit-event persistence and comprehensive accounting reconciliation.
+- Inventory valuation is not yet fully integrated with purchase cost layers and COGS across every transaction type; tax, discounts and rounding policy need explicit end-to-end coverage.
+- POS still needs barcode workflows, receipt-printer integration/print templates, returns/exchanges, discounts, shift/end-of-day cash closing and physical payment-terminal validation.
 - Cafe/restaurant operations remain incomplete: tables, open tickets, kitchen queue, recipes/ingredients, modifiers, split/merge/transfer bills, service charges, tips and local fiscal receipt rules.
-- Game-cafe operations remain incomplete: device/room registry, availability scheduling, tariff management, customer history, group editing after start, extensions and fully integrated settlement/invoice/payment flow.
-- Reservations, loyalty, retail variants, returns/exchanges, repair jobs, wholesale, multiple warehouses and branch synchronization remain.
-- Authentication, robust roles/permissions, server-side administrative authorization, audit event persistence, import/export and retention controls need completion.
-- Direct hosting cannot overcome carrier-grade NAT or blocked inbound ports. Provider-specific DNS APIs and an independent outbound relay/tunnel are not implemented; a public VPS or compatible relay may be required where direct hosting is impossible.
+- Game-cafe operations still need a device/room registry, availability scheduling, tariff management, customer history, editing groups after start and fully integrated settlement/invoice/payment flow.
+- Branch synchronization, multi-warehouse operations, loyalty, retail variants, repair jobs, wholesale workflows and a complete permissions/role administration interface remain.
+- Multi-PC operation is not yet a complete centrally authenticated deployment. Do not share the SQLite database file over a network share; a supported central service/database and desktop-client API path must be implemented and load-tested.
+- Direct self-hosting cannot overcome carrier-grade NAT or blocked inbound ports. Provider-specific DNS APIs and an independent outbound relay/tunnel are not implemented; a public VPS or compatible relay may be required where direct hosting is impossible.
 - No automated migration from prior MG Game Cafe databases, verified upgrade/rollback drill, signed update pipeline, comprehensive security/penetration test, performance/load test or full Windows operator acceptance test has been completed.
-- Hardware integrations (receipt printers, barcode scanners, payment terminals) have not been validated against physical devices.
+- Physical receipt printers, barcode scanners, payment terminals and router/DNS configurations have not been validated against real customer hardware and networks.
 
 ## Verification status
 
-- Automated Windows build/test/package pipeline is configured. The latest verified main commit is `a092659fcb142b655a6966dd83686c1e9bf7852d`; always check CI on the exact commit intended for release and do not reuse results from an earlier commit as proof for later changes.
-- Local .NET SDK execution was not available in the authoring environment; build/test evidence comes from GitHub Actions.
+- Main commit `ad04c96ae09cae606d839a14cd316d0518bf9b34` passed the Windows Release build with zero compiler errors, all 170 automated tests, both Windows installers and package verification.
+- The build/test evidence is tied to this exact commit. Later source changes, including publisher-key bootstrap and source-archive secret filtering, must pass CI separately before their artifacts are considered verified.
+- The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability.
-- Licensing currently gates desktop tabs and local/public storefront startup. This is not a substitute for server-side authorization on every administrative API; the public storefront must remain isolated from administrative operations.
+- Desktop license checks and public storefront license checks are present, but this is not a substitute for server-side authorization on every future administrative API.
 - Production readiness is **NOT VERIFIED** until all mandatory gates in [RELEASE_GATES.md](RELEASE_GATES.md) have current evidence.
