@@ -32,7 +32,7 @@ public sealed class ParsPackDnsServiceTests
         Assert.Equal(ParsPackDnsSyncStatus.Updated, result.Status);
         Assert.Equal("@", result.RecordHost);
         Assert.Equal("mgalexander.cam", result.Zone);
-        var post = Assert.Single(handler.Requests.Where(request => request.Method == HttpMethod.Post));
+        var post = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Post);
         using var document = JsonDocument.Parse(post.Body!);
         Assert.Equal("@", document.RootElement.GetProperty("host").GetString());
         Assert.Equal("A", document.RootElement.GetProperty("type").GetString());
