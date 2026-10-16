@@ -313,7 +313,9 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             }
             catch (Exception ex) when (ex is SocketException or OperationCanceledException)
             {
-                var message = ex is OperationCanceledException && !cancellationToken.IsCancellationRequested
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
+                var message = ex is OperationCanceledException
                     ? "مهلت اتصال شبکه تمام شد. هیچ پرداختی ارسال نشده است."
                     : $"اتصال شبکه برقرار نشد: {ex.Message}";
                 return new(true, false, ex is OperationCanceledException ? "Timeout" : "ConnectionFailed", message, DateTimeOffset.UtcNow);
