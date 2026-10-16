@@ -112,7 +112,7 @@ internal static class WindowsCredentialStore
             if (credential.CredentialBlobSize > 2560)
                 throw new InvalidDataException("The saved Windows credential exceeds the supported size limit.");
 
-            var bytes = new byte[credential.CredentialBlobSize];
+            var bytes = new byte[checked((int)credential.CredentialBlobSize)];
             try
             {
                 Marshal.Copy(credential.CredentialBlob, bytes, 0, bytes.Length);
