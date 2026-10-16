@@ -633,6 +633,57 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ExportPaymentProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "ذخیره پشتیبان پروفایل‌های PC-POS",
+            Filter = "PC-POS profiles (*.json)|*.json",
+            DefaultExt = ".json",
+            AddExtension = true,
+            FileName = $"MG-PC-POS-Profiles-{DateTime.Now:yyyyMMdd-HHmmss}.json"
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        try
+        {
+            await _paymentTerminalProfileService.ExportAsync(dialog.FileName);
+            PaymentProfileStatusText.Text = $"پشتیبان پروفایل‌ها ذخیره شد: {dialog.FileName}. این فایل شامل رمز یا اطلاعات کارت نیست.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"خروجی پروفایل‌ها ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void ImportPaymentProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب پشتیبان پروفایل‌های PC-POS",
+            Filter = "PC-POS profiles (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        if (!ConfirmationDialog.Confirm(this, "ورود پشتیبان PC-POS",
+            "فهرست فعلی پروفایل‌ها با فایل انتخابی جایگزین می‌شود. این کار هیچ پرداخت، برگشت وجه یا تراکنش بانکی انجام نمی‌دهد.",
+            "جایگزینی پروفایل‌ها"))
+            return;
+        try
+        {
+            await _paymentTerminalProfileService.ImportAsync(dialog.FileName);
+            _editingPaymentProfileId = null;
+            await LoadPaymentTerminalProfilesAsync();
+            PaymentProfileStatusText.Text = "پروفایل‌ها از پشتیبان وارد شدند. درایور و سازگاری دستگاه باید جداگانه بررسی شوند.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"ورود پروفایل‌ها ناموفق بود؛ تنظیمات قبلی حفظ شدند: {ex.Message}";
+        }
+    }
+
     private async Task RefreshGameSessionsAsync(BusinessDbContext db)
     {
         var sessions = await new GameSessionRepository(db).FindRecentAsync();
