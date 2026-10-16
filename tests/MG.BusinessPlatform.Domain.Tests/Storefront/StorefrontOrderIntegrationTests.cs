@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using MG.BusinessPlatform.Licensing;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Storefront;
@@ -404,6 +407,36 @@ public sealed class StorefrontOrderIntegrationTests
 
     private sealed class StorefrontTestFactory : WebApplicationFactory<Program>
     {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IStorefrontLicenseGuard>();
+                services.AddSingleton<IStorefrontLicenseGuard, TestStorefrontLicenseGuard>();
+            });
+        }
+
+        private sealed class TestStorefrontLicenseGuard : IStorefrontLicenseGuard
+        {
+            private static readonly LicenseValidationResult ValidTestLicense = new(
+                LicenseValidationStatus.Valid,
+                "Integration-test license",
+                new LicensePayload
+                {
+                    LicenseId = Guid.NewGuid(),
+                    CustomerName = "Integration Test",
+                    SoftwareSerial = "MGS-00000000000000000000000000000000",
+                    HardwareSerial = "MGH-00000000000000000000000000000000",
+                    IssuedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1),
+                    Modules = LicensePayload.SupportedModules,
+                    MaxBranches = 100,
+                    MaxUsers = 100
+                });
+
+            public LicenseValidationResult Validate() => ValidTestLicense;
+        }
+
         private readonly string? _previousDatabasePath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH");
         private readonly string _testDatabasePath = Path.Combine(Path.GetTempPath(), $"mg-storefront-{Guid.NewGuid():N}.db");
 
