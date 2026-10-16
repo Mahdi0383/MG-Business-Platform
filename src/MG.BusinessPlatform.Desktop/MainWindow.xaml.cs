@@ -2474,11 +2474,17 @@ public partial class MainWindow : Window
             string? dnsToken = null;
             try
             {
+                var enteredDnsToken = ParsPackDnsTokenInput.Password.Trim();
+                if (enteredDnsToken.Length > 0)
+                {
+                    WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, enteredDnsToken);
+                    ParsPackDnsTokenInput.Clear();
+                }
                 dnsToken = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
             }
             catch (Exception credentialException)
             {
-                DnsSyncStatusText.Text = $"توکن DNS قابل خواندن نبود؛ بررسی دستی ادامه می‌یابد: {credentialException.Message}";
+                DnsSyncStatusText.Text = $"توکن DNS قابل خواندن یا ذخیره نبود؛ بررسی دستی ادامه می‌یابد: {credentialException.Message}";
             }
 
             if (!string.IsNullOrWhiteSpace(dnsToken))
