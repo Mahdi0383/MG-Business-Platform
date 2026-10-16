@@ -39,8 +39,9 @@ public sealed class PurchasingAccountingServiceTests
         var invoice = await service.CreatePurchaseInvoiceAsync(supplierId, branchId,
         [
             new PurchaseInvoiceLineRequest(productId, 3, 20m, 0.1m)
-        ], new DateOnly(2026, 10, 16));
+        ], new DateOnly(2026, 10, 16), dueDate: new DateOnly(2026, 11, 15));
 
+        Assert.Equal(new DateOnly(2026, 11, 15), invoice.DueDate);
         Assert.Equal(54m, invoice.TotalAmount);
         Assert.Equal("Received", invoice.Status);
         Assert.Equal(0m, invoice.PaidAmount);
