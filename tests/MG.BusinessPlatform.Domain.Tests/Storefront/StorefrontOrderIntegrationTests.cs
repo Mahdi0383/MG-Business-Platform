@@ -65,6 +65,41 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task ProductCatalog_IsHiddenWhenOnlineOrderingIsDisabled()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var productId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = false;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = productId,
+                Sku = "PRIVATE-CATALOG-ITEM",
+                Name = "Private catalogue item",
+                Description = "Must not be publicly disclosed",
+                UnitPrice = 123m,
+                CurrencyCode = "IRR",
+                IsAvailable = true,
+                StockQuantity = 7,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync("/api/storefront/products");
+        response.EnsureSuccessStatusCode();
+        var products = await response.Content.ReadFromJsonAsync<ProductResponse[]>();
+
+        Assert.NotNull(products);
+        Assert.Empty(products);
+    }
+
+    [Fact]
     public async Task PublicOrder_RecalculatesPriceAndRetryDoesNotDuplicateOrderOrStockDeduction()
     {
         await using var factory = new StorefrontTestFactory();
