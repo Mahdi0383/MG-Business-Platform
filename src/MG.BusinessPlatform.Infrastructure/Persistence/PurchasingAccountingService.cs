@@ -16,13 +16,22 @@ public sealed record PurchaseInvoiceLineRequest(
 /// </summary>
 public sealed class PurchasingAccountingService(BusinessDbContext db)
 {
+    public Task<PurchaseInvoiceRecord> CreatePurchaseInvoiceAsync(
+        Guid supplierId,
+        Guid branchId,
+        IReadOnlyCollection<PurchaseInvoiceLineRequest> requestedLines,
+        DateOnly invoiceDate,
+        CancellationToken cancellationToken = default) =>
+        CreatePurchaseInvoiceAsync(supplierId, branchId, requestedLines, invoiceDate,
+            dueDate: null, cancellationToken);
+
     public async Task<PurchaseInvoiceRecord> CreatePurchaseInvoiceAsync(
         Guid supplierId,
         Guid branchId,
         IReadOnlyCollection<PurchaseInvoiceLineRequest> requestedLines,
         DateOnly invoiceDate,
-        CancellationToken cancellationToken = default,
-        DateOnly? dueDate = null)
+        DateOnly? dueDate,
+        CancellationToken cancellationToken = default)
     {
         if (dueDate is DateOnly due && due < invoiceDate)
             throw new ArgumentException("Purchase invoice due date cannot precede its issue date.", nameof(dueDate));
