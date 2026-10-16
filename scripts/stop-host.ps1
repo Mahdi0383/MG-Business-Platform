@@ -67,8 +67,8 @@ function Stop-OwnedProcess([string]$PidFile, [string[]]$ExpectedExecutables, [st
 try {
     $app = [System.IO.Path]::GetFullPath($AppDirectory)
     $data = [System.IO.Path]::GetFullPath($DataDirectory)
-    // Stop the public TLS endpoint first so no new customer requests arrive,
-    // then stop the loopback-only storefront process.
+    # Stop the public TLS endpoint first so no new customer requests arrive,
+    # then stop the loopback-only storefront process.
     Stop-OwnedProcess (Join-Path $data "caddy.pid") @(
         (Join-Path $app "caddy/caddy.exe"),
         (Join-Path $app "caddy.exe")
