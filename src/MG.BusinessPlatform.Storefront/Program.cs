@@ -85,7 +85,8 @@ app.Use(async (context, next) =>
             originMismatch = !Uri.TryCreate(originHeader, UriKind.Absolute, out var origin)
                 || !Uri.TryCreate(expectedOriginText, UriKind.Absolute, out var expectedOrigin)
                 || !string.Equals(origin.Scheme, expectedOrigin.Scheme, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(origin.Authority, expectedOrigin.Authority, StringComparison.OrdinalIgnoreCase);
+                || !string.Equals(origin.Host, expectedOrigin.Host, StringComparison.OrdinalIgnoreCase)
+                || origin.Port != expectedOrigin.Port;
         }
 
         if (crossSiteFetch || originMismatch)
