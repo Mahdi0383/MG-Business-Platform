@@ -66,6 +66,7 @@ public sealed class RouterPortMappingService
 
         foreach (var port in new[] { 80, 443 })
         {
+            var portWasAbsentBeforeAdd = false;
             try
             {
                 var existing = await GetSpecificMappingAsync(router, port, cancellationToken);
@@ -83,6 +84,7 @@ public sealed class RouterPortMappingService
                     continue;
                 }
 
+                portWasAbsentBeforeAdd = true;
                 var addResult = await AddMappingAsync(router, network.LocalAddress, port, leaseDuration: 0, cancellationToken);
                 if (!addResult.Success && addResult.ErrorCode == "718")
                 {
@@ -115,7 +117,7 @@ public sealed class RouterPortMappingService
             }
             catch (OperationCanceledException)
             {
-                var possibleMappings = createdThisRun.Append(port);
+                var possibleMappings = portWasAbsentBeforeAdd ? createdThisRun.Append(port) : createdThisRun;
                 await RollbackCreatedMappingsAsync(router, network.LocalAddress, possibleMappings, CancellationToken.None);
                 if (cancellationToken.IsCancellationRequested)
                     throw;
