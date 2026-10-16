@@ -93,6 +93,7 @@ public sealed class AddPurchasingAccounting : Migration
         migrationBuilder.CreateIndex("IX_PurchaseInvoiceLines_ProductId", "PurchaseInvoiceLines", "ProductId");
         migrationBuilder.CreateIndex("IX_SupplierPayments_PaymentNumber", "SupplierPayments", "PaymentNumber", unique: true);
         migrationBuilder.CreateIndex("IX_SupplierPayments_PurchaseInvoiceId", "SupplierPayments", "PurchaseInvoiceId");
+        migrationBuilder.CreateIndex("IX_SupplierPayments_JournalEntryId", "SupplierPayments", "JournalEntryId");
     }
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
