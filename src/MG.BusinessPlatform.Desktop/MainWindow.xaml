@@ -155,6 +155,8 @@
                                 <ComboBox x:Name="PurchaseSupplierInput" Width="190" DisplayMemberPath="DisplayName" SelectedValuePath="Id" Margin="4"/>
                                 <TextBlock Text="تاریخ فاکتور" VerticalAlignment="Center" Margin="4"/>
                                 <DatePicker x:Name="PurchaseInvoiceDateInput" Width="145" Margin="4"/>
+                                <TextBlock Text="سررسید انتخاب‌شده" VerticalAlignment="Center" Margin="4"/>
+                                <DatePicker x:Name="PurchaseDueDateInput" Width="145" Margin="4"/>
                                 <TextBlock Text="کالا" VerticalAlignment="Center" Margin="4"/>
                                 <ComboBox x:Name="PurchaseProductInput" Width="210" DisplayMemberPath="Name" Margin="4"/>
                             </WrapPanel>
@@ -166,6 +168,7 @@
                                 <Button Content="افزودن ردیف خرید" Click="AddPurchaseLine_Click" Margin="4"/>
                                 <Button Content="حذف ردیف انتخاب‌شده" Click="RemovePurchaseLine_Click" Margin="4"/>
                                 <Button Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
+                                <Button Content="ثبت سررسید خرید انتخاب‌شده" Click="UpdateSelectedPurchaseDueDate_Click" Margin="4"/>
                                 <Button Content="به‌روزرسانی خریدها" Click="RefreshPurchases_Click" Margin="4"/>
                             </WrapPanel>
                         </StackPanel>
@@ -190,6 +193,7 @@
                                 <DataGridTextColumn Header="شماره" Binding="{Binding InvoiceNumber}" Width="1.4*"/>
                                 <DataGridTextColumn Header="تأمین‌کننده" Binding="{Binding SupplierName}" Width="1.4*"/>
                                 <DataGridTextColumn Header="تاریخ" Binding="{Binding IssueDate}" Width="*"/>
+                            <DataGridTextColumn Header="سررسید" Binding="{Binding DueDate}" Width="*"/>
                                 <DataGridTextColumn Header="کل" Binding="{Binding TotalAmount}" Width="*"/>
                                 <DataGridTextColumn Header="پرداخت‌شده" Binding="{Binding PaidAmount}" Width="*"/>
                                 <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount}" Width="*"/>
@@ -266,7 +270,7 @@
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
-                        <StackPanel Orientation="Horizontal">
+                        <WrapPanel>
                             <TextBox x:Name="PaymentAmountInput" Width="140" ToolTip="مبلغ دریافتی"/>
                             <ComboBox x:Name="PaymentMethodInput" Width="150" SelectedIndex="0">
                                 <ComboBoxItem Content="نقدی" Tag="Cash"/>
@@ -277,13 +281,16 @@
                             <TextBox x:Name="PaymentNotesInput" Width="220" ToolTip="توضیحات (اختیاری)"/>
                             <Button Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
                             <Button Content="چاپ رسید ۵۸ میلی‌متری" Click="PrintSelectedInvoice_Click" Margin="4,0"/>
-                        </StackPanel>
+                        <DatePicker x:Name="InvoiceDueDateInput" Width="150" Margin="4" ToolTip="سررسید قراردادی فاکتور انتخاب‌شده"/>
+                            <Button Content="ثبت سررسید فاکتور انتخاب‌شده" Click="UpdateSelectedInvoiceDueDate_Click" Margin="4"/>
+                        </WrapPanel>
                     </Border>
-                    <DataGrid x:Name="InvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                    <DataGrid x:Name="InvoicesGrid" Grid.Row="1" SelectionChanged="InvoicesGrid_SelectionChanged" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="شماره فاکتور" Binding="{Binding InvoiceNumber}" Width="1.6*"/>
                             <DataGridTextColumn Header="مشتری" Binding="{Binding CustomerName}" Width="2*"/>
                             <DataGridTextColumn Header="تاریخ" Binding="{Binding IssueDate}" Width="*"/>
+                            <DataGridTextColumn Header="سررسید" Binding="{Binding DueDate}" Width="*"/>
                             <DataGridTextColumn Header="جمع فاکتور" Binding="{Binding TotalAmount}" Width="*"/>
                             <DataGridTextColumn Header="پرداخت‌شده" Binding="{Binding PaidAmount}" Width="*"/>
                             <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount}" Width="*"/>
@@ -384,6 +391,8 @@
                             <DataGridTextColumn Header="شماره سند" Binding="{Binding DocumentNumber}" Width="1.5*"/>
                             <DataGridTextColumn Header="مشتری/تأمین‌کننده" Binding="{Binding CounterpartyName}" Width="2*"/>
                             <DataGridTextColumn Header="تاریخ صدور" Binding="{Binding IssueDate}" Width="*"/>
+                            <DataGridTextColumn Header="سررسید ثبت‌شده" Binding="{Binding DueDate}" Width="*"/>
+                            <DataGridTextColumn Header="مبنای سن" Binding="{Binding UsesIssueDateFallback}" Width="*"/>
                             <DataGridTextColumn Header="سن (روز)" Binding="{Binding AgeDays}" Width="*"/>
                             <DataGridTextColumn Header="بازه سنی" Binding="{Binding BucketText}" Width="1.2*"/>
                             <DataGridTextColumn Header="مبلغ سند" Binding="{Binding TotalAmount}" Width="*"/>
