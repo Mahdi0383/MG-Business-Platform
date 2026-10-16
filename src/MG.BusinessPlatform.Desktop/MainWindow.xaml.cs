@@ -1229,9 +1229,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (OnlineOrdersInput.IsChecked == true && !HasLicensedModule("Storefront"))
+        if (OnlineOrdersInput.IsChecked == true
+            && (!HasLicensedModule("Storefront")
+                || !HasLicensedModule("Accounting")
+                || !HasLicensedModule("Inventory")))
         {
-            StatusText.Text = "برای فعال‌سازی سفارش آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            StatusText.Text = "برای فعال‌سازی سفارش آنلاین، لایسنس معتبر دارای ماژول‌های Storefront، Accounting و Inventory لازم است.";
             return;
         }
         if (OnlineReservationsInput.IsChecked == true
