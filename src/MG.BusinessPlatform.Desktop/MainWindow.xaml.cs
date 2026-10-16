@@ -2308,6 +2308,7 @@ public partial class MainWindow : Window
 
     private void RemovePurchaseLine_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ویرایش پیش‌نویس خرید", "Accounting", "Inventory")) return;
         if (PurchaseDraftGrid.SelectedItem is not PurchaseInvoiceDraftLine selected)
         {
             StatusText.Text = "ابتدا یک ردیف پیش‌نویس خرید را انتخاب کنید.";
@@ -2776,6 +2777,7 @@ public partial class MainWindow : Window
 
     private async void SaveStorefrontQr_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "ذخیره QR فروشگاه آنلاین", "Storefront")) return;
         try
         {
             var qr = await BuildStorefrontQrAsync();
