@@ -331,7 +331,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     {
         ChangeTracker.DetectChanges();
         var invalidSalesInvoice = ChangeTracker.Entries<SalesInvoiceRecord>()
-            .FirstOrDefault(entry => entry.State is EntityState.Added or EntityState.Modified
+            .FirstOrDefault(entry => (entry.State is EntityState.Added or EntityState.Modified)
                 && entry.Entity.DueDate is DateOnly dueDate
                 && dueDate < entry.Entity.IssueDate);
         if (invalidSalesInvoice is not null)
