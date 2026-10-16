@@ -23,6 +23,14 @@ $licenseToolZipPath = Join-Path $artifactRoot "MG-License-Manager-win-x64.zip"
 $mainSourceZipPath = Join-Path $artifactRoot "MG-Business-Platform-SOURCE.zip"
 $licenseSourceZipPath = Join-Path $artifactRoot "MG-License-Manager-SOURCE.zip"
 
+$stopHostScript = Join-Path $PSScriptRoot "stop-host.ps1"
+$parseTokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($stopHostScript, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -gt 0) {
+    throw "stop-host.ps1 contains PowerShell syntax errors: $($parseErrors -join '; ')"
+}
+
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET SDK 10 is required. Install the .NET 10 SDK and rerun this script."
 }
