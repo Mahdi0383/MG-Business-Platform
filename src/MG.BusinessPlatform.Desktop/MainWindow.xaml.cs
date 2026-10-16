@@ -51,6 +51,9 @@ public sealed record FinancialStatementRow(string Statement, string AccountCode,
 public sealed record CashMovementGridRow(string AccountCode, string AccountName, decimal OpeningBalance,
     decimal Inflows, decimal Outflows, decimal ClosingBalance);
 
+public sealed record InvoiceAgingGridRow(string DocumentType, string DocumentNumber, string CounterpartyName,
+    DateOnly IssueDate, int AgeDays, string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
+
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
     decimal Debit, decimal Credit, decimal RunningBalance);
 
@@ -115,6 +118,7 @@ public partial class MainWindow : Window
         FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         CashMovementToDateInput.SelectedDate = DateTime.Today;
         CashMovementFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
+        InvoiceAgingAsOfDateInput.SelectedDate = DateTime.Today;
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
@@ -237,7 +241,7 @@ public partial class MainWindow : Window
                 "محصولات" or "گردش انبار" => "Inventory",
                 "مشتریان" or "تأمین‌کنندگان" => "Core",
                 "فروش حضوری (POS)" => "POS",
-                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" => "Accounting",
+                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" or "سن مطالبات و بدهی" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات PC-POS" => "POS",
                 "تنظیمات فروشگاه" => null,
@@ -1888,6 +1892,60 @@ public partial class MainWindow : Window
             CashMovementTotalsText.Text = $"محاسبه گردش نقد و بانک ناموفق بود: {ex.Message}";
         }
     }
+
+    private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e) =>
+        await CalculateInvoiceAgingAsync();
+
+    private async Task CalculateInvoiceAgingAsync()
+    {
+        try
+        {
+            var asOfDate = DateOnly.FromDateTime(InvoiceAgingAsOfDateInput.SelectedDate ?? DateTime.Today);
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            var salesInvoices = await db.SalesInvoices.AsNoTracking()
+                .Where(invoice => invoice.CurrencyCode == settings.CurrencyCode && invoice.Status != "Voided")
+                .ToListAsync();
+            var purchaseInvoices = await db.PurchaseInvoices.AsNoTracking()
+                .Where(invoice => invoice.CurrencyCode == settings.CurrencyCode && invoice.Status != "Voided")
+                .ToListAsync();
+            var suppliers = await db.Suppliers.AsNoTracking().ToDictionaryAsync(supplier => supplier.Id);
+            var documents = new List<MG.BusinessPlatform.Domain.Finance.AgingDocument>(
+                salesInvoices.Count + purchaseInvoices.Count);
+            documents.AddRange(salesInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
+                "مطالبات مشتریان", invoice.InvoiceNumber, invoice.CustomerName, invoice.IssueDate,
+                invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+            documents.AddRange(purchaseInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
+                "بدهی تأمین‌کنندگان", invoice.InvoiceNumber,
+                suppliers.TryGetValue(invoice.SupplierId, out var supplier) ? supplier.DisplayName : "تأمین‌کننده نامشخص",
+                invoice.IssueDate, invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+
+            var report = MG.BusinessPlatform.Domain.Finance.InvoiceAgingCalculator.Calculate(documents, asOfDate, settings.CurrencyCode);
+            InvoiceAgingGrid.ItemsSource = report.Lines.Select(line => new InvoiceAgingGridRow(
+                line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate, line.AgeDays,
+                InvoiceAgeBucketText(line.Bucket), line.TotalAmount.Amount, line.PaidAmount.Amount,
+                line.OutstandingAmount.Amount)).ToArray();
+            InvoiceAgingTotalsText.Text =
+                $"مانده باز تا {asOfDate:yyyy-MM-dd} ({report.CurrencyCode}) | آینده‌تاریخ‌دار: {report.FutureDated.Amount:N2} | " +
+                $"۰ تا ۳۰ روز: {report.Current0To30Days.Amount:N2} | ۳۱ تا ۶۰ روز: {report.Days31To60.Amount:N2} | " +
+                $"۶۱ تا ۹۰ روز: {report.Days61To90.Amount:N2} | بیش از ۹۰ روز: {report.Over90Days.Amount:N2} | " +
+                $"مجموع: {report.TotalOutstanding.Amount:N2}. سن بر اساس تاریخ صدور محاسبه شده است، نه تاریخ سررسید قراردادی.";
+        }
+        catch (Exception ex)
+        {
+            InvoiceAgingTotalsText.Text = $"محاسبه سن مطالبات و بدهی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private static string InvoiceAgeBucketText(MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket bucket) => bucket switch
+    {
+        MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket.FutureDated => "تاریخ آینده",
+        MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket.Current0To30Days => "۰ تا ۳۰ روز",
+        MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket.Days31To60 => "۳۱ تا ۶۰ روز",
+        MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket.Days61To90 => "۶۱ تا ۹۰ روز",
+        MG.BusinessPlatform.Domain.Finance.InvoiceAgeBucket.Over90Days => "بیش از ۹۰ روز",
+        _ => "نامشخص"
+    };
 
     private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e) =>
         await RefreshTrialBalanceAsync();
