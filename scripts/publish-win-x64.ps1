@@ -129,6 +129,211 @@ function Copy-SourceTree {
             if ($excludedDirectoryNames -contains $entry.Name) { continue }
             Copy-SourceTree -SourcePath $entry.FullName -DestinationPath (Join-Path $DestinationPath $entry.Name)
         } else {
+            # Source archives must never include signing secrets or local credentials,
+            # even if a developer accidentally placed an ignored file inside a source tree.
+            if ($entry.Name -match '^(?i:license-private.*|secrets\.json|\.env(?:\..*)?)
+}
+
+function New-SourceArchive {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    $stagingRoot = Join-Path $env:TEMP ("mg-source-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+    try {
+        foreach ($relativePath in $RelativePaths) {
+            $sourcePath = Join-Path $repoRoot $relativePath
+            if (-not (Test-Path $sourcePath)) { continue }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            if (Test-Path $sourcePath -PathType Container) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-SourceTree -SourcePath $sourcePath -DestinationPath $stagedPath
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-Item $sourcePath $stagedPath -Force
+            }
+        }
+
+        if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $stagingRoot,
+            $DestinationPath,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false)
+    } finally {
+        if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
+    }
+}
+
+Write-Host "== Package source archives ==" -ForegroundColor Cyan
+$mainSourceItems = @(
+    "src", "tests", "docs", "scripts", "installer", "LICENSES", ".github", ".gitignore", ".editorconfig",
+    "MG.BusinessPlatform.sln", "MG-License-Manager.sln", "global.json",
+    "README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+$licenseSourceItems = @(
+    "src/MG.BusinessPlatform.Licensing",
+    "src/MG.BusinessPlatform.LicenseTool",
+    "src/MG.BusinessPlatform.LicenseManager",
+    "MG-License-Manager.sln",
+    "global.json",
+    "docs/LICENSE_MANAGER.md",
+    "installer/MG-License-Manager.iss",
+    "LICENSES",
+    "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+
+New-SourceArchive -RelativePaths $mainSourceItems -DestinationPath $mainSourceZipPath
+New-SourceArchive -RelativePaths $licenseSourceItems -DestinationPath $licenseSourceZipPath
+
+$mainSourceSha = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${mainSourceZipPath}.sha256" -Value "$mainSourceSha  $(Split-Path $mainSourceZipPath -Leaf)" -Encoding ASCII
+$licenseSourceSha = (Get-FileHash $licenseSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${licenseSourceZipPath}.sha256" -Value "$licenseSourceSha  $(Split-Path $licenseSourceZipPath -Leaf)" -Encoding ASCII
+
+Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Green
+Write-Host "Package: $zipPath"
+Write-Host "SHA-256: $sha"
+Write-Host "License manager package: $licenseToolZipPath"
+Write-Host "License manager SHA-256: $licenseToolSha"
+Write-Host "Main source archive: $mainSourceZipPath (SHA-256: $mainSourceSha)"
+Write-Host "License manager source archive: $licenseSourceZipPath (SHA-256: $licenseSourceSha)"
+
+$isccCandidates = @(
+    @(
+        (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
+        (Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Inno Setup 6/ISCC.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+)
+if ($isccCandidates.Count -gt 0) {
+    New-Item -ItemType Directory -Path (Join-Path $artifactRoot "installer") -Force | Out-Null
+    $iscc = $isccCandidates[0]
+    $installerScript = Join-Path $repoRoot "installer/MG-Business-Platform.iss"
+    & $iscc $installerScript
+    if ($LASTEXITCODE -ne 0) { throw "Main application installer packaging failed with exit code $LASTEXITCODE." }
+    $licenseInstallerScript = Join-Path $repoRoot "installer/MG-License-Manager.iss"
+    & $iscc $licenseInstallerScript
+    if ($LASTEXITCODE -ne 0) { throw "License manager installer packaging failed with exit code $LASTEXITCODE." }
+
+    $mainInstallerPath = Join-Path $artifactRoot "installer/MG-Business-Platform-Setup-win-x64.exe"
+    $licenseInstallerPath = Join-Path $artifactRoot "installer/MG-License-Manager-Setup-win-x64.exe"
+    foreach ($installerPath in @($mainInstallerPath, $licenseInstallerPath)) {
+        if (-not (Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
+        $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+        Set-Content -Path "$installerPath.sha256" -Value "$installerHash  $(Split-Path $installerPath -Leaf)" -Encoding ASCII
+        Write-Host "Installer SHA-256 ($([System.IO.Path]::GetFileName($installerPath))): $installerHash"
+    }
+    Write-Host "Main application and separate license manager installers completed." -ForegroundColor Green
+} else {
+    Write-Warning "Inno Setup is not installed. ZIP package is ready; installer EXE was not produced."
+}
+
+                -or $entry.Extension -match '^\.(?i:pfx|p12|snk|key)
+}
+
+function New-SourceArchive {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    $stagingRoot = Join-Path $env:TEMP ("mg-source-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+    try {
+        foreach ($relativePath in $RelativePaths) {
+            $sourcePath = Join-Path $repoRoot $relativePath
+            if (-not (Test-Path $sourcePath)) { continue }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            if (Test-Path $sourcePath -PathType Container) {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-SourceTree -SourcePath $sourcePath -DestinationPath $stagedPath
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+                Copy-Item $sourcePath $stagedPath -Force
+            }
+        }
+
+        if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $stagingRoot,
+            $DestinationPath,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false)
+    } finally {
+        if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
+    }
+}
+
+Write-Host "== Package source archives ==" -ForegroundColor Cyan
+$mainSourceItems = @(
+    "src", "tests", "docs", "scripts", "installer", "LICENSES", ".github", ".gitignore", ".editorconfig",
+    "MG.BusinessPlatform.sln", "MG-License-Manager.sln", "global.json",
+    "README.md", "CONTRIBUTING.md", "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+$licenseSourceItems = @(
+    "src/MG.BusinessPlatform.Licensing",
+    "src/MG.BusinessPlatform.LicenseTool",
+    "src/MG.BusinessPlatform.LicenseManager",
+    "MG-License-Manager.sln",
+    "global.json",
+    "docs/LICENSE_MANAGER.md",
+    "installer/MG-License-Manager.iss",
+    "LICENSES",
+    "THIRD_PARTY_NOTICES.md"
+) | Where-Object { Test-Path (Join-Path $repoRoot $_) }
+
+New-SourceArchive -RelativePaths $mainSourceItems -DestinationPath $mainSourceZipPath
+New-SourceArchive -RelativePaths $licenseSourceItems -DestinationPath $licenseSourceZipPath
+
+$mainSourceSha = (Get-FileHash $mainSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${mainSourceZipPath}.sha256" -Value "$mainSourceSha  $(Split-Path $mainSourceZipPath -Leaf)" -Encoding ASCII
+$licenseSourceSha = (Get-FileHash $licenseSourceZipPath -Algorithm SHA256).Hash
+Set-Content -Path "${licenseSourceZipPath}.sha256" -Value "$licenseSourceSha  $(Split-Path $licenseSourceZipPath -Leaf)" -Encoding ASCII
+
+Write-Host "Build, tests and Windows publishing completed." -ForegroundColor Green
+Write-Host "Package: $zipPath"
+Write-Host "SHA-256: $sha"
+Write-Host "License manager package: $licenseToolZipPath"
+Write-Host "License manager SHA-256: $licenseToolSha"
+Write-Host "Main source archive: $mainSourceZipPath (SHA-256: $mainSourceSha)"
+Write-Host "License manager source archive: $licenseSourceZipPath (SHA-256: $licenseSourceSha)"
+
+$isccCandidates = @(
+    @(
+        (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe"),
+        (Join-Path ([Environment]::GetEnvironmentVariable("ProgramFiles(x86)")) "Inno Setup 6/ISCC.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+)
+if ($isccCandidates.Count -gt 0) {
+    New-Item -ItemType Directory -Path (Join-Path $artifactRoot "installer") -Force | Out-Null
+    $iscc = $isccCandidates[0]
+    $installerScript = Join-Path $repoRoot "installer/MG-Business-Platform.iss"
+    & $iscc $installerScript
+    if ($LASTEXITCODE -ne 0) { throw "Main application installer packaging failed with exit code $LASTEXITCODE." }
+    $licenseInstallerScript = Join-Path $repoRoot "installer/MG-License-Manager.iss"
+    & $iscc $licenseInstallerScript
+    if ($LASTEXITCODE -ne 0) { throw "License manager installer packaging failed with exit code $LASTEXITCODE." }
+
+    $mainInstallerPath = Join-Path $artifactRoot "installer/MG-Business-Platform-Setup-win-x64.exe"
+    $licenseInstallerPath = Join-Path $artifactRoot "installer/MG-License-Manager-Setup-win-x64.exe"
+    foreach ($installerPath in @($mainInstallerPath, $licenseInstallerPath)) {
+        if (-not (Test-Path $installerPath)) { throw "Expected installer was not created: $installerPath" }
+        $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash
+        Set-Content -Path "$installerPath.sha256" -Value "$installerHash  $(Split-Path $installerPath -Leaf)" -Encoding ASCII
+        Write-Host "Installer SHA-256 ($([System.IO.Path]::GetFileName($installerPath))): $installerHash"
+    }
+    Write-Host "Main application and separate license manager installers completed." -ForegroundColor Green
+} else {
+    Write-Warning "Inno Setup is not installed. ZIP package is ready; installer EXE was not produced."
+}
+) { continue }
+            if ($entry.Extension -ieq ".pem" -and $entry.Name -cne "TrustedLicensePublicKey.pem") { continue }
             Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $DestinationPath $entry.Name) -Force
         }
     }
