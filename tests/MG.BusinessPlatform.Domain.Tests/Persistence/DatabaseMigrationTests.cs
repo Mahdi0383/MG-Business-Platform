@@ -22,10 +22,37 @@ public sealed class DatabaseMigrationTests
             StoreName = "Test Store",
             CurrencyCode = "IRR",
             OnlineOrderingEnabled = false,
+            OnlineReservationsEnabled = true,
             PublicPublicationEnabled = false,
             PublicHostname = string.Empty,
             UpdatedAt = DateTimeOffset.UtcNow
         });
+        var reservationResourceId = Guid.NewGuid();
+        db.ReservationResources.Add(new ReservationResourceRecord
+        {
+            Id = reservationResourceId,
+            BranchId = Guid.NewGuid(),
+            Name = "Test Station",
+            ResourceType = "GameStation",
+            Capacity = 2,
+            IsAvailable = true
+        });
+        db.CustomerReservations.Add(new CustomerReservationRecord
+        {
+            Id = Guid.NewGuid(),
+            ResourceId = reservationResourceId,
+            ReservationNumber = "RSV-MIGRATION-TEST",
+            IdempotencyKey = "migration-reservation-key-0001",
+            GuestName = "Reservation Guest",
+            GuestPhone = "09120000000",
+            GuestCount = 2,
+            StartsAtUtc = DateTimeOffset.UtcNow.AddHours(2),
+            EndsAtUtc = DateTimeOffset.UtcNow.AddHours(3),
+            Status = "Requested",
+            Notes = string.Empty,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        });
+
         db.StoreProducts.Add(new StoreProduct
         {
             Id = Guid.NewGuid(),
@@ -59,6 +86,9 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         Assert.Equal("Test Store", (await db.StoreSettings.SingleAsync()).StoreName);
+        Assert.True((await db.StoreSettings.SingleAsync()).OnlineReservationsEnabled);
+        Assert.Equal("Test Station", (await db.ReservationResources.SingleAsync()).Name);
+        Assert.Equal("Reservation Guest", (await db.CustomerReservations.SingleAsync()).GuestName);
         var product = await db.StoreProducts.SingleAsync();
         Assert.Equal(123.45m, product.UnitPrice);
         Assert.Equal(80m, product.UnitCost);
@@ -70,6 +100,8 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261013010000_AddCustomerSupplierTables", appliedMigrations);
         Assert.Contains("20261013020000_AddStockMovementLedger", appliedMigrations);
         Assert.Contains("20261013030000_AddAccountingLedger", appliedMigrations);
+        Assert.Contains("20261013040000_AddGameSessions", appliedMigrations);
+        Assert.Contains("20261016000000_AddOnlineReservations", appliedMigrations);
     }
 
     [Fact]

@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using MG.BusinessPlatform.Licensing;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Storefront;
@@ -233,6 +237,162 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task PublicReservation_RejectsOverlapsAndRetriesIdempotently()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var startsAt = DateTimeOffset.UtcNow.AddHours(2);
+        var endsAt = startsAt.AddHours(1);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = branchId, Name = "Station 1",
+                ResourceType = "GameStation", Capacity = 2, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var resourcesResponse = await client.GetAsync("/api/storefront/reservation-resources");
+        resourcesResponse.EnsureSuccessStatusCode();
+        var resources = await resourcesResponse.Content.ReadFromJsonAsync<List<ReservationResourceResponse>>();
+        Assert.NotNull(resources);
+        Assert.Contains(resources, resource => resource.Id == resourceId);
+
+        var payload = new
+        {
+            resourceId,
+            guestName = "Reservation Guest",
+            guestPhone = "09120000000",
+            guestCount = 2,
+            startsAt,
+            endsAt,
+            notes = "Test"
+        };
+        const string key = "integration-reservation-key-0001";
+
+        async Task<HttpResponseMessage> SubmitAsync(string idempotencyKey)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
+            return await client.SendAsync(request);
+        }
+
+        using var first = await SubmitAsync(key);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<ReservationResponse>();
+        Assert.NotNull(firstBody);
+        Assert.Equal("Requested", firstBody.Status);
+
+        using var retry = await SubmitAsync(key);
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var retryBody = await retry.Content.ReadFromJsonAsync<ReservationResponse>();
+        Assert.NotNull(retryBody);
+        Assert.Equal(firstBody.Id, retryBody.Id);
+
+        using var mismatchedRetry = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+        {
+            Content = JsonContent.Create(new
+            {
+                resourceId,
+                guestName = "Different Guest",
+                guestPhone = "09120000000",
+                guestCount = 2,
+                startsAt,
+                endsAt,
+                notes = "Test"
+            })
+        };
+        mismatchedRetry.Headers.Add("Idempotency-Key", key);
+        using var mismatchedResponse = await client.SendAsync(mismatchedRetry);
+        Assert.Equal(HttpStatusCode.Conflict, mismatchedResponse.StatusCode);
+
+        using var overlap = await SubmitAsync("integration-reservation-key-0002");
+        Assert.Equal(HttpStatusCode.Conflict, overlap.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Equal(1, await verificationDb.CustomerReservations.CountAsync());
+    }
+
+    [Fact]
+    public async Task ReservationEndpoint_RequiresReservationsLicenseEntitlement()
+    {
+        await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync("/api/storefront/reservation-resources");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PublicReservation_RequiresFeatureEnabledAndValidTimeWindow()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+
+        using var disabledResponse = await client.PostAsJsonAsync("/api/storefront/reservations", new
+        {
+            resourceId,
+            guestName = "Guest",
+            guestPhone = "09120000000",
+            guestCount = 1,
+            startsAt = DateTimeOffset.UtcNow.AddHours(2),
+            endsAt = DateTimeOffset.UtcNow.AddHours(3),
+            notes = ""
+        });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, disabledResponse.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = Guid.NewGuid(), Name = "Station 2",
+                ResourceType = "GameStation", Capacity = 1, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var invalidRequest = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+        {
+            Content = JsonContent.Create(new
+            {
+                resourceId,
+                guestName = "Guest",
+                guestPhone = "09120000000",
+                guestCount = 1,
+                startsAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                endsAt = DateTimeOffset.UtcNow.AddMinutes(31),
+                notes = ""
+            })
+        };
+        invalidRequest.Headers.Add("Idempotency-Key", "integration-reservation-invalid-0001");
+        using var invalidResponse = await client.SendAsync(invalidRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task Storefront_RejectsUnexpectedHostHeader()
     {
         await using var factory = new StorefrontTestFactory();
@@ -266,13 +426,47 @@ public sealed class StorefrontOrderIntegrationTests
 
     private sealed class StorefrontTestFactory : WebApplicationFactory<Program>
     {
-        private readonly string? _previousDatabasePath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH");
-        private readonly string _testDatabasePath = Path.Combine(Path.GetTempPath(), $"mg-storefront-{Guid.NewGuid():N}.db");
+        private readonly string[] _modules;
 
-        public StorefrontTestFactory()
+        public StorefrontTestFactory(string[]? modules = null)
         {
+            _modules = modules ?? LicensePayload.SupportedModules;
             Environment.SetEnvironmentVariable("MG_BUSINESS_DB_PATH", _testDatabasePath);
         }
+
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IStorefrontLicenseGuard>();
+                services.AddSingleton<IStorefrontLicenseGuard>(_ => new TestStorefrontLicenseGuard(_modules));
+            });
+        }
+
+        private sealed class TestStorefrontLicenseGuard(string[] modules) : IStorefrontLicenseGuard
+        {
+            private readonly LicenseValidationResult _license = new(
+
+                LicenseValidationStatus.Valid,
+                "Integration-test license",
+                new LicensePayload
+                {
+                    LicenseId = Guid.NewGuid(),
+                    CustomerName = "Integration Test",
+                    SoftwareSerial = "MGS-00000000000000000000000000000000",
+                    HardwareSerial = "MGH-00000000000000000000000000000000",
+                    IssuedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(1),
+                    Modules = modules,
+                    MaxBranches = 100,
+                    MaxUsers = 100
+                });
+
+            public LicenseValidationResult Validate() => _license;
+        }
+
+        private readonly string? _previousDatabasePath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH");
+        private readonly string _testDatabasePath = Path.Combine(Path.GetTempPath(), $"mg-storefront-{Guid.NewGuid():N}.db");
 
         public override async ValueTask DisposeAsync()
         {
@@ -288,6 +482,8 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     private sealed record OrderResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
+    private sealed record ReservationResponse(Guid Id, string ReservationNumber, Guid ResourceId, DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
+    private sealed record ReservationResourceResponse(Guid Id, string Name, string ResourceType, int Capacity);
 }
 
 [CollectionDefinition("StorefrontIntegration", DisableParallelization = true)]

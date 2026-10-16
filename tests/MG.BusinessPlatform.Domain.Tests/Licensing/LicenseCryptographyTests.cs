@@ -6,6 +6,17 @@ namespace MG.BusinessPlatform.Domain.Tests.Licensing;
 public sealed class LicenseCryptographyTests
 {
     [Fact]
+    public void RuntimeValidator_FailsClosedWhenInstalledLicenseIsMissing()
+    {
+        var missingDirectory = Path.Combine(Path.GetTempPath(), $"mg-missing-license-{Guid.NewGuid():N}");
+
+        var result = LicenseRuntimeValidator.ValidateDirectory(missingDirectory, DateTimeOffset.UtcNow);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(LicenseValidationStatus.MissingLicense, result.Status);
+    }
+
+    [Fact]
     public void GetTrustedPublicKeyPem_LoadsEmbeddedProductionTrustAnchor()
     {
         var publicKey = LicenseCryptography.GetTrustedPublicKeyPem();

@@ -126,6 +126,7 @@ public sealed class StoreSettings
     public string StoreName { get; set; } = "فروشگاه شما";
     public string CurrencyCode { get; set; } = "IRR";
     public bool OnlineOrderingEnabled { get; set; }
+    public bool OnlineReservationsEnabled { get; set; }
     public bool PublicPublicationEnabled { get; set; }
     public string PublicHostname { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; }
@@ -159,6 +160,32 @@ public sealed class GameSessionPlayerRecord
     public decimal TimeCharge { get; set; }
     public decimal AdditionalAmount { get; set; }
     public string CurrencyCode { get; set; } = "IRR";
+}
+
+public sealed class ReservationResourceRecord
+{
+    public Guid Id { get; set; }
+    public Guid BranchId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string ResourceType { get; set; } = "GameStation";
+    public int Capacity { get; set; } = 1;
+    public bool IsAvailable { get; set; } = true;
+}
+
+public sealed class CustomerReservationRecord
+{
+    public Guid Id { get; set; }
+    public Guid ResourceId { get; set; }
+    public string ReservationNumber { get; set; } = string.Empty;
+    public string IdempotencyKey { get; set; } = string.Empty;
+    public string GuestName { get; set; } = string.Empty;
+    public string GuestPhone { get; set; } = string.Empty;
+    public int GuestCount { get; set; }
+    public DateTimeOffset StartsAtUtc { get; set; }
+    public DateTimeOffset EndsAtUtc { get; set; }
+    public string Status { get; set; } = "Requested";
+    public string Notes { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
 public sealed class CustomerOrder
@@ -221,6 +248,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
     public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
     public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
+    public DbSet<ReservationResourceRecord> ReservationResources => Set<ReservationResourceRecord>();
+    public DbSet<CustomerReservationRecord> CustomerReservations => Set<CustomerReservationRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -340,6 +369,40 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
+        });
+
+        modelBuilder.Entity<ReservationResourceRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ResourceType).HasMaxLength(30).IsRequired();
+            entity.HasIndex(x => new { x.BranchId, x.Name }).IsUnique();
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_ReservationResource_Type", "ResourceType IN ('Table','Room','GameStation','ServiceSlot')");
+                t.HasCheckConstraint("CK_ReservationResource_Capacity", "Capacity > 0");
+            });
+        });
+
+        modelBuilder.Entity<CustomerReservationRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ReservationNumber).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.GuestName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.GuestPhone).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.Notes).HasMaxLength(1000).IsRequired();
+            entity.HasIndex(x => x.ReservationNumber).IsUnique();
+            entity.HasIndex(x => x.IdempotencyKey).IsUnique();
+            entity.HasIndex(x => new { x.ResourceId, x.StartsAtUtc, x.EndsAtUtc });
+            entity.HasOne<ReservationResourceRecord>().WithMany().HasForeignKey(x => x.ResourceId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_CustomerReservation_GuestCount", "GuestCount > 0");
+                t.HasCheckConstraint("CK_CustomerReservation_Interval", "EndsAtUtc > StartsAtUtc");
+                t.HasCheckConstraint("CK_CustomerReservation_Status", "Status IN ('Requested','Confirmed','CheckedIn','Completed','Cancelled','NoShow')");
+            });
         });
 
         modelBuilder.Entity<CustomerOrder>(entity =>
