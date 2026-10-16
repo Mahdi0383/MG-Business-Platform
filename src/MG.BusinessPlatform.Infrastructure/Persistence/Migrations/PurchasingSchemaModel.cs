@@ -65,6 +65,7 @@ internal static class PurchasingSchemaModel
             b.HasKey("Id");
             b.HasIndex("PaymentNumber").IsUnique();
             b.HasIndex("PurchaseInvoiceId");
+            b.HasIndex("JournalEntryId");
             b.ToTable("SupplierPayments", t =>
             {
                 t.HasCheckConstraint("CK_SupplierPayment_Amount", "CAST(Amount AS NUMERIC) > 0");
