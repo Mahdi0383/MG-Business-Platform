@@ -130,6 +130,18 @@ app.Use(async (context, next) =>
         return;
     }
 
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.StartsWithSegments("/api/storefront/orders")
+        && (!validation.Payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+            || !validation.Payload.Modules.Contains("Inventory", StringComparer.Ordinal)))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(
+            new { error = "Online ordering requires both Accounting and Inventory entitlements so orders can be fulfilled consistently." },
+            context.RequestAborted);
+        return;
+    }
+
     if ((context.Request.Path.StartsWithSegments("/api/storefront/reservations")
             || context.Request.Path.StartsWithSegments("/api/storefront/reservation-resources"))
         && !validation.Payload.Modules.Contains("Reservations", StringComparer.Ordinal))
@@ -180,18 +192,25 @@ app.MapGet("/api/storefront", async (BusinessDbContext db, IStorefrontLicenseGua
 {
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
     var license = licenseGuard.Validate();
+    var canOrder = license.Payload?.Modules.Contains("Accounting", StringComparer.Ordinal) == true
+        && license.Payload.Modules.Contains("Inventory", StringComparer.Ordinal);
     var reservationsEnabled = settings.OnlineReservationsEnabled
         && license.Payload?.Modules.Contains("Reservations", StringComparer.Ordinal) == true;
     return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode,
-        settings.OnlineOrderingEnabled, reservationsEnabled));
+        settings.OnlineOrderingEnabled && canOrder, reservationsEnabled));
 }).RequireRateLimiting("public");
 
-app.MapGet("/api/storefront/products", async (BusinessDbContext db, CancellationToken ct) =>
+app.MapGet("/api/storefront/products", async (
+    BusinessDbContext db, IStorefrontLicenseGuard licenseGuard, CancellationToken ct) =>
 {
-    // Do not expose the shop's catalogue or pricing while online ordering is disabled.
+    // Do not expose the shop's catalogue or pricing while online ordering is disabled or
+    // its license lacks the accounting/inventory modules required to fulfill an order.
     // Returning an empty array preserves the customer page contract for reservation-only stores.
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
-    if (!settings.OnlineOrderingEnabled)
+    var license = licenseGuard.Validate();
+    var canOrder = license.Payload?.Modules.Contains("Accounting", StringComparer.Ordinal) == true
+        && license.Payload.Modules.Contains("Inventory", StringComparer.Ordinal) == true;
+    if (!settings.OnlineOrderingEnabled || !canOrder)
         return Results.Ok(Array.Empty<ProductResponse>());
 
     var products = await db.StoreProducts.AsNoTracking()
