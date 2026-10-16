@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -19,7 +20,10 @@ public sealed class RouterPortMappingService
     private const string MappingDescription = "MG Business Platform";
     private const int DiscoveryPort = 1900;
     private static readonly IPAddress SsdpMulticastAddress = IPAddress.Parse("239.255.255.250");
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(5)
+    };
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private readonly string _statePath;
 
@@ -158,6 +162,9 @@ public sealed class RouterPortMappingService
             return new(false, $"روتر در دسترس نیست؛ انتقال‌های ثبت‌شده حذف نشدند: {ex.Message}");
         }
 
+        if (!string.Equals(router.ServiceType, state.ServiceType, StringComparison.Ordinal))
+            return new(false, "سرویس UPnP روتر از زمان ایجاد انتقال‌ها تغییر کرده است؛ برای ایمنی انتقال‌ها حذف نشدند.");
+
         foreach (var portState in state.Ports.Where(port => port.OwnedByApplication))
         {
             var existing = await GetSpecificMappingAsync(router, portState.Port, cancellationToken);
@@ -187,7 +194,9 @@ public sealed class RouterPortMappingService
             var properties = adapter.GetIPProperties();
             var gateways = properties.GatewayAddresses
                 .Select(item => item.Address)
-                .Where(address => address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                .Where(address => address.AddressFamily == AddressFamily.InterNetwork
+                    && !IPAddress.IsLoopback(address)
+                    && IsPrivateNetworkAddress(address))
                 .ToArray();
             var local = properties.UnicastAddresses
                 .Select(item => item.Address)
@@ -205,6 +214,15 @@ public sealed class RouterPortMappingService
     {
         var bytes = address.GetAddressBytes();
         return bytes[0] == 169 && bytes[1] == 254;
+    }
+
+    private static bool IsPrivateNetworkAddress(IPAddress address)
+    {
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 10
+            || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
+            || (bytes[0] == 192 && bytes[1] == 168)
+            || (bytes[0] == 100 && bytes[1] is >= 64 and <= 127);
     }
 
     private static async Task<RouterContext> DiscoverRouterAsync(NetworkInfo network, CancellationToken cancellationToken)
@@ -389,6 +407,7 @@ public sealed class RouterPortMappingService
 
     private sealed class RouterMappingState
     {
+        public RouterMappingState() { }
         public string GatewayAddress { get; set; } = string.Empty;
         public string LocalAddress { get; set; } = string.Empty;
         public string ServiceType { get; set; } = string.Empty;
@@ -398,6 +417,7 @@ public sealed class RouterPortMappingService
 
     private sealed class RouterPortState
     {
+        public RouterPortState() { }
         public int Port { get; set; }
         public bool OwnedByApplication { get; set; }
     }
