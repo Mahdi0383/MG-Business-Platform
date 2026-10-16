@@ -196,6 +196,87 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
         }
     }
 
+    public async Task ExportAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        var destination = Path.GetFullPath(destinationPath);
+        if (string.Equals(destination, _profileFilePath, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Export destination must differ from the active profile file.", nameof(destinationPath));
+
+        var profiles = await LoadAsync(cancellationToken);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var temporaryPath = destination + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(stream, profiles, JsonOptions, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+            File.Move(temporaryPath, destination, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the local profile list after validating the complete import file. Profile files
+    /// contain no credentials; only opaque references to separately managed secrets are allowed.
+    /// </summary>
+    public async Task ImportAsync(string sourcePath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        var source = Path.GetFullPath(sourcePath);
+        if (string.Equals(source, _profileFilePath, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Import source must differ from the active profile file.", nameof(sourcePath));
+        if (!File.Exists(source))
+            throw new FileNotFoundException("PC-POS profile file was not found.", source);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            List<PaymentTerminalProfile> profiles;
+            await using (var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read))
+                profiles = await JsonSerializer.DeserializeAsync<List<PaymentTerminalProfile>>(stream, JsonOptions, cancellationToken)
+                    ?? throw new InvalidDataException("The imported PC-POS profile file is empty or invalid.");
+
+            if (profiles.Count > 200)
+                throw new InvalidDataException("A maximum of 200 PC-POS profiles can be imported.");
+            foreach (var profile in profiles)
+                Validate(profile);
+            if (profiles.Select(profile => profile.Id).Distinct().Count() != profiles.Count)
+                throw new InvalidDataException("The imported profile file contains duplicate identifiers.");
+            if (profiles.Select(profile => profile.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != profiles.Count)
+                throw new InvalidDataException("The imported profile file contains duplicate profile names.");
+            if (profiles.Count(profile => profile.IsDefault) > 1)
+                throw new InvalidDataException("Only one profile can be marked as default.");
+
+            var temporaryPath = _profileFilePath + ".tmp-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_profileFilePath)!);
+                await using (var destination = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+                {
+                    await JsonSerializer.SerializeAsync(destination, profiles, JsonOptions, cancellationToken);
+                    await destination.FlushAsync(cancellationToken);
+                }
+                File.Move(temporaryPath, _profileFilePath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<PaymentConnectionTestResult> TestConnectionAsync(
         PaymentTerminalProfile profile, CancellationToken cancellationToken = default)
     {
