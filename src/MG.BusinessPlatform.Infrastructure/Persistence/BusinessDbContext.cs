@@ -5,7 +5,7 @@ namespace MG.BusinessPlatform.Infrastructure.Persistence;
 public sealed class AuditEventRecord
 {
     public Guid Id { get; set; }
-    public DateTimeOffset OccurredAtUtc { get; set; }
+    public long OccurredAtUnixMilliseconds { get; set; }
     public string Actor { get; set; } = string.Empty;
     public string MachineName { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
@@ -343,7 +343,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 return new AuditEventRecord
                 {
                     Id = Guid.NewGuid(),
-                    OccurredAtUtc = DateTimeOffset.UtcNow,
+                    OccurredAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     Actor = $"{Environment.UserDomainName}\\{Environment.UserName}",
                     MachineName = Environment.MachineName,
                     Action = entry.State.ToString(),
@@ -369,8 +369,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.EntityType).HasMaxLength(200).IsRequired();
             entity.Property(x => x.EntityId).HasMaxLength(300).IsRequired();
             entity.Property(x => x.ChangedFields).HasMaxLength(2000).IsRequired();
-            entity.HasIndex(x => x.OccurredAtUtc);
-            entity.HasIndex(x => new { x.EntityType, x.EntityId, x.OccurredAtUtc });
+            entity.HasIndex(x => x.OccurredAtUnixMilliseconds);
+            entity.HasIndex(x => new { x.EntityType, x.EntityId, x.OccurredAtUnixMilliseconds });
         });
 
         modelBuilder.Entity<StoreProduct>(entity =>
