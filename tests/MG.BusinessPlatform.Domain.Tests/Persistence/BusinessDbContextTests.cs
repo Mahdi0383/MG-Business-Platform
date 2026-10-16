@@ -54,16 +54,19 @@ public sealed class BusinessDbContextTests
         product.Name = "Changed name";
         product.UnitPrice = 15m;
         await db.SaveChangesAsync();
+        db.StoreProducts.Remove(product);
+        await db.SaveChangesAsync();
 
         var events = await db.AuditEvents.AsNoTracking()
             .Where(x => x.EntityType == nameof(StoreProduct))
             .OrderBy(x => x.OccurredAtUnixMilliseconds)
             .ToListAsync();
-        Assert.Equal(2, events.Count);
+        Assert.Equal(3, events.Count);
         Assert.Contains(events, x => x.Action == "Added" && x.ChangedFields.Contains(nameof(StoreProduct.Name), StringComparison.Ordinal));
         Assert.Contains(events, x => x.Action == "Modified"
             && x.ChangedFields.Contains(nameof(StoreProduct.Name), StringComparison.Ordinal)
             && x.ChangedFields.Contains(nameof(StoreProduct.UnitPrice), StringComparison.Ordinal));
+        Assert.Contains(events, x => x.Action == "Deleted" && x.EntityId == product.Id.ToString());
         Assert.All(events, auditEvent =>
         {
             Assert.False(auditEvent.ChangedFields.Contains("Original name", StringComparison.Ordinal));
