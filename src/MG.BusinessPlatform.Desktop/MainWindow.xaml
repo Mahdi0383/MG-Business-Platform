@@ -367,6 +367,7 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="گردش نقد و بانک"><StackPanel Margin="12"><Button Content="محاسبه گردش نقد و بانک" Click="CalculateCashMovement_Click"/><TextBlock x:Name="CashMovementTotalsText" Text="گردش نقد و بانک هنوز محاسبه نشده است."/></StackPanel></TabItem>
             <TabItem Header="سفارش‌های آنلاین">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
