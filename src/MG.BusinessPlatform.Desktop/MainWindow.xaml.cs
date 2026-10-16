@@ -364,10 +364,12 @@ public partial class MainWindow : Window
             var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
+            PurchaseProductInput.ItemsSource = products;
             CustomersGrid.ItemsSource = await db.Customers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
-            SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
-                .OrderBy(x => x.DisplayName).ToListAsync();
+            var suppliers = await db.Suppliers.AsNoTracking().OrderBy(x => x.DisplayName).ToListAsync();
+            SuppliersGrid.ItemsSource = suppliers;
+            PurchaseSupplierInput.ItemsSource = suppliers.Where(x => x.IsActive).ToList();
             ReservationResourcesGrid.ItemsSource = await db.ReservationResources.AsNoTracking()
                 .Where(x => x.BranchId == _sessionBranchId)
                 .OrderBy(x => x.Name).ToListAsync();
@@ -410,6 +412,19 @@ public partial class MainWindow : Window
                 .ToList();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
+
+            var purchaseRows = await (
+                from purchase in db.PurchaseInvoices.AsNoTracking()
+                join supplier in db.Suppliers.AsNoTracking() on purchase.SupplierId equals supplier.Id
+                select new PurchaseInvoiceGridRow(purchase.Id, purchase.InvoiceNumber, supplier.DisplayName,
+                    purchase.IssueDate, purchase.TotalAmount, purchase.PaidAmount,
+                    purchase.TotalAmount - purchase.PaidAmount, purchase.CurrencyCode, purchase.Status))
+                .ToListAsync();
+            PurchaseInvoicesGrid.ItemsSource = purchaseRows
+                .OrderByDescending(row => row.IssueDate).ThenByDescending(row => row.InvoiceNumber)
+                .Take(500).ToList();
+            UpdatePurchaseDraftTotal();
+            UpdateSupplierPaymentSelection();
 
             var orderRecords = await db.CustomerOrders.AsNoTracking().ToListAsync();
             var onlineOrders = orderRecords
