@@ -11,6 +11,21 @@ The standalone Windows license manager issues offline, RSA-PSS signed licenses. 
 - The private signing key is not part of the repository, installer, portable ZIP, or source archive.
 - The CLI `keygen` command creates a new key pair for a future trust-anchor rotation only. A new pair is not accepted by the current release until the public key is intentionally changed in source and the application is rebuilt and redistributed.
 
+## Publisher-key bootstrap
+
+A private signing key is intentionally not included in source or release packages. If you do not already possess the private key corresponding to the embedded public key in your build, that build cannot issue customer licenses. Do not try to recover a private key from the public key.
+
+For a first controlled publisher setup, run this on the trusted Windows computer that will own the signing key:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\scripts\bootstrap-publisher-key.ps1
+```
+
+The script generates a new key pair outside the repository, restricts the private-key file ACL to the current Windows account and SYSTEM, embeds the public key, and runs the full build/test/package pipeline. It restores the previous embedded public key if packaging fails. Keep the private key offline and separately backed up. Never upload it to GitHub, place it in a source archive, or distribute it to customers. The script is included in the full MG Business Platform source archive; it is not included in the standalone License Manager source archive, because it requires the full solution and release pipeline.
+
+**Important:** this changes the trust anchor. Existing installations built with the old public key will not accept licenses signed by the new private key, and licenses signed by the old key will not validate in the rebuilt app. Before using the new build for customers, commit the new public PEM to the source repository and distribute only the matching newly built application and license manager. Treat later key changes as a planned customer migration, not a routine rebuild.
+
 ## 1. Read the installation serials
 
 In the main app, open **Settings** and copy both the software serial and hardware serial. The hardware serial is derived from the Windows MachineGuid; reinstalling Windows or changing the machine identity may require reactivation.
