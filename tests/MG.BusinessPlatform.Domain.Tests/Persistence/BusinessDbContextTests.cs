@@ -57,7 +57,7 @@ public sealed class BusinessDbContextTests
 
         var events = await db.AuditEvents.AsNoTracking()
             .Where(x => x.EntityType == nameof(StoreProduct))
-            .OrderBy(x => x.OccurredAtUtc)
+            .OrderBy(x => x.OccurredAtUnixMilliseconds)
             .ToListAsync();
         Assert.Equal(2, events.Count);
         Assert.Contains(events, x => x.Action == "Added" && x.ChangedFields.Contains(nameof(StoreProduct.Name), StringComparison.Ordinal));
