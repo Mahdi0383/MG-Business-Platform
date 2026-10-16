@@ -83,6 +83,8 @@ public partial class MainWindow : Window
     private readonly string _databasePath;
     private readonly string _dataDirectory;
     private readonly LicenseService _licenseService = new();
+    private readonly ParsPackDnsService _parsPackDnsService = new();
+    private const string ParsPackDnsCredentialTarget = "MG.BusinessPlatform.ParsPackDnsApiToken";
     private PaymentTerminalProfileService _paymentTerminalProfileService = null!;
     private Guid? _editingPaymentProfileId;
     private MachineLicenseInfo? _machineLicenseInfo;
@@ -1057,6 +1059,102 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره محصول ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void SaveParsPackDnsToken_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            DnsSyncStatusText.Text = "برای مدیریت DNS فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        try
+        {
+            var token = ParsPackDnsTokenInput.Password.Trim();
+            if (token.Length == 0)
+            {
+                DnsSyncStatusText.Text = "ابتدا توکن API پارس‌پک را وارد کنید.";
+                return;
+            }
+
+            WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, token);
+            ParsPackDnsTokenInput.Clear();
+            DnsSyncStatusText.Text = "توکن در Windows Credential Manager برای همین حساب ویندوز ذخیره شد؛ در فایل تنظیمات برنامه ذخیره نمی‌شود.";
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"ذخیره امن توکن ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void SyncParsPackDns_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            DnsSyncStatusText.Text = "برای مدیریت DNS فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        var hostname = HostnameInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(hostname))
+        {
+            DnsSyncStatusText.Text = "ابتدا دامنه فروشگاه را وارد کنید.";
+            return;
+        }
+
+        try
+        {
+            var enteredToken = ParsPackDnsTokenInput.Password.Trim();
+            if (enteredToken.Length > 0)
+            {
+                WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, enteredToken);
+                ParsPackDnsTokenInput.Clear();
+            }
+
+            var token = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                DnsSyncStatusText.Text = "برای همگام‌سازی خودکار، توکن API پارس‌پک را وارد و ذخیره کنید.";
+                return;
+            }
+
+            var result = await _parsPackDnsService.SyncARecordAsync(hostname, token);
+            if (result.Status == ParsPackDnsSyncStatus.ConfirmationRequired)
+            {
+                if (!ConfirmationDialog.Confirm(this, "تغییر رکورد DNS پارس‌پک", result.Message))
+                {
+                    DnsSyncStatusText.Text = "رکورد DNS تغییری نکرد.";
+                    return;
+                }
+
+                result = await _parsPackDnsService.SyncARecordAsync(hostname, token, replaceExisting: true);
+            }
+
+            DnsSyncStatusText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"همگام‌سازی DNS پارس‌پک ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void DeleteParsPackDnsToken_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmationDialog.Confirm(this, "حذف توکن DNS پارس‌پک",
+            "توکن ذخیره‌شده از Windows Credential Manager این حساب حذف شود؟"))
+            return;
+
+        try
+        {
+            WindowsCredentialStore.Delete(ParsPackDnsCredentialTarget);
+            ParsPackDnsTokenInput.Clear();
+            DnsSyncStatusText.Text = "توکن ذخیره‌شده حذف شد.";
+        }
+        catch (Exception ex)
+        {
+            DnsSyncStatusText.Text = $"حذف توکن ناموفق بود: {ex.Message}";
         }
     }
 
@@ -2361,15 +2459,57 @@ public partial class MainWindow : Window
             await using (var db = new BusinessDbContext(CreateOptions()))
             {
                 var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
-                if (!settings.OnlineOrderingEnabled)
+                if (!settings.OnlineOrderingEnabled && !settings.OnlineReservationsEnabled)
                 {
-                    PublicHostingStatusText.Text = "ابتدا ثبت سفارش آنلاین را در تنظیمات فعال و ذخیره کنید.";
+                    PublicHostingStatusText.Text = "ابتدا سفارش آنلاین یا رزرو آنلاین را در تنظیمات فعال و ذخیره کنید.";
                     return;
                 }
                 if (!string.Equals(settings.PublicHostname, hostname, StringComparison.OrdinalIgnoreCase))
                 {
                     PublicHostingStatusText.Text = "ابتدا تنظیمات فروشگاه را ذخیره کنید.";
                     return;
+                }
+            }
+
+            string? dnsToken = null;
+            try
+            {
+                var enteredDnsToken = ParsPackDnsTokenInput.Password.Trim();
+                if (enteredDnsToken.Length > 0)
+                {
+                    WindowsCredentialStore.Save(ParsPackDnsCredentialTarget, enteredDnsToken);
+                    ParsPackDnsTokenInput.Clear();
+                }
+                dnsToken = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            }
+            catch (Exception credentialException)
+            {
+                DnsSyncStatusText.Text = $"توکن DNS قابل خواندن یا ذخیره نبود؛ بررسی دستی ادامه می‌یابد: {credentialException.Message}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(dnsToken))
+            {
+                try
+                {
+                    var dnsResult = await _parsPackDnsService.SyncARecordAsync(hostname, dnsToken);
+                    if (dnsResult.Status == ParsPackDnsSyncStatus.ConfirmationRequired)
+                    {
+                        if (!ConfirmationDialog.Confirm(this, "تغییر رکورد DNS پارس‌پک", dnsResult.Message))
+                        {
+                            PublicHostingStatusText.Text = "انتشار شروع نشد؛ رکورد DNS بدون تغییر باقی ماند.";
+                            return;
+                        }
+
+                        dnsResult = await _parsPackDnsService.SyncARecordAsync(hostname, dnsToken, replaceExisting: true);
+                    }
+
+                    DnsSyncStatusText.Text = dnsResult.Message;
+                }
+                catch (Exception dnsException)
+                {
+                    // Continue to the normal DNS/public-IP diagnostics. Manual DNS may
+                    // already be correct even if the saved provider token has expired.
+                    DnsSyncStatusText.Text = $"همگام‌سازی خودکار DNS انجام نشد؛ بررسی دستی ادامه می‌یابد: {dnsException.Message}";
                 }
             }
 
