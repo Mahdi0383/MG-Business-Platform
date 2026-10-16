@@ -2473,6 +2473,19 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (_routerPortMappingService.HasSavedMappings)
+            {
+                try
+                {
+                    var routerResult = await _routerPortMappingService.ConfigureWebPortsAsync();
+                    RouterPortStatusText.Text = routerResult.Message;
+                }
+                catch (Exception routerException)
+                {
+                    RouterPortStatusText.Text = $"به‌روزرسانی انتقال درگاه‌های روتر ناموفق بود؛ بررسی دستی ادامه می‌یابد: {routerException.Message}";
+                }
+            }
+
             string? dnsToken = null;
             try
             {
@@ -2585,6 +2598,13 @@ public partial class MainWindow : Window
             PublicHostingStatusText.Text = result.Message;
             if (!result.Success)
                 return;
+
+            if (_routerPortMappingService.HasSavedMappings)
+            {
+                var routerResult = await _routerPortMappingService.RemoveWebPortsAsync();
+                RouterPortStatusText.Text = routerResult.Message;
+            }
+
             await using var db = new BusinessDbContext(CreateOptions());
             var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
             settings.PublicPublicationEnabled = false;
@@ -2594,6 +2614,46 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             PublicHostingStatusText.Text = $"توقف انتشار HTTPS ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void ConfigureRouterPorts_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Storefront"))
+        {
+            RouterPortStatusText.Text = "برای تنظیم انتقال درگاه‌های روتر، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+
+        if (!ConfirmationDialog.Confirm(this, "تنظیم خودکار روتر",
+            "در صورت پشتیبانی روتر از UPnP، انتقال TCP 80 و 443 به این رایانه ایجاد می‌شود و این درگاه‌ها از اینترنت قابل دسترسی خواهند بود. فقط اگر به روتر و شبکه اعتماد دارید ادامه دهید."))
+            return;
+
+        try
+        {
+            var result = await _routerPortMappingService.ConfigureWebPortsAsync();
+            RouterPortStatusText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            RouterPortStatusText.Text = $"تنظیم خودکار روتر ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RemoveRouterPorts_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmationDialog.Confirm(this, "حذف انتقال‌های روتر",
+            "فقط انتقال‌هایی حذف می‌شوند که برنامه بتواند مالکیت آن‌ها را تأیید کند. انتقال‌های دستی یا متعلق به برنامه‌های دیگر دست‌نخورده می‌مانند. ادامه می‌دهید؟"))
+            return;
+
+        try
+        {
+            var result = await _routerPortMappingService.RemoveWebPortsAsync();
+            RouterPortStatusText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            RouterPortStatusText.Text = $"حذف انتقال‌های روتر ناموفق بود: {ex.Message}";
         }
     }
 
