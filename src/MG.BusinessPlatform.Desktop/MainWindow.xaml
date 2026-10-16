@@ -356,6 +356,8 @@
                                 <Button Content="آزمون اتصال بدون پرداخت" Click="TestPaymentProfile_Click" Margin="3"/>
                                 <Button Content="حذف پروفایل" Click="DeletePaymentProfile_Click" Margin="3"/>
                                 <Button Content="بارگذاری مجدد" Click="RefreshPaymentProfiles_Click" Margin="3"/>
+                                <Button Content="خروجی پشتیبان پروفایل‌ها" Click="ExportPaymentProfiles_Click" Margin="3"/>
+                                <Button Content="ورود پشتیبان پروفایل‌ها" Click="ImportPaymentProfiles_Click" Margin="3"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
