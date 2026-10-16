@@ -460,6 +460,14 @@
                             <TextBox x:Name="CurrencyInput"/>
                             <TextBlock Text="دامنه مشتریان (نام میزبان بدون https://، مانند shop.example.com)"/>
                             <TextBox x:Name="HostnameInput"/>
+                            <TextBlock Text="توکن API DNS پارس‌پک (اختیاری؛ در Credential Manager ویندوز ذخیره می‌شود)" Margin="0,8,0,0"/>
+                            <PasswordBox x:Name="ParsPackDnsTokenInput" MaxLength="1200" ToolTip="توکن با دسترسی فهرست زون‌ها، مشاهده رکوردها، ایجاد و حذف رکوردهای DNS"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                <Button Content="ذخیره امن توکن" Click="SaveParsPackDnsToken_Click"/>
+                                <Button Content="به‌روزرسانی خودکار رکورد A" Click="SyncParsPackDns_Click"/>
+                                <Button Content="حذف توکن ذخیره‌شده" Click="DeleteParsPackDnsToken_Click"/>
+                            </StackPanel>
+                            <TextBlock x:Name="DnsSyncStatusText" Text="مدیریت خودکار DNS اختیاری است؛ در صورت عدم استفاده از API، رکورد را دستی تنظیم کنید." TextWrapping="Wrap" Margin="4,6" Foreground="#334155"/>
                             <CheckBox x:Name="OnlineOrdersInput" Content="فعال‌سازی ثبت سفارش آنلاین" Margin="8,12"/>
                             <CheckBox x:Name="OnlineReservationsInput" Content="فعال‌سازی رزرو آنلاین میز و دستگاه" Margin="8,4,8,12"/>
                             <Button Content="ذخیره تنظیمات" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
