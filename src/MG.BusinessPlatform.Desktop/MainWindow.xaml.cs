@@ -204,6 +204,7 @@ public partial class MainWindow : Window
                 "فروش حضوری (POS)" => "POS",
                 "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
+                "تنظیمات PC-POS" => "POS",
                 "تنظیمات فروشگاه" => null,
                 "جلسات بازی" => "GameCafe",
                 "رزروها" => "Reservations",
