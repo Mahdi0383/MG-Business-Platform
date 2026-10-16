@@ -552,7 +552,7 @@ app.MapPost("/api/storefront/orders", async (
                 .SingleOrDefaultAsync(x => x.IdempotencyKey == key, ct);
             if (committedOrder is not null)
             {
-                if (!MatchesOrderRequest(committedOrder, request, requested))
+                if (!Program.MatchesOrderRequest(committedOrder, request, requested))
                     return Results.Conflict(new { error = "This idempotency key was already used for a different order request." });
                 return Results.Ok(new OrderCreatedResponse(committedOrder.Id, committedOrder.OrderNumber,
                     committedOrder.TotalAmount, committedOrder.CurrencyCode, committedOrder.Status));
