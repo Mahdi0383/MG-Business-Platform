@@ -57,7 +57,7 @@ public sealed class ParsPackDnsServiceTests
     [Fact]
     public async Task SyncARecordAsync_ConfirmedReplacementDeletesThenCreatesRecord()
     {
-        var handler = new StubHandler(_ => RecordsWithA("9.9.9.9"));
+        var handler = new StubHandler(RecordsWithA("9.9.9.9"));
         using var client = new HttpClient(handler);
         var service = CreateService(client);
 
