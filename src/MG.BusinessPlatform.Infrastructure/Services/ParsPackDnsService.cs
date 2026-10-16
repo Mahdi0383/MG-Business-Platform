@@ -50,11 +50,16 @@ public sealed class ParsPackDnsService
         bool replaceExisting = false,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hostname);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiToken);
         if (apiToken.Trim().Length > 1200)
             throw new ArgumentException("ParsPack API token is longer than the supported limit.", nameof(apiToken));
 
         var normalizedHostname = hostname.Trim().TrimEnd('.').ToLowerInvariant();
+        if (Uri.CheckHostName(normalizedHostname) != UriHostNameType.Dns
+            || normalizedHostname.Any(c => char.IsControl(c) || c is '/' or '\\' or ':' or '@' or '*' or '?' or '#'))
+            throw new ArgumentException("Enter a plain DNS hostname without a scheme, port, path or wildcard.", nameof(hostname));
+
         var publicIp = await GetPublicIpv4Async(cancellationToken);
         var zonesResponse = await SendAsync<ZonesResponse>(
             HttpMethod.Get, "external/api/v1/zones", apiToken.Trim(), null, cancellationToken);
