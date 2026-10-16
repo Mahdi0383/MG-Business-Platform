@@ -68,7 +68,7 @@ public partial class App : System.Windows.Application
         await DatabaseInitializer.InitializeAsync(db);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
-        if (!settings.OnlineOrderingEnabled)
+        if (!settings.OnlineOrderingEnabled && !settings.OnlineReservationsEnabled)
             return;
 
         var localRunning = false;
