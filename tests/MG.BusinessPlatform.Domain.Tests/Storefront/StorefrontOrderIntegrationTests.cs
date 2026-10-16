@@ -375,6 +375,67 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task ConcurrentReservationRetries_WithSameIdempotencyKeyCreateOnlyOneReservation()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var resourceId = Guid.NewGuid();
+        var startsAt = DateTimeOffset.UtcNow.AddHours(3);
+        var endsAt = startsAt.AddHours(1);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineReservationsEnabled = true;
+            db.ReservationResources.Add(new ReservationResourceRecord
+            {
+                Id = resourceId, BranchId = Guid.NewGuid(), Name = "Concurrent station",
+                ResourceType = "GameStation", Capacity = 4, IsAvailable = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        const string key = "integration-concurrent-reservation-0001";
+        var payload = new
+        {
+            resourceId,
+            guestName = "Concurrent Guest",
+            guestPhone = "09120000000",
+            guestCount = 2,
+            startsAt,
+            endsAt,
+            notes = "Concurrent retry"
+        };
+
+        async Task<HttpResponseMessage> SubmitAsync()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/reservations")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return await client.SendAsync(request);
+        }
+
+        var responses = await Task.WhenAll(SubmitAsync(), SubmitAsync());
+        using var first = responses[0];
+        using var second = responses[1];
+        Assert.Contains(first.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.OK });
+        Assert.Contains(second.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.OK });
+
+        var firstBody = await first.Content.ReadFromJsonAsync<ReservationResponse>();
+        var secondBody = await second.Content.ReadFromJsonAsync<ReservationResponse>();
+        Assert.NotNull(firstBody);
+        Assert.NotNull(secondBody);
+        Assert.Equal(firstBody.Id, secondBody.Id);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Equal(1, await verificationDb.CustomerReservations.CountAsync());
+    }
+
+    [Fact]
     public async Task ReservationEndpoint_RequiresReservationsLicenseEntitlement()
     {
         await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
