@@ -143,7 +143,9 @@ public sealed class RouterPortMappingService
             return new(false, $"فایل وضعیت انتقال درگاه‌ها قابل خواندن نیست و برای ایمنی حذف نشد: {ex.Message}");
         }
 
-        if (state is null || state.Ports is null || !IPAddress.TryParse(state.GatewayAddress, out var savedGateway)
+        if (state is null || state.Ports is null
+            || state.Ports.Any(port => port.Port is not (80 or 443))
+            || !IPAddress.TryParse(state.GatewayAddress, out var savedGateway)
             || !IPAddress.TryParse(state.LocalAddress, out var savedLocalAddress))
             return new(false, "فایل وضعیت انتقال درگاه‌ها معتبر نیست؛ برای جلوگیری از حذف اشتباه، تنظیمات روتر دست‌نخورده ماند.");
 
