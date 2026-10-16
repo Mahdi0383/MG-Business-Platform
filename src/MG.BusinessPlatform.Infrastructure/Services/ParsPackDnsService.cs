@@ -78,14 +78,15 @@ public sealed class ParsPackDnsService
         var hostRecords = recordsResponse.Data
             .Where(record => string.Equals(record.Host.Trim().TrimEnd('.'), target.RecordHost, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+        if (hostRecords.Any(record => string.Equals(record.Type, "CNAME", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("A CNAME record exists for this host. DNS does not allow a CNAME alongside other records at the same name; review the record manually before changing it.");
+
         var existing = hostRecords
             .Where(record => string.Equals(record.Type, "A", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         if (existing.Length == 0)
         {
-            if (hostRecords.Any(record => string.Equals(record.Type, "CNAME", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("A CNAME record already exists for this host. DNS does not allow an A record and CNAME at the same name; review the record manually before changing it.");
             await CreateARecordAsync(zone.Uuid, target.RecordHost, publicIp.ToString(), apiToken.Trim(), 300, cancellationToken);
             return new(ParsPackDnsSyncStatus.Updated,
                 $"رکورد A برای {normalizedHostname} در پارس‌پک ساخته شد و به {publicIp} اشاره می‌کند. انتشار DNS ممکن است زمان ببرد.",
