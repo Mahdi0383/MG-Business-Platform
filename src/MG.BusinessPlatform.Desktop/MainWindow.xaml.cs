@@ -209,6 +209,13 @@ public partial class MainWindow : Window
 
         foreach (var tab in tabs)
         {
+            if (string.Equals(tab.Header?.ToString(), "خرید و پرداخت", StringComparison.Ordinal))
+            {
+                tab.IsEnabled = payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+                    && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
+                continue;
+            }
+
             var module = tab.Header?.ToString() switch
             {
                 "نمای کلی" => "Core",
