@@ -347,6 +347,13 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
         RequireLength(profile.MerchantId, 0, 100, nameof(profile.MerchantId));
         RequireLength(profile.TerminalId, 0, 100, nameof(profile.TerminalId));
         RequireLength(profile.AuthenticationReference, 0, 200, nameof(profile.AuthenticationReference));
+        RequireLength(profile.Host, 0, 253, nameof(profile.Host));
+        RequireLength(profile.SerialPort, 0, 20, nameof(profile.SerialPort));
+        RequireLength(profile.Endpoint, 0, 2048, nameof(profile.Endpoint));
+        RequireLength(profile.Parity, 1, 20, nameof(profile.Parity));
+        RequireLength(profile.StopBits, 1, 20, nameof(profile.StopBits));
+        RequireLength(profile.LastTestStatus, 1, 40, nameof(profile.LastTestStatus));
+        RequireLength(profile.LastTestMessage, 0, 1000, nameof(profile.LastTestMessage));
         if (!Enum.IsDefined(profile.ConnectionType)) throw new ArgumentOutOfRangeException(nameof(profile.ConnectionType));
         if (string.IsNullOrWhiteSpace(profile.CurrencyCode) || profile.CurrencyCode.Length != 3
             || profile.CurrencyCode.Any(c => c is < 'A' or > 'Z'))
