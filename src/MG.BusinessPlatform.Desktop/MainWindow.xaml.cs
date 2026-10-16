@@ -51,6 +51,11 @@ public sealed record FinancialStatementRow(string Statement, string AccountCode,
 public sealed record CashMovementGridRow(string AccountCode, string AccountName, decimal OpeningBalance,
     decimal Inflows, decimal Outflows, decimal ClosingBalance);
 
+public sealed record AgingReportGridRow(string KindText, string DocumentNumber, string PartyName,
+    DateOnly IssueDate, DateOnly DueDate, int DaysOverdue, decimal OutstandingAmount,
+    decimal NotDue, decimal Days1To30, decimal Days31To60, decimal Days61To90,
+    decimal Over90Days, string CurrencyCode);
+
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
     decimal Debit, decimal Credit, decimal RunningBalance);
 
@@ -115,6 +120,7 @@ public partial class MainWindow : Window
         FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         CashMovementToDateInput.SelectedDate = DateTime.Today;
         CashMovementFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
+        AgingAsOfDateInput.SelectedDate = DateTime.Today;
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
@@ -237,7 +243,7 @@ public partial class MainWindow : Window
                 "محصولات" or "گردش انبار" => "Inventory",
                 "مشتریان" or "تأمین‌کنندگان" => "Core",
                 "فروش حضوری (POS)" => "POS",
-                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" => "Accounting",
+                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" or "سن بدهی مشتریان و تأمین‌کنندگان" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات PC-POS" => "POS",
                 "تنظیمات فروشگاه" => null,
@@ -1886,6 +1892,68 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             CashMovementTotalsText.Text = $"محاسبه گردش نقد و بانک ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void CalculateAgingReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting"))
+        {
+            AgingReportStatusText.Text = "برای گزارش سن بدهی، لایسنس معتبر دارای ماژول حسابداری لازم است.";
+            return;
+        }
+
+        try
+        {
+            var asOfDate = DateOnly.FromDateTime(AgingAsOfDateInput.SelectedDate ?? DateTime.Today);
+            await using var db = new BusinessDbContext(CreateOptions());
+
+            var salesInvoices = await db.SalesInvoices.AsNoTracking()
+                .Where(x => x.IssueDate <= asOfDate && x.Status != "Cancelled" && x.Status != "Canceled" && x.Status != "Void")
+                .ToListAsync();
+            var purchaseInvoices = await db.PurchaseInvoices.AsNoTracking()
+                .Where(x => x.IssueDate <= asOfDate && x.Status != "Cancelled" && x.Status != "Canceled" && x.Status != "Void")
+                .ToListAsync();
+            var supplierIds = purchaseInvoices.Select(x => x.SupplierId).Distinct().ToArray();
+            var suppliers = await db.Suppliers.AsNoTracking()
+                .Where(x => supplierIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, x => x.DisplayName);
+
+            var documents = new List<AgingDocument>(salesInvoices.Count + purchaseInvoices.Count);
+            foreach (var invoice in salesInvoices)
+            {
+                documents.Add(new AgingDocument(
+                    invoice.Id, AgingDocumentKind.Receivable, invoice.InvoiceNumber,
+                    invoice.CustomerName, invoice.IssueDate, invoice.IssueDate.AddDays(30),
+                    invoice.CurrencyCode, invoice.TotalAmount, invoice.PaidAmount));
+            }
+
+            foreach (var invoice in purchaseInvoices)
+            {
+                var supplierName = suppliers.GetValueOrDefault(invoice.SupplierId, "تأمین‌کننده حذف‌شده");
+                documents.Add(new AgingDocument(
+                    invoice.Id, AgingDocumentKind.Payable, invoice.InvoiceNumber,
+                    supplierName, invoice.IssueDate, invoice.IssueDate.AddDays(30),
+                    invoice.CurrencyCode, invoice.TotalAmount, invoice.PaidAmount));
+            }
+
+            var report = ReceivablesPayablesAgingCalculator.Calculate(documents, asOfDate);
+            AgingReportGrid.ItemsSource = report.Select(line => new AgingReportGridRow(
+                line.Kind == AgingDocumentKind.Receivable ? "دریافتنی" : "پرداختنی",
+                line.DocumentNumber, line.PartyName, line.IssueDate, line.DueDate,
+                line.DaysOverdue, line.OutstandingAmount, line.NotDue, line.Days1To30,
+                line.Days31To60, line.Days61To90, line.Over90Days, line.CurrencyCode)).ToArray();
+
+            var byCurrency = report.GroupBy(x => x.CurrencyCode, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => $"{group.Key}: مانده دریافتنی {group.Where(x => x.Kind == AgingDocumentKind.Receivable).Sum(x => x.OutstandingAmount):N2}، مانده پرداختنی {group.Where(x => x.Kind == AgingDocumentKind.Payable).Sum(x => x.OutstandingAmount):N2}");
+            AgingReportStatusText.Text = $"گزارش تا {asOfDate:yyyy-MM-dd} | اسناد باز: {report.Count} | " +
+                (byCurrency.Any() ? string.Join(" | ", byCurrency) : "مانده سررسیدنشده‌ای وجود ندارد.") +
+                " | هشدار: سررسیدها فعلاً تخمینی و برابر تاریخ فاکتور + ۳۰ روز هستند؛ برای گزارش قطعی باید سررسید واقعی هر فاکتور در داده‌ها ثبت شود.";
+        }
+        catch (Exception ex)
+        {
+            AgingReportStatusText.Text = $"محاسبه سن بدهی ناموفق بود: {ex.Message}";
         }
     }
 
