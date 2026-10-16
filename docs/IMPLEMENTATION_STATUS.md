@@ -33,8 +33,8 @@ This document distinguishes source-code presence from verified behavior. A featu
 
 ## Verification status
 
-- The Windows CI run for commit `4944ecd79f04e1b5e58d9fda336e190eb669418e` (merged to main as `5d92eaa5c19347ea3b62d0c34fe325ec87d22aee`) passed the Release build with zero compiler errors, all 188 automated tests, both Windows installers, the portable package, separate License Manager packages, source archives and checksum verification.
-- Main-branch CI is also run after merge; use its result and artifact commit metadata when selecting a package for installation. Do not treat a CI artifact as proof of real router, printer or payment-terminal operation.
+- Main commit `5d92eaa5c19347ea3b62d0c34fe325ec87d22aee` passed Windows CI run `38846203800`: Release build succeeded with zero compiler errors, all 188 automated tests passed, both Windows installers and portable package were produced, separate License Manager packages and source archives were verified, and SHA-256 checksums were generated.
+- The main desktop package SHA-256 for that run is `1C24EDF1333236CEAF99F5FFAA7502BDC50E7F0CAEAD07BBA9168A5FDB29F742`. Do not treat a CI artifact as proof of real router, printer or payment-terminal operation.
 - The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability. The separate `release-windows.yml` workflow publishes versioned prereleases on `[release]` commits or manual dispatch; it does not run on every ordinary commit.
 - Desktop license checks and public storefront license checks are present, but this is not a substitute for server-side authorization on every future administrative API.
