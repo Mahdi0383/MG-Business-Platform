@@ -73,6 +73,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
         {
             if (!File.Exists(_profileFilePath))
                 return [];
+            if (new FileInfo(_profileFilePath).Length > 5 * 1024 * 1024)
+                throw new InvalidDataException("The local PC-POS profile file exceeds the 5 MB safety limit.");
             await using var stream = new FileStream(_profileFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var profiles = await JsonSerializer.DeserializeAsync<List<PaymentTerminalProfile>>(stream, JsonOptions, cancellationToken)
                 ?? [];
@@ -137,7 +139,11 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             if (index >= 0)
                 profiles[index] = normalized;
             else
+            {
+                if (profiles.Count >= 200)
+                    throw new InvalidOperationException("A maximum of 200 PC-POS profiles can be saved.");
                 profiles.Add(normalized);
+            }
 
             Directory.CreateDirectory(Path.GetDirectoryName(_profileFilePath)!);
             var temporaryPath = _profileFilePath + ".tmp-" + Guid.NewGuid().ToString("N");
@@ -234,6 +240,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
             throw new ArgumentException("Import source must differ from the active profile file.", nameof(sourcePath));
         if (!File.Exists(source))
             throw new FileNotFoundException("PC-POS profile file was not found.", source);
+        if (new FileInfo(source).Length > 5 * 1024 * 1024)
+            throw new InvalidDataException("The imported PC-POS profile file exceeds the 5 MB safety limit.");
 
         await _gate.WaitAsync(cancellationToken);
         try
