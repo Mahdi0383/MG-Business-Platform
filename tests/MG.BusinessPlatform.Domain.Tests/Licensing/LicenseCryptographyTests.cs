@@ -201,6 +201,19 @@ public sealed class LicenseCryptographyTests
     }
 
     [Fact]
+    public void Sign_RejectsReservationsModuleWithoutStorefrontDependency()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var payload = CreatePayload(DateTimeOffset.UtcNow.AddDays(30)) with
+        {
+            Modules = ["Core", "Reservations"]
+        };
+
+        var error = Assert.Throws<ArgumentException>(() => LicenseCryptography.Sign(payload, keys.PrivateKeyPem));
+        Assert.Contains("requires Storefront", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Verify_RejectsEnvelopeWithoutPayload()
     {
         var result = LicenseCryptography.Verify(
