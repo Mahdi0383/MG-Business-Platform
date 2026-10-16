@@ -2471,7 +2471,16 @@ public partial class MainWindow : Window
                 }
             }
 
-            var dnsToken = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            string? dnsToken = null;
+            try
+            {
+                dnsToken = WindowsCredentialStore.Read(ParsPackDnsCredentialTarget);
+            }
+            catch (Exception credentialException)
+            {
+                DnsSyncStatusText.Text = $"توکن DNS قابل خواندن نبود؛ بررسی دستی ادامه می‌یابد: {credentialException.Message}";
+            }
+
             if (!string.IsNullOrWhiteSpace(dnsToken))
             {
                 try
