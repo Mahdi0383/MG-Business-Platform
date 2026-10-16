@@ -141,6 +141,79 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="خرید و پرداخت">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="180"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <WrapPanel>
+                                <TextBlock Text="تأمین‌کننده" VerticalAlignment="Center" Margin="4"/>
+                                <ComboBox x:Name="PurchaseSupplierInput" Width="190" DisplayMemberPath="DisplayName" SelectedValuePath="Id" Margin="4"/>
+                                <TextBlock Text="تاریخ فاکتور" VerticalAlignment="Center" Margin="4"/>
+                                <DatePicker x:Name="PurchaseInvoiceDateInput" Width="145" Margin="4"/>
+                                <TextBlock Text="کالا" VerticalAlignment="Center" Margin="4"/>
+                                <ComboBox x:Name="PurchaseProductInput" Width="210" DisplayMemberPath="Name" Margin="4"/>
+                            </WrapPanel>
+                            <WrapPanel>
+                                <TextBox x:Name="PurchaseQuantityInput" Width="90" Text="1" ToolTip="تعداد" Margin="4"/>
+                                <TextBox x:Name="PurchaseUnitCostInput" Width="130" Text="0" ToolTip="قیمت واحد خرید" Margin="4"/>
+                                <TextBox x:Name="PurchaseDiscountInput" Width="100" Text="0" ToolTip="تخفیف درصدی (۰ تا ۱۰۰)" Margin="4"/>
+                                <TextBox x:Name="PurchaseUnitCodeInput" Width="90" Text="EA" ToolTip="واحد کالا" Margin="4"/>
+                                <Button Content="افزودن ردیف خرید" Click="AddPurchaseLine_Click" Margin="4"/>
+                                <Button Content="حذف ردیف انتخاب‌شده" Click="RemovePurchaseLine_Click" Margin="4"/>
+                                <Button Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
+                                <Button Content="به‌روزرسانی خریدها" Click="RefreshPurchases_Click" Margin="4"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="PurchaseDraftGrid" Grid.Row="1" Margin="0,0,0,8" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="کالا" Binding="{Binding ProductName}" Width="2*"/>
+                            <DataGridTextColumn Header="تعداد" Binding="{Binding Quantity}" Width="*"/>
+                            <DataGridTextColumn Header="قیمت واحد" Binding="{Binding UnitCost}" Width="*"/>
+                            <DataGridTextColumn Header="تخفیف %" Binding="{Binding DiscountPercent}" Width="*"/>
+                            <DataGridTextColumn Header="واحد" Binding="{Binding UnitCode}" Width="*"/>
+                            <DataGridTextColumn Header="جمع خالص" Binding="{Binding LineTotal}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="1.3*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock x:Name="PurchaseDraftTotalText" Text="جمع فاکتور پیش‌نویس: ۰" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <TextBlock Grid.Column="1" Text="فاکتورهای خرید ثبت‌شده" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <DataGrid x:Name="PurchaseInvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" SelectionChanged="PurchaseInvoicesGrid_SelectionChanged" Background="White">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="شماره" Binding="{Binding InvoiceNumber}" Width="1.4*"/>
+                                <DataGridTextColumn Header="تأمین‌کننده" Binding="{Binding SupplierName}" Width="1.4*"/>
+                                <DataGridTextColumn Header="تاریخ" Binding="{Binding IssueDate}" Width="*"/>
+                                <DataGridTextColumn Header="کل" Binding="{Binding TotalAmount}" Width="*"/>
+                                <DataGridTextColumn Header="پرداخت‌شده" Binding="{Binding PaidAmount}" Width="*"/>
+                                <DataGridTextColumn Header="مانده" Binding="{Binding OutstandingAmount}" Width="*"/>
+                                <DataGridTextColumn Header="وضعیت" Binding="{Binding Status}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Border Grid.Column="1" Grid.Row="1" Background="White" CornerRadius="10" Padding="10" Margin="8,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="ثبت پرداخت به تأمین‌کننده" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <TextBlock Text="ابتدا یک فاکتور خرید را انتخاب کنید." x:Name="SupplierPaymentSelectionText" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                <TextBox x:Name="SupplierPaymentAmountInput" Text="0" ToolTip="مبلغ پرداخت" Margin="0,3"/>
+                                <ComboBox x:Name="SupplierPaymentMethodInput" SelectedIndex="0" Margin="0,3">
+                                    <ComboBoxItem Content="نقدی" Tag="Cash"/>
+                                    <ComboBoxItem Content="کارت" Tag="Card"/>
+                                    <ComboBoxItem Content="انتقال بانکی" Tag="BankTransfer"/>
+                                </ComboBox>
+                                <TextBox x:Name="SupplierPaymentReferenceInput" ToolTip="شماره پیگیری (اختیاری)" Margin="0,3"/>
+                                <TextBox x:Name="SupplierPaymentNotesInput" ToolTip="توضیحات (اختیاری)" Margin="0,3"/>
+                                <Button Content="ثبت پرداخت" Click="RecordSupplierPayment_Click" Margin="0,6"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
             <TabItem Header="فروش حضوری (POS)">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="*"/></Grid.RowDefinitions>
