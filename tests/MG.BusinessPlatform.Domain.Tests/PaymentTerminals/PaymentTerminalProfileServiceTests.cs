@@ -93,6 +93,75 @@ public sealed class PaymentTerminalProfileServiceTests
     }
 
     [Fact]
+    public async Task ExportAndImport_RoundTripNonSecretProfileSettings()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-pcpos-{Guid.NewGuid():N}");
+        var sourceService = new PaymentTerminalProfileService(Path.Combine(directory, "source", "profiles.json"));
+        var destinationService = new PaymentTerminalProfileService(Path.Combine(directory, "destination", "profiles.json"));
+        var exportPath = Path.Combine(directory, "export", "profiles.json");
+        try
+        {
+            var profile = new PaymentTerminalProfile
+            {
+                Name = "Counter LAN",
+                Vendor = "Example vendor",
+                Model = "Example model",
+                ConnectionType = PaymentConnectionType.TcpIp,
+                Host = "127.0.0.1",
+                Port = 5000,
+                MerchantId = "merchant-123",
+                AuthenticationReference = "credential-ref-001",
+                IsDefault = true
+            };
+            await sourceService.SaveAsync(profile);
+            await sourceService.ExportAsync(exportPath);
+            await destinationService.ImportAsync(exportPath);
+
+            var imported = Assert.Single(await destinationService.LoadAsync());
+            Assert.Equal(profile.Name, imported.Name);
+            Assert.Equal(profile.Host, imported.Host);
+            Assert.Equal(profile.Port, imported.Port);
+            Assert.Equal(profile.MerchantId, imported.MerchantId);
+            Assert.Equal("credential-ref-001", imported.AuthenticationReference);
+            Assert.True(imported.IsDefault);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
+    public async Task Import_InvalidProfileFilePreservesCurrentProfiles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-pcpos-{Guid.NewGuid():N}");
+        var service = new PaymentTerminalProfileService(Path.Combine(directory, "active", "profiles.json"));
+        var invalidPath = Path.Combine(directory, "invalid.json");
+        try
+        {
+            var existing = new PaymentTerminalProfile { Name = "Existing" };
+            await service.SaveAsync(existing);
+            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(invalidPath,
+                """[{"Id":"00000000-0000-0000-0000-000000000000","Name":"Invalid","DriverId":"manual","CurrencyCode":"IRR"}]""");
+
+            await Assert.ThrowsAsync<ArgumentException>(() => service.ImportAsync(invalidPath));
+
+            var profiles = await service.LoadAsync();
+            Assert.Single(profiles);
+            Assert.Equal("Existing", profiles[0].Name);
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public void Validate_RejectsCredentialsEmbeddedInVendorEndpoint()
     {
         var profile = new PaymentTerminalProfile
