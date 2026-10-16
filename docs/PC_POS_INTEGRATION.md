@@ -1,6 +1,13 @@
 # PC-POS Device Integration Architecture
 
-Status: design specification; this document does not claim that physical terminal integrations are implemented or tested.
+Status: partial implementation. The desktop now includes local PC-POS profile configuration, validation, and a TCP socket reachability check. No vendor-specific payment protocol or real payment transaction is implemented or certified; see the limits below.
+
+## Implemented profile settings (current branch)
+- Persian RTL UI can save/edit/delete named profiles for manual, TCP/IP, RS-232, USB virtual COM, vendor local API, Windows service, and vendor SDK connection categories.
+- Profiles capture vendor/model/driver/protocol identifiers, host/port, serial parameters, timeouts, currency, merchant/terminal identifiers, enabled/default flags, and an opaque authentication reference.
+- Non-secret profile configuration is stored locally in `%LOCALAPPDATA%\\MGBusinessPlatform\\payment-terminal-profiles.json`; no passwords or payment credentials are stored in this file.
+- The TCP test opens a socket only. It does not send a payment command, verify terminal protocol readiness, confirm approval, or mark an invoice paid. Other modes explicitly report that a vendor-specific driver/handshake is still required.
+- Real terminal payments, status inquiries, reversals, refunds, settlement, and physical-device compatibility remain unimplemented until the exact vendor/model protocol or official SDK is available.
 
 ## Goal
 
