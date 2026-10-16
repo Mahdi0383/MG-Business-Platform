@@ -60,6 +60,39 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task SameOriginBrowserMutation_PassesOriginGuard()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Same origin caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", client.BaseAddress!.GetLeftPart(UriPartial.Authority));
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+        request.Headers.Add("Idempotency-Key", "integration-same-origin-invalid-0001");
+
+        using var response = await client.SendAsync(request);
+
+        // The empty order is invalid at the endpoint, but it must not be rejected by
+        // the cross-origin guard when the browser origin matches the storefront.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
     {
         await using var factory = new StorefrontTestFactory();
