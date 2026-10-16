@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MG.BusinessPlatform.Infrastructure.Services;
 
 namespace MG.BusinessPlatform.Desktop.Services;
@@ -61,13 +62,17 @@ public sealed class ParsPackDnsService
             $"external/api/v2/zones/{Uri.EscapeDataString(zone.Uuid)}/dns-records",
             apiToken.Trim(), null, cancellationToken);
 
-        var existing = recordsResponse.Data
-            .Where(record => string.Equals(record.Type, "A", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(record.Host.Trim().TrimEnd('.'), target.RecordHost, StringComparison.OrdinalIgnoreCase))
+        var hostRecords = recordsResponse.Data
+            .Where(record => string.Equals(record.Host.Trim().TrimEnd('.'), target.RecordHost, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var existing = hostRecords
+            .Where(record => string.Equals(record.Type, "A", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         if (existing.Length == 0)
         {
+            if (hostRecords.Any(record => string.Equals(record.Type, "CNAME", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("A CNAME record already exists for this host. DNS does not allow an A record and CNAME at the same name; review the record manually before changing it.");
             await CreateARecordAsync(zone.Uuid, target.RecordHost, publicIp.ToString(), apiToken.Trim(), 300, cancellationToken);
             return new(ParsPackDnsSyncStatus.Updated,
                 $"رکورد A برای {normalizedHostname} در پارس‌پک ساخته شد و به {publicIp} اشاره می‌کند. انتشار DNS ممکن است زمان ببرد.",
@@ -252,6 +257,7 @@ public sealed class ParsPackDnsService
     private sealed class ZoneDto
     {
         public string Uuid { get; set; } = string.Empty;
+        [JsonPropertyName("target_domain")]
         public string TargetDomain { get; set; } = string.Empty;
     }
 
