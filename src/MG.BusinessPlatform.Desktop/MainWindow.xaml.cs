@@ -48,6 +48,9 @@ public sealed record TrialBalanceRow(string AccountCode, string AccountName, str
 public sealed record FinancialStatementRow(string Statement, string AccountCode, string AccountName,
     string AccountType, decimal Balance);
 
+public sealed record CashMovementGridRow(string AccountCode, string AccountName, decimal OpeningBalance,
+    decimal Inflows, decimal Outflows, decimal ClosingBalance);
+
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
     decimal Debit, decimal Credit, decimal RunningBalance);
 
@@ -110,6 +113,8 @@ public partial class MainWindow : Window
         GeneralLedgerToDateInput.SelectedDate = DateTime.Today;
         FinancialToDateInput.SelectedDate = DateTime.Today;
         FinancialFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
+        CashMovementToDateInput.SelectedDate = DateTime.Today;
+        CashMovementFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
@@ -232,7 +237,7 @@ public partial class MainWindow : Window
                 "محصولات" or "گردش انبار" => "Inventory",
                 "مشتریان" or "تأمین‌کنندگان" => "Core",
                 "فروش حضوری (POS)" => "POS",
-                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" => "Accounting",
+                "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات PC-POS" => "POS",
                 "تنظیمات فروشگاه" => null,
@@ -1818,6 +1823,69 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             FinancialStatementTotalsText.Text = $"محاسبه صورت‌های مالی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void CalculateCashMovement_Click(object sender, RoutedEventArgs e) =>
+        await CalculateCashMovementAsync();
+
+    private async Task CalculateCashMovementAsync()
+    {
+        try
+        {
+            var fromDate = DateOnly.FromDateTime(CashMovementFromDateInput.SelectedDate ?? new DateTime(DateTime.Today.Year, 1, 1));
+            var toDate = DateOnly.FromDateTime(CashMovementToDateInput.SelectedDate ?? DateTime.Today);
+            if (fromDate > toDate)
+            {
+                CashMovementTotalsText.Text = "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.";
+                return;
+            }
+
+            await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            var ledgerAccounts = await db.LedgerAccounts.AsNoTracking().ToListAsync();
+            var cashCodes = new[] { "1000", "1010", "1020" }
+                .Where(code => ledgerAccounts.Any(account => account.Code == code
+                    && account.AccountType == nameof(MG.BusinessPlatform.Domain.Finance.AccountType.Asset)
+                    && account.IsPostingAllowed))
+                .ToArray();
+            if (cashCodes.Length == 0)
+            {
+                CashMovementGrid.ItemsSource = Array.Empty<CashMovementGridRow>();
+                CashMovementTotalsText.Text = "حساب نقد، کارت یا بانک قابل ثبت در دفتر کل پیدا نشد.";
+                return;
+            }
+
+            var journalRecords = await db.JournalEntries.AsNoTracking()
+                .Include(entry => entry.Lines)
+                .Where(entry => entry.EntryDate <= toDate && entry.CurrencyCode == settings.CurrencyCode)
+                .ToListAsync();
+            var accounts = ledgerAccounts.Select(account => new MG.BusinessPlatform.Domain.Finance.Account(
+                account.Code, account.Name,
+                Enum.Parse<MG.BusinessPlatform.Domain.Finance.AccountType>(account.AccountType, ignoreCase: false),
+                isPostingAllowed: account.IsPostingAllowed, isActive: account.IsActive)).ToArray();
+            var entries = journalRecords.Select(entry => new MG.BusinessPlatform.Domain.Finance.JournalEntry(
+                entry.Id, entry.EntryDate, entry.Description,
+                entry.Lines.Select(line => new MG.BusinessPlatform.Domain.Finance.JournalLine(
+                    line.AccountCode, line.AccountName,
+                    Enum.Parse<MG.BusinessPlatform.Domain.Finance.EntrySide>(line.Side, ignoreCase: false),
+                    new MG.BusinessPlatform.Domain.Finance.Money(line.Amount, entry.CurrencyCode))))).ToArray();
+
+            var report = MG.BusinessPlatform.Domain.Finance.CashMovementReportCalculator.Calculate(
+                accounts, entries, fromDate, toDate, settings.CurrencyCode, cashCodes);
+            CashMovementGrid.ItemsSource = report.Lines.Select(line => new CashMovementGridRow(
+                line.AccountCode, line.AccountName, line.OpeningBalance.Amount, line.Inflows.Amount,
+                line.Outflows.Amount, line.ClosingBalance.Amount)).ToArray();
+            CashMovementTotalsText.Text =
+                $"گردش نقد و بانک ({fromDate:yyyy-MM-dd} تا {toDate:yyyy-MM-dd}) | " +
+                $"مانده اول دوره: {report.OpeningBalance.Amount:N2} | ورودی: {report.TotalInflows.Amount:N2} | " +
+                $"خروجی: {report.TotalOutflows.Amount:N2} | خالص تغییر: {report.NetMovement.Amount:N2} | " +
+                $"مانده پایان دوره: {report.ClosingBalance.Amount:N2} {report.CurrencyCode}. " +
+                "این گزارش گردش حساب‌های نقد و بانک است و جایگزین صورت جریان وجوه نقد طبقه‌بندی‌شده نیست.";
+        }
+        catch (Exception ex)
+        {
+            CashMovementTotalsText.Text = $"محاسبه گردش نقد و بانک ناموفق بود: {ex.Message}";
         }
     }
 
