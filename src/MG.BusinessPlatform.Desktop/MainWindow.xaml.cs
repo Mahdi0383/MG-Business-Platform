@@ -31,6 +31,16 @@ public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Qu
     public decimal LineTotal => checked(UnitPrice * Quantity);
 }
 
+public sealed record PurchaseInvoiceDraftLine(Guid ProductId, string ProductName, int Quantity,
+    decimal UnitCost, decimal DiscountPercent, string UnitCode)
+{
+    public decimal LineTotal => checked(UnitCost * Quantity * (100m - DiscountPercent) / 100m);
+}
+
+public sealed record PurchaseInvoiceGridRow(Guid Id, string InvoiceNumber, string SupplierName,
+    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
+    string CurrencyCode, string Status);
+
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
     decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
 
@@ -78,6 +88,7 @@ public partial class MainWindow : Window
     private readonly PublicHostingManager _publicHostingManager;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
     private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
+    private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
@@ -98,6 +109,8 @@ public partial class MainWindow : Window
         _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
         SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
         PosCartGrid.ItemsSource = _posCartLines;
+        PurchaseDraftGrid.ItemsSource = _purchaseDraftLines;
+        PurchaseInvoiceDateInput.SelectedDate = DateTime.Today;
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
         UpdatePosCartTotal();
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
@@ -196,6 +209,13 @@ public partial class MainWindow : Window
 
         foreach (var tab in tabs)
         {
+            if (string.Equals(tab.Header?.ToString(), "خرید و پرداخت", StringComparison.Ordinal))
+            {
+                tab.IsEnabled = payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+                    && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
+                continue;
+            }
+
             var module = tab.Header?.ToString() switch
             {
                 "نمای کلی" => "Core",
@@ -351,10 +371,12 @@ public partial class MainWindow : Window
             var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
+            PurchaseProductInput.ItemsSource = products;
             CustomersGrid.ItemsSource = await db.Customers.AsNoTracking()
                 .OrderBy(x => x.DisplayName).ToListAsync();
-            SuppliersGrid.ItemsSource = await db.Suppliers.AsNoTracking()
-                .OrderBy(x => x.DisplayName).ToListAsync();
+            var suppliers = await db.Suppliers.AsNoTracking().OrderBy(x => x.DisplayName).ToListAsync();
+            SuppliersGrid.ItemsSource = suppliers;
+            PurchaseSupplierInput.ItemsSource = suppliers.Where(x => x.IsActive).ToList();
             ReservationResourcesGrid.ItemsSource = await db.ReservationResources.AsNoTracking()
                 .Where(x => x.BranchId == _sessionBranchId)
                 .OrderBy(x => x.Name).ToListAsync();
@@ -397,6 +419,19 @@ public partial class MainWindow : Window
                 .ToList();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
+
+            var purchaseRows = await (
+                from purchase in db.PurchaseInvoices.AsNoTracking()
+                join supplier in db.Suppliers.AsNoTracking() on purchase.SupplierId equals supplier.Id
+                select new PurchaseInvoiceGridRow(purchase.Id, purchase.InvoiceNumber, supplier.DisplayName,
+                    purchase.IssueDate, purchase.TotalAmount, purchase.PaidAmount,
+                    purchase.TotalAmount - purchase.PaidAmount, purchase.CurrencyCode, purchase.Status))
+                .ToListAsync();
+            PurchaseInvoicesGrid.ItemsSource = purchaseRows
+                .OrderByDescending(row => row.IssueDate).ThenByDescending(row => row.InvoiceNumber)
+                .Take(500).ToList();
+            UpdatePurchaseDraftTotal();
+            UpdateSupplierPaymentSelection();
 
             var orderRecords = await db.CustomerOrders.AsNoTracking().ToListAsync();
             var onlineOrders = orderRecords
@@ -1678,6 +1713,172 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ذخیره مشتری ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void AddPurchaseLine_Click(object sender, RoutedEventArgs e)
+    {
+        if (PurchaseProductInput.SelectedItem is not StoreProduct product)
+        {
+            StatusText.Text = "برای افزودن ردیف خرید، یک کالا انتخاب کنید.";
+            return;
+        }
+
+        if (!int.TryParse(PurchaseQuantityInput.Text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out var quantity)
+            && !int.TryParse(PurchaseQuantityInput.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity))
+        {
+            StatusText.Text = "تعداد باید عدد صحیح معتبر باشد.";
+            return;
+        }
+
+        if (!TryParseAmount(PurchaseUnitCostInput.Text, out var unitCost) || unitCost < 0m
+            || !TryParseAmount(PurchaseDiscountInput.Text, out var discountPercent)
+            || discountPercent is < 0m or > 100m)
+        {
+            StatusText.Text = "قیمت واحد باید نامنفی و تخفیف باید بین صفر تا صد درصد باشد.";
+            return;
+        }
+
+        var unitCode = PurchaseUnitCodeInput.Text.Trim().ToUpperInvariant();
+        if (quantity is < 1 or > 10000 || unitCode.Length is < 1 or > 20)
+        {
+            StatusText.Text = "تعداد باید بین ۱ تا ۱۰۰۰۰ و واحد کالا حداکثر ۲۰ نویسه باشد.";
+            return;
+        }
+
+        try
+        {
+            var line = new PurchaseInvoiceDraftLine(product.Id, product.Name, quantity, unitCost, discountPercent, unitCode);
+            _ = line.LineTotal;
+            _purchaseDraftLines.Add(line);
+            UpdatePurchaseDraftTotal();
+            StatusText.Text = $"ردیف خرید «{product.Name}» اضافه شد.";
+        }
+        catch (OverflowException)
+        {
+            StatusText.Text = "مبلغ این ردیف از محدوده قابل پشتیبانی خارج است.";
+        }
+    }
+
+    private void RemovePurchaseLine_Click(object sender, RoutedEventArgs e)
+    {
+        if (PurchaseDraftGrid.SelectedItem is not PurchaseInvoiceDraftLine selected)
+        {
+            StatusText.Text = "ابتدا یک ردیف پیش‌نویس خرید را انتخاب کنید.";
+            return;
+        }
+
+        _purchaseDraftLines.Remove(selected);
+        UpdatePurchaseDraftTotal();
+    }
+
+    private void UpdatePurchaseDraftTotal()
+    {
+        try
+        {
+            var total = _purchaseDraftLines.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
+            PurchaseDraftTotalText.Text = $"جمع فاکتور پیش‌نویس: {total:N2}";
+        }
+        catch (OverflowException)
+        {
+            PurchaseDraftTotalText.Text = "جمع پیش‌نویس از محدوده قابل پشتیبانی خارج است.";
+        }
+    }
+
+    private async void CreatePurchaseInvoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
+        {
+            StatusText.Text = "ثبت خرید به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
+            return;
+        }
+        if (PurchaseSupplierInput.SelectedItem is not SupplierRecord supplier || !supplier.IsActive)
+        {
+            StatusText.Text = "یک تأمین‌کننده فعال انتخاب کنید.";
+            return;
+        }
+        if (_purchaseDraftLines.Count == 0)
+        {
+            StatusText.Text = "حداقل یک ردیف به پیش‌نویس خرید اضافه کنید.";
+            return;
+        }
+
+        var issueDate = DateOnly.FromDateTime(PurchaseInvoiceDateInput.SelectedDate ?? DateTime.Today);
+        var lines = _purchaseDraftLines.Select(line => new PurchaseInvoiceLineRequest(
+            line.ProductId, line.Quantity, line.UnitCost, line.DiscountPercent / 100m, line.UnitCode)).ToArray();
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await new PurchasingAccountingService(db).CreatePurchaseInvoiceAsync(
+                supplier.Id, _sessionBranchId, lines, issueDate);
+            _purchaseDraftLines.Clear();
+            UpdatePurchaseDraftTotal();
+            StatusText.Text = $"فاکتور خرید {invoice.InvoiceNumber} ثبت شد؛ موجودی، میانگین بهای تمام‌شده و دفتر حسابداری به‌روزرسانی شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت فاکتور خرید ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RefreshPurchases_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+
+    private void PurchaseInvoicesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateSupplierPaymentSelection();
+
+    private void UpdateSupplierPaymentSelection()
+    {
+        if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
+        {
+            SupplierPaymentSelectionText.Text = "ابتدا یک فاکتور خرید را انتخاب کنید.";
+            return;
+        }
+
+        SupplierPaymentSelectionText.Text =
+            $"{selected.InvoiceNumber} | مانده: {selected.OutstandingAmount:N2} {selected.CurrencyCode}";
+        SupplierPaymentAmountInput.Text = selected.OutstandingAmount.ToString(CultureInfo.CurrentCulture);
+    }
+
+    private async void RecordSupplierPayment_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
+        {
+            StatusText.Text = "ثبت پرداخت تأمین‌کننده به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
+            return;
+        }
+        if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
+        {
+            StatusText.Text = "ابتدا فاکتور خرید موردنظر را انتخاب کنید.";
+            return;
+        }
+        if (!TryParseAmount(SupplierPaymentAmountInput.Text, out var amount) || amount <= 0m)
+        {
+            StatusText.Text = "مبلغ پرداخت باید عددی معتبر و بزرگ‌تر از صفر باشد.";
+            return;
+        }
+        if (SupplierPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem
+            || methodItem.Tag is not string method)
+        {
+            StatusText.Text = "روش پرداخت معتبر را انتخاب کنید.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var payment = await new PurchasingAccountingService(db).RecordSupplierPaymentAsync(
+                selected.Id, amount, method, SupplierPaymentReferenceInput.Text.Trim(),
+                SupplierPaymentNotesInput.Text.Trim());
+            SupplierPaymentReferenceInput.Clear();
+            SupplierPaymentNotesInput.Clear();
+            StatusText.Text = $"پرداخت {payment.Amount:N2} {payment.CurrencyCode} ثبت شد و مانده بدهی تأمین‌کننده به‌روزرسانی شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت پرداخت تأمین‌کننده ناموفق بود: {ex.Message}";
         }
     }
 
