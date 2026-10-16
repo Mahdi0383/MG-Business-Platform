@@ -50,6 +50,9 @@ public sealed record LicensePayload
             throw new ArgumentException("License module entitlements cannot contain duplicates.", nameof(Modules));
         if (!Modules.Contains("Core", StringComparer.Ordinal))
             throw new ArgumentException("Every license must include the Core module.", nameof(Modules));
+        if (Modules.Contains("Reservations", StringComparer.Ordinal)
+            && !Modules.Contains("Storefront", StringComparer.Ordinal))
+            throw new ArgumentException("The Reservations module requires Storefront because reservation APIs are hosted by the customer storefront.", nameof(Modules));
 
         return this with
         {
