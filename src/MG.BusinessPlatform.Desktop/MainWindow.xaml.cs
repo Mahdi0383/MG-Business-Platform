@@ -51,6 +51,9 @@ public sealed record FinancialStatementRow(string Statement, string AccountCode,
 public sealed record CashMovementGridRow(string AccountCode, string AccountName, decimal OpeningBalance,
     decimal Inflows, decimal Outflows, decimal ClosingBalance);
 
+public sealed record AuditEventGridRow(DateTimeOffset OccurredAtUtc, string Actor, string MachineName,
+    string Action, string EntityType, string EntityId, string ChangedFields);
+
 public sealed record InvoiceAgingGridRow(string DocumentType, string DocumentNumber, string CounterpartyName,
     DateOnly IssueDate, int AgeDays, string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
 
@@ -119,6 +122,8 @@ public partial class MainWindow : Window
         CashMovementToDateInput.SelectedDate = DateTime.Today;
         CashMovementFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
         InvoiceAgingAsOfDateInput.SelectedDate = DateTime.Today;
+        AuditFromDateInput.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
+        AuditToDateInput.SelectedDate = DateTime.Today;
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
         Directory.CreateDirectory(dataDirectory);
         _dataDirectory = dataDirectory;
@@ -244,6 +249,7 @@ public partial class MainWindow : Window
                 "فاکتورهای فروش" or "تراز آزمایشی" or "صورت‌های مالی" or "دفتر کل" or "گردش نقد و بانک" or "سن مطالبات و بدهی" => "Accounting",
                 "سفارش‌های آنلاین" => "Storefront",
                 "تنظیمات PC-POS" => "POS",
+                "سابقه تغییرات" => "Core",
                 "تنظیمات فروشگاه" => null,
                 "جلسات بازی" => "GameCafe",
                 "رزروها" => "Reservations",
@@ -1890,6 +1896,48 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             CashMovementTotalsText.Text = $"محاسبه گردش نقد و بانک ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RefreshAuditEvents_Click(object sender, RoutedEventArgs e) =>
+        await RefreshAuditEventsAsync();
+
+    private async Task RefreshAuditEventsAsync()
+    {
+        if (!HasLicensedModule("Core"))
+        {
+            AuditEventsStatusText.Text = "برای مشاهده سابقه تغییرات، لایسنس معتبر لازم است.";
+            return;
+        }
+
+        try
+        {
+            var fromDate = DateOnly.FromDateTime(AuditFromDateInput.SelectedDate ?? new DateTime(DateTime.Today.Year, 1, 1));
+            var toDate = DateOnly.FromDateTime(AuditToDateInput.SelectedDate ?? DateTime.Today);
+            if (fromDate > toDate)
+            {
+                AuditEventsStatusText.Text = "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.";
+                return;
+            }
+
+            var fromUtc = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Local)).ToUniversalTime();
+            var toUtcExclusive = new DateTimeOffset(toDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Local)).ToUniversalTime();
+            await using var db = new BusinessDbContext(CreateOptions());
+            var events = await db.AuditEvents.AsNoTracking()
+                .Where(item => item.OccurredAtUtc >= fromUtc && item.OccurredAtUtc < toUtcExclusive)
+                .OrderByDescending(item => item.OccurredAtUtc)
+                .Take(1000)
+                .ToListAsync();
+
+            AuditEventsGrid.ItemsSource = events.Select(item => new AuditEventGridRow(
+                item.OccurredAtUtc, item.Actor, item.MachineName, item.Action,
+                item.EntityType, item.EntityId, item.ChangedFields)).ToArray();
+            AuditEventsStatusText.Text = $"رویدادهای {fromDate:yyyy-MM-dd} تا {toDate:yyyy-MM-dd}: {events.Count}. " +
+                "نمایش حداکثر ۱۰۰۰ رویداد؛ برای کاهش نگهداری داده حساس فقط نام فیلدهای تغییرکرده ثبت می‌شود، نه مقادیر قبل و بعد.";
+        }
+        catch (Exception ex)
+        {
+            AuditEventsStatusText.Text = $"بارگذاری سابقه تغییرات ناموفق بود: {ex.Message}";
         }
     }
 
