@@ -74,6 +74,8 @@ internal static class PurchasingSchemaModel
         {
             b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.PurchaseInvoiceRecord", "Invoice")
                 .WithMany("Lines").HasForeignKey("InvoiceId").OnDelete(DeleteBehavior.Cascade).IsRequired();
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", null)
+                .WithMany().HasForeignKey("ProductId").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.Navigation("Invoice");
         });
 
