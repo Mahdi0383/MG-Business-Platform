@@ -149,6 +149,12 @@ app.MapGet("/api/storefront", async (BusinessDbContext db, IStorefrontLicenseGua
 
 app.MapGet("/api/storefront/products", async (BusinessDbContext db, CancellationToken ct) =>
 {
+    // Do not expose the shop's catalogue or pricing while online ordering is disabled.
+    // Returning an empty array preserves the customer page contract for reservation-only stores.
+    var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
+    if (!settings.OnlineOrderingEnabled)
+        return Results.Ok(Array.Empty<ProductResponse>());
+
     var products = await db.StoreProducts.AsNoTracking()
         .Where(x => x.IsAvailable)
         .OrderBy(x => x.Name)
