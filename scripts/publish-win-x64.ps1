@@ -138,11 +138,16 @@ function Copy-SourceTree {
             if ($excludedDirectoryNames -contains $entry.Name) { continue }
             Copy-SourceTree -SourcePath $entry.FullName -DestinationPath (Join-Path $DestinationPath $entry.Name)
         } else {
-            # Source archives must never include signing secrets or local credentials,
-            # even if a developer accidentally placed an ignored file inside a source tree.
-            if ($entry.Name -match '^(?i:license-private.*|secrets\.json|\.env(?:\..*)?)
+            # Exclude signing secrets and local credentials from source packages.
+            if (
+                $entry.Name -match '^(?i:license-private.*|secrets\.json|license\.json|\.env(?:\..*)?)$' -or
+                $entry.Extension -match '^\.(?i:pfx|p12|snk|key)$'
+            ) { continue }
+            if ($entry.Extension -ieq ".pem" -and $entry.Name -cne "TrustedLicensePublicKey.pem") { continue }
+            Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $DestinationPath $entry.Name) -Force
+        }
+    }
 }
-
 function New-SourceArchive {
     param(
         [Parameter(Mandatory = $true)][string[]]$RelativePaths,
