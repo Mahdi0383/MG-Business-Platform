@@ -31,6 +31,16 @@ public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Qu
     public decimal LineTotal => checked(UnitPrice * Quantity);
 }
 
+public sealed record PurchaseInvoiceDraftLine(Guid ProductId, string ProductName, int Quantity,
+    decimal UnitCost, decimal DiscountPercent, string UnitCode)
+{
+    public decimal LineTotal => checked(UnitCost * Quantity * (100m - DiscountPercent) / 100m);
+}
+
+public sealed record PurchaseInvoiceGridRow(Guid Id, string InvoiceNumber, string SupplierName,
+    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
+    string CurrencyCode, string Status);
+
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
     decimal DebitTurnover, decimal CreditTurnover, decimal DebitBalance, decimal CreditBalance);
 
@@ -78,6 +88,7 @@ public partial class MainWindow : Window
     private readonly PublicHostingManager _publicHostingManager;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
     private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
+    private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
@@ -98,6 +109,8 @@ public partial class MainWindow : Window
         _sessionDeviceId = LoadOrCreateIdentity(Path.Combine(dataDirectory, "device-id.txt"));
         SessionPlayersGrid.ItemsSource = _sessionPlayerDrafts;
         PosCartGrid.ItemsSource = _posCartLines;
+        PurchaseDraftGrid.ItemsSource = _purchaseDraftLines;
+        PurchaseInvoiceDateInput.SelectedDate = DateTime.Today;
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft { DisplayName = "بازیکن ۱" });
         UpdatePosCartTotal();
         _databasePath = Path.Combine(dataDirectory, "mg-business-platform.db");
