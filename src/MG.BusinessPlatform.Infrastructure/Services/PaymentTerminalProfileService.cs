@@ -243,8 +243,8 @@ public sealed class PaymentTerminalProfileService(string profileFilePath)
                 profiles = await JsonSerializer.DeserializeAsync<List<PaymentTerminalProfile>>(stream, JsonOptions, cancellationToken)
                     ?? throw new InvalidDataException("The imported PC-POS profile file is empty or invalid.");
 
-            if (profiles.Count > 200)
-                throw new InvalidDataException("A maximum of 200 PC-POS profiles can be imported.");
+            if (profiles.Count is < 1 or > 200)
+                throw new InvalidDataException("An import file must contain between 1 and 200 PC-POS profiles.");
             foreach (var profile in profiles)
                 Validate(profile);
             if (profiles.Select(profile => profile.Id).Distinct().Count() != profiles.Count)
