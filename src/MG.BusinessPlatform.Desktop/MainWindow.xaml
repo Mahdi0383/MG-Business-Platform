@@ -392,7 +392,7 @@
                             <DataGridTextColumn Header="مشتری/تأمین‌کننده" Binding="{Binding CounterpartyName}" Width="2*"/>
                             <DataGridTextColumn Header="تاریخ صدور" Binding="{Binding IssueDate}" Width="*"/>
                             <DataGridTextColumn Header="سررسید ثبت‌شده" Binding="{Binding DueDate}" Width="*"/>
-                            <DataGridTextColumn Header="مبنای سن" Binding="{Binding UsesIssueDateFallback}" Width="*"/>
+                            <DataGridTextColumn Header="مبنای سن" Binding="{Binding AgingBasisText}" Width="*"/>
                             <DataGridTextColumn Header="سن (روز)" Binding="{Binding AgeDays}" Width="*"/>
                             <DataGridTextColumn Header="بازه سنی" Binding="{Binding BucketText}" Width="1.2*"/>
                             <DataGridTextColumn Header="مبلغ سند" Binding="{Binding TotalAmount}" Width="*"/>
