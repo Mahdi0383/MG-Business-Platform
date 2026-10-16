@@ -97,3 +97,23 @@ jobs:
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256")) {
             throw "License manager installer SHA-256 checksum was not produced."
           }
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: MG-Business-Platform-windows-x64
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
+            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
+            artifacts/MG-Business-Platform-win-x64.zip
+            artifacts/MG-Business-Platform-win-x64.zip.sha256
+            artifacts/MG-License-Manager-win-x64.zip
+            artifacts/MG-License-Manager-win-x64.zip.sha256
+            artifacts/MG-Business-Platform-SOURCE.zip
+            artifacts/MG-Business-Platform-SOURCE.zip.sha256
+            artifacts/MG-License-Manager-SOURCE.zip
+            artifacts/MG-License-Manager-SOURCE.zip.sha256
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
+            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
