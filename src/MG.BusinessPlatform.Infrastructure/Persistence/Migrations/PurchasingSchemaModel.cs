@@ -41,6 +41,7 @@ internal static class PurchasingSchemaModel
             b.Property<decimal>("UnitCost").HasColumnType("TEXT");
             b.HasKey("Id");
             b.HasIndex("InvoiceId");
+            b.HasIndex("ProductId");
             b.ToTable("PurchaseInvoiceLines", t =>
             {
                 t.HasCheckConstraint("CK_PurchaseInvoiceLine_Quantity", "Quantity > 0");
