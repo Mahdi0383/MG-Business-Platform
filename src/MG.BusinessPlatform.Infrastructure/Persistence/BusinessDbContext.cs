@@ -403,6 +403,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
             entity.Property(x => x.UnitCode).HasMaxLength(20).IsRequired();
             entity.HasIndex(x => x.InvoiceId);
+            entity.HasOne<StoreProduct>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t =>
             {
                 t.HasCheckConstraint("CK_PurchaseInvoiceLine_Quantity", "Quantity > 0");
