@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mg-business-platform-${{ github.workflow }}-${{ github.ref }}
@@ -97,32 +97,3 @@ jobs:
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256")) {
             throw "License manager installer SHA-256 checksum was not produced."
           }
-
-      - name: Publish verified Windows packages as a GitHub Release
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]'))
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: mg-build-${{ github.run_number }}-${{ github.sha }}
-          name: MG Business Platform build ${{ github.run_number }}
-          prerelease: true
-          make_latest: false
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          body: |
-            Automated Windows x64 prerelease build.
-            Source commit: ${{ github.sha }}
-            Build, automated tests, installer creation and package verification completed in GitHub Actions.
-            This is a development prerelease, not a production-ready accounting system. Review the repository's README and release gates before live use.
-          files: |
-            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe
-            artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256
-            artifacts/MG-Business-Platform-win-x64.zip
-            artifacts/MG-Business-Platform-win-x64.zip.sha256
-            artifacts/installer/MG-License-Manager-Setup-win-x64.exe
-            artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256
-            artifacts/MG-License-Manager-win-x64.zip
-            artifacts/MG-License-Manager-win-x64.zip.sha256
-            artifacts/MG-Business-Platform-SOURCE.zip
-            artifacts/MG-Business-Platform-SOURCE.zip.sha256
-            artifacts/MG-License-Manager-SOURCE.zip
-            artifacts/MG-License-Manager-SOURCE.zip.sha256
