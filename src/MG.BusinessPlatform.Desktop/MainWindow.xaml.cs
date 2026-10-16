@@ -1618,7 +1618,15 @@ public partial class MainWindow : Window
         AddText($"جمع کل: {FormatReceiptAmount(invoice.TotalAmount, invoice.CurrencyCode)}", 11, true);
         AddText($"پرداخت‌شده: {FormatReceiptAmount(invoice.PaidAmount, invoice.CurrencyCode)}", 9);
         AddText($"مانده: {FormatReceiptAmount(checked(invoice.TotalAmount - invoice.PaidAmount), invoice.CurrencyCode)}", 10, true);
-        AddText($"وضعیت: {invoice.Status}", 9);
+        var statusText = invoice.Status switch
+        {
+            "Issued" => "صادرشده",
+            "PartiallyPaid" => "پرداخت بخشی",
+            "Paid" => "تسویه‌شده",
+            "Voided" => "باطل‌شده",
+            _ => invoice.Status
+        };
+        AddText($"وضعیت: {statusText}", 9);
         AddDivider();
         AddText("با تشکر از خرید شما", 10, true, TextAlignment.Center);
         return receipt;
