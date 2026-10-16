@@ -549,6 +549,171 @@ public partial class MainWindow : Window
         return profile;
     }
 
+    private void ShowPaymentProfile(PaymentTerminalProfile profile)
+    {
+        _editingPaymentProfileId = profile.Id;
+        PaymentProfileNameInput.Text = profile.Name;
+        PaymentProfileVendorInput.Text = profile.Vendor;
+        PaymentProfileModelInput.Text = profile.Model;
+        PaymentProfileDriverInput.Text = profile.DriverId;
+        PaymentProfileProtocolInput.Text = profile.ProtocolVersion;
+        PaymentConnectionTypeInput.SelectedValue = profile.ConnectionType.ToString();
+        PaymentHostInput.Text = profile.Host;
+        PaymentPortInput.Text = profile.Port.ToString(CultureInfo.InvariantCulture);
+        PaymentSerialPortInput.Text = profile.SerialPort;
+        PaymentBaudRateInput.Text = profile.BaudRate.ToString(CultureInfo.InvariantCulture);
+        PaymentDataBitsInput.Text = profile.DataBits.ToString(CultureInfo.InvariantCulture);
+        PaymentParityInput.SelectedValue = profile.Parity;
+        PaymentStopBitsInput.SelectedValue = profile.StopBits;
+        PaymentFlowControlInput.SelectedValue = profile.FlowControl;
+        PaymentConnectTimeoutInput.Text = profile.ConnectTimeoutMs.ToString(CultureInfo.InvariantCulture);
+        PaymentResponseTimeoutInput.Text = profile.ResponseTimeoutMs.ToString(CultureInfo.InvariantCulture);
+        PaymentCurrencyInput.Text = profile.CurrencyCode;
+        PaymentMerchantIdInput.Text = profile.MerchantId;
+        PaymentTerminalIdInput.Text = profile.TerminalId;
+        PaymentEndpointInput.Text = profile.Endpoint;
+        PaymentAuthReferenceInput.Text = profile.AuthenticationReference;
+        PaymentEnabledInput.IsChecked = profile.IsEnabled;
+        PaymentDefaultInput.IsChecked = profile.IsDefault;
+        PaymentProfileStatusText.Text = string.IsNullOrWhiteSpace(profile.LastTestMessage)
+            ? $"پروفایل «{profile.Name}» بارگذاری شد. وضعیت آزمون: {profile.LastTestStatus}."
+            : $"پروفایل «{profile.Name}» — {profile.LastTestStatus}: {profile.LastTestMessage}";
+    }
+
+    private async void SavePaymentProfile_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var profile = BuildPaymentProfile();
+            await _paymentTerminalProfileService.SaveAsync(profile);
+            _editingPaymentProfileId = profile.Id;
+            await LoadPaymentTerminalProfilesAsync();
+            PaymentProfileStatusText.Text = $"پروفایل «{profile.Name}» ذخیره شد. هیچ تراکنش پرداختی ارسال نشده است.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"ذخیره پروفایل ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void TestPaymentProfile_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var profile = BuildPaymentProfile();
+            var result = await _paymentTerminalProfileService.TestConnectionAsync(profile);
+            PaymentProfileStatusText.Text = $"{result.Status} — {result.Message}";
+            if (result.ConfigurationValid)
+            {
+                profile = profile with
+                {
+                    LastTestedAtUtc = result.TestedAtUtc,
+                    LastTestStatus = result.Status,
+                    LastTestMessage = result.Message
+                };
+                await _paymentTerminalProfileService.SaveAsync(profile);
+                _editingPaymentProfileId = profile.Id;
+                await LoadPaymentTerminalProfilesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"آزمون اتصال انجام نشد: {ex.Message}";
+        }
+    }
+
+    private async void DeletePaymentProfile_Click(object sender, RoutedEventArgs e)
+    {
+        var id = PaymentTerminalProfilesGrid.SelectedItem is PaymentTerminalProfileGridRow selected
+            ? selected.Id
+            : _editingPaymentProfileId;
+        if (id is not Guid profileId)
+        {
+            PaymentProfileStatusText.Text = "ابتدا یک پروفایل را انتخاب کنید.";
+            return;
+        }
+        if (!ConfirmationDialog.Confirm(this, "حذف پروفایل PC-POS",
+            "این کار فقط تنظیمات ذخیره‌شده را حذف می‌کند و هیچ تراکنش بانکی را لغو یا بازپرداخت نمی‌کند.",
+            "حذف پروفایل"))
+            return;
+
+        try
+        {
+            await _paymentTerminalProfileService.DeleteAsync(profileId);
+            NewPaymentProfile_Click(this, new RoutedEventArgs());
+            await LoadPaymentTerminalProfilesAsync();
+            PaymentProfileStatusText.Text = "پروفایل حذف شد.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"حذف پروفایل ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void RefreshPaymentProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await LoadPaymentTerminalProfilesAsync();
+            PaymentProfileStatusText.Text = "فهرست پروفایل‌ها به‌روزرسانی شد.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"بارگذاری پروفایل‌ها ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void ExportPaymentProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "ذخیره پشتیبان پروفایل‌های PC-POS",
+            Filter = "PC-POS profiles (*.json)|*.json",
+            DefaultExt = ".json",
+            AddExtension = true,
+            FileName = $"MG-PC-POS-Profiles-{DateTime.Now:yyyyMMdd-HHmmss}.json"
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        try
+        {
+            await _paymentTerminalProfileService.ExportAsync(dialog.FileName);
+            PaymentProfileStatusText.Text = $"پشتیبان پروفایل‌ها ذخیره شد: {dialog.FileName}. این فایل شامل رمز یا اطلاعات کارت نیست.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"خروجی پروفایل‌ها ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void ImportPaymentProfiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب پشتیبان پروفایل‌های PC-POS",
+            Filter = "PC-POS profiles (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+        if (!ConfirmationDialog.Confirm(this, "ورود پشتیبان PC-POS",
+            "فهرست فعلی پروفایل‌ها با فایل انتخابی جایگزین می‌شود. این کار هیچ پرداخت، برگشت وجه یا تراکنش بانکی انجام نمی‌دهد.",
+            "جایگزینی پروفایل‌ها"))
+            return;
+        try
+        {
+            await _paymentTerminalProfileService.ImportAsync(dialog.FileName);
+            _editingPaymentProfileId = null;
+            await LoadPaymentTerminalProfilesAsync();
+            PaymentProfileStatusText.Text = "پروفایل‌ها از پشتیبان وارد شدند. درایور و سازگاری دستگاه باید جداگانه بررسی شوند.";
+        }
+        catch (Exception ex)
+        {
+            PaymentProfileStatusText.Text = $"ورود پروفایل‌ها ناموفق بود؛ تنظیمات قبلی حفظ شدند: {ex.Message}";
+        }
+    }
+
     private async Task RefreshGameSessionsAsync(BusinessDbContext db)
     {
         var sessions = await new GameSessionRepository(db).FindRecentAsync();
