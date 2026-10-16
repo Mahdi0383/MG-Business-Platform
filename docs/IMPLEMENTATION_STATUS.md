@@ -14,7 +14,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 - Customer storefront API/UI with server-side price and stock validation, transactional order creation, same-key idempotent retries, rate limits, host allow-listing, request-size limits and basic security headers.
 - Online reservation resources and booking requests with validation, idempotency, overlap checks and desktop confirmation/cancellation controls.
 - PC-POS profile settings for manual, TCP/IP, serial/USB virtual COM, vendor local API, Windows service and vendor SDK connection types. TCP diagnostics verify transport only; they do not claim payment approval or replace model-specific vendor protocol adapters.
-- Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, HTTPS status checks, generated customer QR links and optional Windows firewall configuration. Public access still depends on DNS, router/NAT, ISP policy and inbound reachability.
+- Bundled Caddy reverse-proxy management, TLS certificate automation, local port checks, DNS/public-IP diagnostics, HTTPS status checks, generated customer QR links and optional Windows firewall configuration. ParsPack CDN DNS A-record synchronization is available from Store Settings; the API token is stored in Windows Credential Manager and existing records are replaced only after confirmation. Other DNS providers remain manual.
 - RSA-PSS signed offline license payloads, software/hardware serial binding, expiry and module validation, separate license-generation/verification UI and CLI, desktop module gating, and independent Windows packaging. The private signing key must remain outside the application and source control.
 - Windows CI/release workflows that restore, build, run tests, publish self-contained Windows packages, compile both installers, validate source archives and produce SHA-256 checksums.
 
@@ -27,14 +27,14 @@ This document distinguishes source-code presence from verified behavior. A featu
 - Game-cafe operations still need a device/room registry, availability scheduling, tariff management, customer history, editing groups after start and fully integrated settlement/invoice/payment flow.
 - Branch synchronization, multi-warehouse operations, loyalty, retail variants, repair jobs, wholesale workflows and a complete permissions/role administration interface remain.
 - Multi-PC operation is not yet a complete centrally authenticated deployment. Do not share the SQLite database file over a network share; a supported central service/database and desktop-client API path must be implemented and load-tested.
-- Direct self-hosting cannot overcome carrier-grade NAT or blocked inbound ports. Provider-specific DNS APIs and an independent outbound relay/tunnel are not implemented; a public VPS or compatible relay may be required where direct hosting is impossible.
+- Direct self-hosting cannot overcome carrier-grade NAT or blocked inbound ports. DNS automation currently supports ParsPack CDN zones only; other providers require manual records. An independent outbound relay/tunnel is not implemented, so a public VPS or compatible relay may be required where direct hosting is impossible. Router port forwarding still requires manual configuration.
 - No automated migration from prior MG Game Cafe databases, verified upgrade/rollback drill, signed update pipeline, comprehensive security/penetration test, performance/load test or full Windows operator acceptance test has been completed.
 - Physical receipt printers, barcode scanners, payment terminals and router/DNS configurations have not been validated against real customer hardware and networks.
 
 ## Verification status
 
 - Main commit `ad04c96ae09cae606d839a14cd316d0518bf9b34` passed the Windows Release build with zero compiler errors, all 170 automated tests, both Windows installers and package verification.
-- The build/test evidence is tied to this exact commit. Later source changes, including publisher-key bootstrap and source-archive secret filtering, must pass CI separately before their artifacts are considered verified.
+- Commit `24d4b0124cda4ca872cb069eda44e6118981db0e` passed the Windows Release build, all 185 automated tests, both Windows installers and package verification, including the ParsPack DNS integration. The combined main-branch build for the merge commit must still be checked before its artifacts are treated as release evidence.
 - The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability.
 - Desktop license checks and public storefront license checks are present, but this is not a substitute for server-side authorization on every future administrative API.
