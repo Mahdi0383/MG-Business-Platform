@@ -54,18 +54,25 @@ public static class LicenseRuntimeValidator
     public static string GetHardwareSerial()
     {
         string machineId;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography", writable: false);
-            machineId = key?.GetValue("MachineGuid")?.ToString() ?? Environment.MachineName;
-        }
-        catch (UnauthorizedAccessException)
+        if (!OperatingSystem.IsWindows())
         {
             machineId = Environment.MachineName;
         }
-        catch (System.Security.SecurityException)
+        else
         {
-            machineId = Environment.MachineName;
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography", writable: false);
+                machineId = key?.GetValue("MachineGuid")?.ToString() ?? Environment.MachineName;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                machineId = Environment.MachineName;
+            }
+            catch (System.Security.SecurityException)
+            {
+                machineId = Environment.MachineName;
+            }
         }
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(machineId.Trim().ToUpperInvariant()));
