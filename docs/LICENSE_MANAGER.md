@@ -22,7 +22,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 .\scripts\bootstrap-publisher-key.ps1
 ```
 
-The script generates a new key pair outside the repository, restricts the private-key file ACL to the current Windows account and SYSTEM, embeds the public key, and runs the full build/test/package pipeline. It restores the previous embedded public key if packaging fails. Keep the private key offline and separately backed up. Never upload it to GitHub, place it in a source archive, or distribute it to customers.
+The script generates a new key pair outside the repository, restricts the private-key file ACL to the current Windows account and SYSTEM, embeds the public key, and runs the full build/test/package pipeline. It restores the previous embedded public key if packaging fails. Keep the private key offline and separately backed up. Never upload it to GitHub, place it in a source archive, or distribute it to customers. The script is included in the full MG Business Platform source archive; it is not included in the standalone License Manager source archive, because it requires the full solution and release pipeline.
 
 **Important:** this changes the trust anchor. Existing installations built with the old public key will not accept licenses signed by the new private key, and licenses signed by the old key will not validate in the rebuilt app. Before using the new build for customers, commit the new public PEM to the source repository and distribute only the matching newly built application and license manager. Treat later key changes as a planned customer migration, not a routine rebuild.
 
