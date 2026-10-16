@@ -372,6 +372,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 .IsRequired();
         });
 
+        PurchasingSchemaModel.BuildModel(modelBuilder);
         GameSessionsSchemaModel.BuildModel(modelBuilder);
     }
 }

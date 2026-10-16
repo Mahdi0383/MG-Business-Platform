@@ -82,6 +82,49 @@ public sealed class PaymentRecord
     public string Notes { get; set; } = string.Empty;
 }
 
+public sealed class PurchaseInvoiceRecord
+{
+    public Guid Id { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public Guid BranchId { get; set; }
+    public Guid SupplierId { get; set; }
+    public DateOnly IssueDate { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public decimal TotalAmount { get; set; }
+    public decimal PaidAmount { get; set; }
+    public string Status { get; set; } = "Received";
+    public DateTimeOffset CreatedAt { get; set; }
+    public List<PurchaseInvoiceLineRecord> Lines { get; set; } = [];
+}
+
+public sealed class PurchaseInvoiceLineRecord
+{
+    public Guid Id { get; set; }
+    public Guid InvoiceId { get; set; }
+    public PurchaseInvoiceRecord? Invoice { get; set; }
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string UnitCode { get; set; } = "EA";
+    public int Quantity { get; set; }
+    public decimal UnitCost { get; set; }
+    public decimal DiscountRate { get; set; }
+    public decimal LineTotal { get; set; }
+}
+
+public sealed class SupplierPaymentRecord
+{
+    public Guid Id { get; set; }
+    public string PaymentNumber { get; set; } = string.Empty;
+    public Guid PurchaseInvoiceId { get; set; }
+    public Guid JournalEntryId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public string Method { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public string Reference { get; set; } = string.Empty;
+    public string Notes { get; set; } = string.Empty;
+}
+
 public sealed class StoreProduct
 {
     public Guid Id { get; set; }
@@ -240,6 +283,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<JournalEntryRecord> JournalEntries => Set<JournalEntryRecord>();
     public DbSet<JournalLineRecord> JournalLines => Set<JournalLineRecord>();
     public DbSet<PaymentRecord> Payments => Set<PaymentRecord>();
+    public DbSet<PurchaseInvoiceRecord> PurchaseInvoices => Set<PurchaseInvoiceRecord>();
+    public DbSet<PurchaseInvoiceLineRecord> PurchaseInvoiceLines => Set<PurchaseInvoiceLineRecord>();
+    public DbSet<SupplierPaymentRecord> SupplierPayments => Set<SupplierPaymentRecord>();
     public DbSet<CustomerRecord> Customers => Set<CustomerRecord>();
     public DbSet<SupplierRecord> Suppliers => Set<SupplierRecord>();
     public DbSet<StoreSettings> StoreSettings => Set<StoreSettings>();
@@ -335,6 +381,51 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.HasOne<SalesInvoiceRecord>().WithMany().HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<JournalEntryRecord>().WithMany().HasForeignKey(x => x.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t => t.HasCheckConstraint("CK_Payment_Amount", "CAST(Amount AS NUMERIC) > 0"));
+        });
+
+        modelBuilder.Entity<PurchaseInvoiceRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.InvoiceNumber).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            entity.HasIndex(x => x.InvoiceNumber).IsUnique();
+            entity.HasIndex(x => new { x.SupplierId, x.IssueDate });
+            entity.ToTable(t => t.HasCheckConstraint("CK_PurchaseInvoice_Amounts",
+                "CAST(TotalAmount AS NUMERIC) > 0 AND CAST(PaidAmount AS NUMERIC) >= 0 AND CAST(PaidAmount AS NUMERIC) <= CAST(TotalAmount AS NUMERIC)"));
+            entity.HasMany(x => x.Lines).WithOne(x => x.Invoice).HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SupplierRecord>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PurchaseInvoiceLineRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.UnitCode).HasMaxLength(20).IsRequired();
+            entity.HasIndex(x => x.InvoiceId);
+            entity.HasOne<StoreProduct>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_PurchaseInvoiceLine_Quantity", "Quantity > 0");
+                t.HasCheckConstraint("CK_PurchaseInvoiceLine_Amounts",
+                    "CAST(UnitCost AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) <= 1 AND CAST(LineTotal AS NUMERIC) >= 0");
+            });
+        });
+
+        modelBuilder.Entity<SupplierPaymentRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.PaymentNumber).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Method).HasMaxLength(30).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.Reference).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.Notes).HasMaxLength(500).IsRequired();
+            entity.HasIndex(x => x.PaymentNumber).IsUnique();
+            entity.HasIndex(x => x.PurchaseInvoiceId);
+            entity.HasIndex(x => x.JournalEntryId);
+            entity.HasOne<PurchaseInvoiceRecord>().WithMany().HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<JournalEntryRecord>().WithMany().HasForeignKey(x => x.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t => t.HasCheckConstraint("CK_SupplierPayment_Amount", "CAST(Amount AS NUMERIC) > 0"));
         });
 
         modelBuilder.Entity<CustomerRecord>(entity =>
