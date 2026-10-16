@@ -57,6 +57,8 @@ public sealed class AddPurchasingAccounting : Migration
                     "CAST(UnitCost AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) >= 0 AND CAST(DiscountRate AS NUMERIC) <= 1 AND CAST(LineTotal AS NUMERIC) >= 0");
                 table.ForeignKey("FK_PurchaseInvoiceLines_PurchaseInvoices_InvoiceId",
                     x => x.InvoiceId, "PurchaseInvoices", "Id", onDelete: ReferentialAction.Cascade);
+                table.ForeignKey("FK_PurchaseInvoiceLines_StoreProducts_ProductId",
+                    x => x.ProductId, "StoreProducts", "Id", onDelete: ReferentialAction.Restrict);
             });
 
         migrationBuilder.CreateTable(
@@ -88,6 +90,7 @@ public sealed class AddPurchasingAccounting : Migration
         migrationBuilder.CreateIndex("IX_PurchaseInvoices_SupplierId_IssueDate", "PurchaseInvoices",
             new[] { "SupplierId", "IssueDate" });
         migrationBuilder.CreateIndex("IX_PurchaseInvoiceLines_InvoiceId", "PurchaseInvoiceLines", "InvoiceId");
+        migrationBuilder.CreateIndex("IX_PurchaseInvoiceLines_ProductId", "PurchaseInvoiceLines", "ProductId");
         migrationBuilder.CreateIndex("IX_SupplierPayments_PaymentNumber", "SupplierPayments", "PaymentNumber", unique: true);
         migrationBuilder.CreateIndex("IX_SupplierPayments_PurchaseInvoiceId", "SupplierPayments", "PurchaseInvoiceId");
     }
