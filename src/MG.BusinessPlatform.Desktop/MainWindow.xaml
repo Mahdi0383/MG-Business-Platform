@@ -185,7 +185,7 @@
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                         <TextBlock x:Name="PurchaseDraftTotalText" Text="جمع فاکتور پیش‌نویس: ۰" FontWeight="SemiBold" Margin="0,0,0,6"/>
                         <TextBlock Grid.Column="1" Text="فاکتورهای خرید ثبت‌شده" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                        <DataGrid x:Name="PurchaseInvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" Background="White">
+                        <DataGrid x:Name="PurchaseInvoicesGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" SelectionChanged="PurchaseInvoicesGrid_SelectionChanged" Background="White">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="شماره" Binding="{Binding InvoiceNumber}" Width="1.4*"/>
                                 <DataGridTextColumn Header="تأمین‌کننده" Binding="{Binding SupplierName}" Width="1.4*"/>
