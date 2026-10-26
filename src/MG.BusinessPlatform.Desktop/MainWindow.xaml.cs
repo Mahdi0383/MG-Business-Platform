@@ -1049,9 +1049,9 @@ public partial class MainWindow : Window
             {
                 var details = string.Join(Environment.NewLine, result.Issues.Take(10)
                     .Select(issue => $"ردیف {issue.RowNumber}: {issue.Message}"));
-                ProductCsvStatusText.Text = details;
                 ProductCsvStatusText.Text = $"ورود لغو شد؛ هیچ کالایی ثبت نشد. تعداد خطاها: {result.Issues.Count}. " +
-                    (result.Issues.Count > 10 ? "فقط ۱۰ خطای نخست نمایش داده شده است." : string.Empty);
+                    (result.Issues.Count > 10 ? "فقط ۱۰ خطای نخست نمایش داده شده است." : string.Empty) +
+                    Environment.NewLine + details;
                 StatusText.Text = "ورود CSV کالاها به‌دلیل خطای اعتبارسنجی انجام نشد.";
                 return;
             }
