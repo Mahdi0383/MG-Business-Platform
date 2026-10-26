@@ -1049,26 +1049,30 @@ public partial class MainWindow : Window
             {
                 var details = string.Join(Environment.NewLine, result.Issues.Take(10)
                     .Select(issue => $"ردیف {issue.RowNumber}: {issue.Message}"));
-                AuditEventsStatusText.Text = details;
-                StatusText.Text = $"ورود لغو شد؛ هیچ کالایی ثبت نشد. تعداد خطاها: {result.Issues.Count}. " +
+                ProductCsvStatusText.Text = details;
+                ProductCsvStatusText.Text = $"ورود لغو شد؛ هیچ کالایی ثبت نشد. تعداد خطاها: {result.Issues.Count}. " +
                     (result.Issues.Count > 10 ? "فقط ۱۰ خطای نخست نمایش داده شده است." : string.Empty);
+                StatusText.Text = "ورود CSV کالاها به‌دلیل خطای اعتبارسنجی انجام نشد.";
                 return;
             }
 
-            StatusText.Text = $"ورود کالاها انجام شد: {result.ImportedCount} کالای جدید، " +
+            ProductCsvStatusText.Text = $"ورود کالاها انجام شد: {result.ImportedCount} کالای جدید، " +
                 $"{result.SkippedExistingCount} کد تکراری رد شد.";
+            StatusText.Text = ProductCsvStatusText.Text;
             try
             {
                 await RefreshAsync();
             }
             catch (Exception refreshException)
             {
-                StatusText.Text = $"ورود کالاها انجام شد ({result.ImportedCount} مورد)، اما تازه‌سازی فهرست ناموفق بود: {refreshException.Message}";
+                ProductCsvStatusText.Text = $"ورود کالاها انجام شد ({result.ImportedCount} مورد)، اما تازه‌سازی فهرست ناموفق بود: {refreshException.Message}";
+                StatusText.Text = ProductCsvStatusText.Text;
             }
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"ورود CSV کالاها ناموفق بود: {ex.Message}";
+            ProductCsvStatusText.Text = $"ورود CSV کالاها ناموفق بود: {ex.Message}";
+            StatusText.Text = ProductCsvStatusText.Text;
         }
     }
 
@@ -1125,12 +1129,14 @@ public partial class MainWindow : Window
                 new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             File.Move(temporaryPath, outputPath, overwrite: true);
             temporaryPath = null;
-            StatusText.Text = $"خروجی کالاها ذخیره شد: {products.Count} کالا، {outputPath}" +
+            ProductCsvStatusText.Text = $"خروجی کالاها ذخیره شد: {products.Count} کالا، {outputPath}" +
                 (truncated ? "؛ به‌دلیل محدودیت ایمنی فقط ۱۰۰٬۰۰۰ کالا صادر شد." : ".");
+            StatusText.Text = ProductCsvStatusText.Text;
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"خروجی CSV کالاها ناموفق بود: {ex.Message}";
+            ProductCsvStatusText.Text = $"خروجی CSV کالاها ناموفق بود: {ex.Message}";
+            StatusText.Text = ProductCsvStatusText.Text;
         }
         finally
         {
