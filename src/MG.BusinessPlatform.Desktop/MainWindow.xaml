@@ -291,6 +291,7 @@
                             <DockPanel Margin="4,6,4,0">
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                                     <Button Content="حذف از سبد" Click="RemovePosCartItem_Click"/>
+                                    <Button Content="افزودنی‌های ردیف انتخاب‌شده" Click="EditPosCartAddons_Click"/>
                                     <Button x:Name="CompletePosSaleButton" Content="ثبت فروش، صدور فاکتور و دریافت وجه" Click="CompletePosSale_Click"/>
                                 </StackPanel>
                                 <TextBlock x:Name="PosCartTotalText" Text="مجموع سبد: ۰" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
@@ -299,9 +300,11 @@
                     </Border>
                     <DataGrid x:Name="PosCartGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White" Margin="0,0,0,10" SelectionMode="Single">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="کالا" Binding="{Binding ProductName}" Width="2*"/>
+                            <DataGridTextColumn Header="کالا" Binding="{Binding ProductName}" Width="1.5*"/>
+                            <DataGridTextColumn Header="افزودنی‌ها" Binding="{Binding AddonSummary}" Width="2*"/>
                             <DataGridTextColumn Header="تعداد" Binding="{Binding Quantity}" Width="*"/>
-                            <DataGridTextColumn Header="قیمت واحد" Binding="{Binding UnitPrice}" Width="*"/>
+                            <DataGridTextColumn Header="قیمت پایه" Binding="{Binding UnitPrice}" Width="*"/>
+                            <DataGridTextColumn Header="قیمت واحد با افزودنی" Binding="{Binding TotalUnitPrice}" Width="*"/>
                             <DataGridTextColumn Header="جمع ردیف" Binding="{Binding LineTotal}" Width="*"/>
                             <DataGridTextColumn Header="واحد پول" Binding="{Binding CurrencyCode}" Width="*"/>
                         </DataGrid.Columns>
