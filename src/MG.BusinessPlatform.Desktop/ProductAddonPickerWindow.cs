@@ -101,9 +101,9 @@ public sealed class ProductAddonPickerWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left
         };
         var saveButton = new Button { Content = "ذخیره انتخاب", MinWidth = 120, Margin = new Thickness(4), IsDefault = true };
-        saveButton.Click += (_, _) => { DialogResult = true; Close(); };
+        saveButton.Click += (_, _) => DialogResult = true;
         var cancelButton = new Button { Content = "انصراف", MinWidth = 90, Margin = new Thickness(4), IsCancel = true };
-        cancelButton.Click += (_, _) => { DialogResult = false; Close(); };
+        cancelButton.Click += (_, _) => DialogResult = false;
         buttons.Children.Add(saveButton);
         buttons.Children.Add(cancelButton);
         Grid.SetRow(buttons, 2);
