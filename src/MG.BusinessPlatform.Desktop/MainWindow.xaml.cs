@@ -1025,6 +1025,136 @@ public partial class MainWindow : Window
         Complete
     }
 
+    private async void ImportProductsCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("ورود کالاها از CSV", "Inventory"))
+            return;
+
+        var dialog = new OpenFileDialog
+        {
+            Title = "انتخاب فایل CSV کالاها",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            if (new FileInfo(dialog.FileName).Length > 10L * 1024 * 1024)
+            {
+                ProductCsvStatusText.Text = "فایل CSV بیش از ۱۰ مگابایت است؛ فایل کوچک‌تری انتخاب کنید.";
+                return;
+            }
+
+            var csv = await File.ReadAllTextAsync(dialog.FileName);
+            await using var db = new BusinessDbContext(CreateOptions());
+            var result = await new ProductCsvImportService(db).ImportAsync(csv);
+            if (result.Issues.Count > 0)
+            {
+                var details = string.Join(Environment.NewLine, result.Issues.Take(10)
+                    .Select(issue => $"ردیف {issue.RowNumber}: {issue.Message}"));
+                ProductCsvStatusText.Text = $"ورود لغو شد؛ هیچ کالایی ثبت نشد. تعداد خطاها: {result.Issues.Count}. " +
+                    (result.Issues.Count > 10 ? "فقط ۱۰ خطای نخست نمایش داده شده است." : string.Empty) +
+                    Environment.NewLine + details;
+                StatusText.Text = "ورود CSV کالاها به‌دلیل خطای اعتبارسنجی انجام نشد.";
+                return;
+            }
+
+            ProductCsvStatusText.Text = $"ورود کالاها انجام شد: {result.ImportedCount} کالای جدید، " +
+                $"{result.SkippedExistingCount} کد تکراری رد شد.";
+            StatusText.Text = ProductCsvStatusText.Text;
+            try
+            {
+                await RefreshAsync();
+            }
+            catch (Exception refreshException)
+            {
+                ProductCsvStatusText.Text = $"ورود کالاها انجام شد ({result.ImportedCount} مورد)، اما تازه‌سازی فهرست ناموفق بود: {refreshException.Message}";
+                StatusText.Text = ProductCsvStatusText.Text;
+            }
+        }
+        catch (Exception ex)
+        {
+            ProductCsvStatusText.Text = $"ورود CSV کالاها ناموفق بود: {ex.Message}";
+            StatusText.Text = ProductCsvStatusText.Text;
+        }
+    }
+
+    private async void ExportProductsCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("خروجی کالاها به CSV", "Inventory"))
+            return;
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "ذخیره فهرست کالاها",
+            FileName = $"MG-Products-{DateTime.Today:yyyyMMdd}.csv",
+            Filter = "CSV files (*.csv)|*.csv",
+            DefaultExt = ".csv",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        string? temporaryPath = null;
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var products = await db.StoreProducts.AsNoTracking()
+                .OrderBy(product => product.Sku)
+                .Take(100001)
+                .ToListAsync();
+            var truncated = products.Count > 100000;
+            if (truncated)
+                products = products.Take(100000).ToList();
+
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("SKU,Name,Description,UnitPrice,UnitCost,CurrencyCode,StockQuantity,IsAvailable");
+            foreach (var product in products)
+            {
+                var fields = new[]
+                {
+                    AuditCsvFormatter.EscapeField(product.Sku),
+                    AuditCsvFormatter.EscapeField(product.Name),
+                    AuditCsvFormatter.EscapeField(product.Description),
+                    product.UnitPrice.ToString(CultureInfo.InvariantCulture),
+                    product.UnitCost.ToString(CultureInfo.InvariantCulture),
+                    AuditCsvFormatter.EscapeField(product.CurrencyCode),
+                    product.StockQuantity.ToString(CultureInfo.InvariantCulture),
+                    product.IsAvailable.ToString().ToLowerInvariant()
+                };
+                csv.AppendLine(string.Join(",", fields));
+            }
+
+            var outputPath = Path.GetFullPath(dialog.FileName);
+            temporaryPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            await File.WriteAllTextAsync(temporaryPath, csv.ToString(),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            File.Move(temporaryPath, outputPath, overwrite: true);
+            temporaryPath = null;
+            ProductCsvStatusText.Text = $"خروجی کالاها ذخیره شد: {products.Count} کالا، {outputPath}" +
+                (truncated ? "؛ به‌دلیل محدودیت ایمنی فقط ۱۰۰٬۰۰۰ کالا صادر شد." : ".");
+            StatusText.Text = ProductCsvStatusText.Text;
+        }
+        catch (Exception ex)
+        {
+            ProductCsvStatusText.Text = $"خروجی CSV کالاها ناموفق بود: {ex.Message}";
+            StatusText.Text = ProductCsvStatusText.Text;
+        }
+        finally
+        {
+            if (temporaryPath is not null && File.Exists(temporaryPath))
+            {
+                try { File.Delete(temporaryPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
     private async void AddProduct_Click(object sender, RoutedEventArgs e)
     {
         if (!RequireLicensedModules("افزودن کالا", "Inventory")) return;
