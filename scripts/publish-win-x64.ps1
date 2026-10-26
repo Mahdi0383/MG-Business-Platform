@@ -23,6 +23,14 @@ $licenseToolZipPath = Join-Path $artifactRoot "MG-License-Manager-win-x64.zip"
 $mainSourceZipPath = Join-Path $artifactRoot "MG-Business-Platform-SOURCE.zip"
 $licenseSourceZipPath = Join-Path $artifactRoot "MG-License-Manager-SOURCE.zip"
 
+$stopHostScript = Join-Path $PSScriptRoot "stop-host.ps1"
+$parseTokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($stopHostScript, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+if ($parseErrors.Count -gt 0) {
+    throw "stop-host.ps1 contains PowerShell syntax errors: $($parseErrors -join '; ')"
+}
+
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw ".NET SDK 10 is required. Install the .NET 10 SDK and rerun this script."
 }
@@ -85,6 +93,8 @@ if (-not (Test-Path (Join-Path $licenseToolOutput "MG.BusinessPlatform.LicenseMa
 }
 
 Copy-Item (Join-Path $PSScriptRoot "configure-firewall.ps1") (Join-Path $desktopOutput "configure-firewall.ps1") -Force
+Copy-Item (Join-Path $PSScriptRoot "stop-host.ps1") (Join-Path $desktopOutput "stop-host.ps1") -Force
+if (-not (Test-Path (Join-Path $desktopOutput "stop-host.ps1"))) { throw "Background host cleanup script was not packaged." }
 
 Write-Host "== Package Caddy HTTPS reverse proxy ==" -ForegroundColor Cyan
 $caddyDirectory = Join-Path $desktopOutput "caddy"
