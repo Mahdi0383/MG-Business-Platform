@@ -54,6 +54,13 @@ public sealed class DatabaseMaintenanceService
             throw new FileNotFoundException("Backup file was not found.", backup);
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+
+        // EF Core's default SQLite pooling can keep a connection alive after its
+        // DbContext is disposed. Release this process's idle pooled connections
+        // before checking WAL/SHM files; otherwise a normal restore can be rejected
+        // even though the desktop app has stopped all active database work.
+        SqliteConnection.ClearAllPools();
+
         if (File.Exists(target + "-wal") || File.Exists(target + "-shm"))
             throw new InvalidOperationException("SQLite sidecar files still exist. Stop every process using the database before restoring.");
         var temporaryPath = target + ".restore-" + Guid.NewGuid().ToString("N");
