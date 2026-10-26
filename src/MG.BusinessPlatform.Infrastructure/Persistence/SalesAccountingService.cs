@@ -1,8 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
-public sealed record PosSaleLineRequest(Guid ProductId, int Quantity, decimal? ExpectedUnitPrice = null);
+public sealed record PosSaleLineRequest(Guid ProductId, int Quantity, decimal? ExpectedUnitPrice = null, IReadOnlyCollection<Guid>? AddonIds = null);
 
 public sealed class SalesAccountingService(BusinessDbContext db)
 {
@@ -151,8 +152,17 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         if (customerPhone.Length > 40 || paymentReference.Length > 100 || paymentNotes.Length > 500)
             throw new ArgumentException("Customer phone, payment reference or notes exceed the allowed length.");
 
+        var normalizedLines = requestedLines.Select(line =>
+        {
+            var addonIds = line.AddonIds?.ToArray() ?? Array.Empty<Guid>();
+            if (addonIds.Length > 20 || addonIds.Any(id => id == Guid.Empty)
+                || addonIds.Distinct().Count() != addonIds.Length)
+                throw new ArgumentException("Each POS line can contain up to 20 unique, valid add-on IDs.", nameof(requestedLines));
+            return line with { AddonIds = addonIds.Order().ToArray() };
+        }).ToArray();
+
         var quantities = new Dictionary<Guid, int>();
-        foreach (var line in requestedLines)
+        foreach (var line in normalizedLines)
         {
             if (line.ProductId == Guid.Empty || line.Quantity is < 1 or > 10000)
                 throw new ArgumentException("Every line must have a valid product and quantity between 1 and 10000.", nameof(requestedLines));
@@ -167,13 +177,37 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         if (products.Count != ids.Length)
             throw new KeyNotFoundException("One or more POS products were not found.");
-        foreach (var requested in requestedLines)
+        foreach (var requested in normalizedLines)
             if (requested.ExpectedUnitPrice is decimal expected && products[requested.ProductId].UnitPrice != expected)
                 throw new InvalidOperationException($"Price for '{products[requested.ProductId].Name}' changed. Refresh the cart and confirm the new total.");
 
+        var addonIdsUsed = normalizedLines.SelectMany(line => line.AddonIds ?? Array.Empty<Guid>()).Distinct().ToArray();
+        var addons = addonIdsUsed.Length == 0
+            ? new Dictionary<Guid, ProductAddonRecord>()
+            : await db.ProductAddons.Where(addon => addonIdsUsed.Contains(addon.Id) && addon.IsActive)
+                .ToDictionaryAsync(addon => addon.Id, cancellationToken);
+        var assignedAddonPairs = addonIdsUsed.Length == 0
+            ? new HashSet<(Guid ProductId, Guid AddonId)>()
+            : (await db.StoreProductAddons.AsNoTracking()
+                    .Where(link => ids.Contains(link.ProductId) && addonIdsUsed.Contains(link.AddonId))
+                    .ToListAsync(cancellationToken))
+                .Select(link => (link.ProductId, link.AddonId))
+                .ToHashSet();
+
+        foreach (var line in normalizedLines)
+        {
+            foreach (var addonId in line.AddonIds ?? Array.Empty<Guid>())
+            {
+                if (!addons.TryGetValue(addonId, out var addon)
+                    || !assignedAddonPairs.Contains((line.ProductId, addonId)))
+                    throw new InvalidOperationException("A selected add-on is inactive or is not assigned to its product.");
+                if (!string.Equals(addon.CurrencyCode, products[line.ProductId].CurrencyCode, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Product and add-on currencies must match.");
+            }
+        }
+
         var ordered = ids.Select(id => products[id]).OrderBy(x => x.Sku, StringComparer.Ordinal).ToArray();
         var currency = ordered[0].CurrencyCode;
-        decimal total = 0m;
         foreach (var product in ordered)
         {
             var quantity = quantities[product.Id];
@@ -183,8 +217,24 @@ public sealed class SalesAccountingService(BusinessDbContext db)
                 throw new InvalidOperationException("A POS sale cannot mix currencies.");
             if (product.UnitPrice < 0m || product.UnitCost < 0m)
                 throw new InvalidOperationException($"Product '{product.Name}' has a negative price or cost.");
-            total = checked(total + checked(product.UnitPrice * quantity));
         }
+
+        var lineDrafts = normalizedLines.Select(line =>
+        {
+            var product = products[line.ProductId];
+            var addonSnapshots = (line.AddonIds ?? Array.Empty<Guid>())
+                .Select(id => addons[id])
+                .OrderBy(addon => addon.Name, StringComparer.Ordinal)
+                .Select(addon => new ProductAddonSnapshot(addon.Id, addon.Name, addon.Price))
+                .ToArray();
+            var unitPrice = checked(product.UnitPrice + addonSnapshots.Sum(addon => addon.UnitPrice));
+            var lineTotal = checked(unitPrice * line.Quantity);
+            return (Request: line, Product: product, Addons: addonSnapshots, UnitPrice: unitPrice, LineTotal: lineTotal);
+        }).ToArray();
+
+        decimal total = 0m;
+        foreach (var draft in lineDrafts)
+            total = checked(total + draft.LineTotal);
 
         var orderId = Guid.NewGuid();
         var orderNumber = $"POS-{Guid.NewGuid():N}".ToUpperInvariant();
@@ -194,11 +244,11 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             Id = orderId, OrderNumber = orderNumber, IdempotencyKey = $"POS-{Guid.NewGuid():N}".ToUpperInvariant(),
             CustomerName = customerName.Trim(), CustomerPhone = customerPhone.Trim(), DeliveryAddress = string.Empty,
             Notes = "POS sale", Status = "Received", CurrencyCode = currency, TotalAmount = total, CreatedAt = now,
-            Lines = ordered.Select(product => new CustomerOrderLine
+            Lines = lineDrafts.Select(draft => new CustomerOrderLine
             {
-                Id = Guid.NewGuid(), OrderId = orderId, ProductId = product.Id, ProductName = product.Name,
-                UnitPrice = product.UnitPrice, UnitCost = product.UnitCost, Quantity = quantities[product.Id],
-                LineTotal = checked(product.UnitPrice * quantities[product.Id])
+                Id = Guid.NewGuid(), OrderId = orderId, ProductId = draft.Product.Id, ProductName = draft.Product.Name,
+                UnitPrice = draft.UnitPrice, UnitCost = draft.Product.UnitCost, Quantity = draft.Request.Quantity,
+                LineTotal = draft.LineTotal, AddonsJson = JsonSerializer.Serialize(draft.Addons)
             }).ToList()
         };
 
