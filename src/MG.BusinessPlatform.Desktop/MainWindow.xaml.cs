@@ -2977,6 +2977,52 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void RemoveFirewall_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmationDialog.Confirm(this, "حذف قانون فایروال برنامه",
+            "قانون ورودی MG Business Platform برای TCP 80 و 443 حذف می‌شود. قوانین هم‌نامی که تنظیماتشان با قانون دقیق برنامه مطابقت نداشته باشد دست‌نخورده می‌مانند. ادامه می‌دهید؟",
+            "حذف قانون"))
+            return;
+
+        var scriptPath = Path.Combine(AppContext.BaseDirectory, "configure-firewall.ps1");
+        if (!File.Exists(scriptPath))
+        {
+            PublicHostingStatusText.Text = "اسکریپت مدیریت فایروال در بسته نصب پیدا نشد.";
+            return;
+        }
+
+        try
+        {
+            PublicHostingStatusText.Text = "برای حذف قانون فایروال، تأیید دسترسی مدیر ویندوز لازم است.";
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" -Remove",
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                PublicHostingStatusText.Text = "راه‌اندازی حذف قانون فایروال ناموفق بود.";
+                return;
+            }
+
+            await process.WaitForExitAsync();
+            PublicHostingStatusText.Text = process.ExitCode == 0
+                ? "درخواست حذف قانون فایروال پایان یافت. فقط قانون دقیق برنامه قابل حذف بود."
+                : $"حذف قانون فایروال با کد {process.ExitCode} ناموفق بود؛ قوانین نامنطبق حذف نشدند.";
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            PublicHostingStatusText.Text = "درخواست دسترسی مدیر لغو شد؛ فایروال تغییر نکرد.";
+        }
+        catch (Exception ex)
+        {
+            PublicHostingStatusText.Text = $"حذف قانون فایروال ناموفق بود: {ex.Message}";
+        }
+    }
+
     private async Task<(string Url, byte[] Png)> BuildStorefrontQrAsync()
     {
         if (!HasLicensedModule("Storefront"))
