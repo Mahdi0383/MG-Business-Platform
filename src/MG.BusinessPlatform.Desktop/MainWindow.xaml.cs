@@ -1190,6 +1190,7 @@ public partial class MainWindow : Window
 
     private void DeleteParsPackDnsToken_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("حذف اعتبارنامه DNS پارس‌پک", "Storefront")) return;
         if (!ConfirmationDialog.Confirm(this, "حذف توکن DNS پارس‌پک",
             "توکن ذخیره‌شده از Windows Credential Manager این حساب حذف شود؟"))
             return;
