@@ -70,6 +70,15 @@ public sealed record GameSessionGridRow(Guid Id, string GameName, string StatusT
 public sealed record PaymentTerminalProfileGridRow(Guid Id, string Name, string Vendor, string Model,
     string ConnectionTypeText, bool IsEnabled, bool IsDefault, string LastTestStatus);
 
+public sealed class ProductAddonAssignmentRow
+{
+    public Guid AddonId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public decimal Price { get; init; }
+    public bool IsActive { get; init; }
+    public bool IsAssigned { get; set; }
+}
+
 public sealed class GameSessionPlayerDraft : INotifyPropertyChanged
 {
     private string _displayName = string.Empty;
@@ -412,6 +421,7 @@ public partial class MainWindow : Window
                 GeneralLedgerAccountInput.SelectedIndex = 0;
 
             var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+            await RefreshProductAddonsAsync(db, products);
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
             PurchaseProductInput.ItemsSource = products;
@@ -495,6 +505,208 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"خطا در به‌روزرسانی اطلاعات: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshProductAddonsAsync(
+        BusinessDbContext db,
+        IReadOnlyList<StoreProduct> products)
+    {
+        _isLoadingProductAddons = true;
+        try
+        {
+            var selectedProductId = AddonProductInput.SelectedValue is Guid currentId
+                && products.Any(product => product.Id == currentId)
+                ? currentId
+                : (Guid?)null;
+            var addons = await db.ProductAddons.AsNoTracking()
+                .OrderBy(addon => addon.Name)
+                .ToListAsync();
+            ProductAddonsGrid.ItemsSource = addons;
+            AddonProductInput.ItemsSource = products;
+            if (selectedProductId is Guid productId)
+                AddonProductInput.SelectedValue = productId;
+            else if (products.Count > 0)
+                AddonProductInput.SelectedIndex = 0;
+
+            if (AddonProductInput.SelectedValue is Guid selectedId)
+            {
+                var assignedIds = await db.StoreProductAddons.AsNoTracking()
+                    .Where(link => link.ProductId == selectedId)
+                    .Select(link => link.AddonId)
+                    .ToListAsync();
+                ProductAddonAssignmentsGrid.ItemsSource = addons.Select(addon => new ProductAddonAssignmentRow
+                {
+                    AddonId = addon.Id,
+                    Name = addon.Name,
+                    Price = addon.Price,
+                    IsActive = addon.IsActive,
+                    IsAssigned = addon.IsActive && assignedIds.Contains(addon.Id)
+                }).ToList();
+                ProductAddonAssignmentStatusText.Text = $"محصول انتخاب‌شده: {products.Single(product => product.Id == selectedId).Name}. فقط افزودنی‌های فعال قابل انتخاب هستند.";
+            }
+            else
+            {
+                ProductAddonAssignmentsGrid.ItemsSource = Array.Empty<ProductAddonAssignmentRow>();
+                ProductAddonAssignmentStatusText.Text = "ابتدا یک محصول انتخاب کنید.";
+            }
+        }
+        finally
+        {
+            _isLoadingProductAddons = false;
+        }
+    }
+
+    private async void RefreshProductAddons_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(ProductAddonStatusText, "نمایش افزودنی‌ها", "Cafe")) return;
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var products = await db.StoreProducts.AsNoTracking().OrderBy(product => product.Name).ToListAsync();
+            await RefreshProductAddonsAsync(db, products);
+            ProductAddonStatusText.Text = $"فهرست افزودنی‌ها تازه شد: {ProductAddonsGrid.Items.Count} مورد.";
+        }
+        catch (Exception ex)
+        {
+            ProductAddonStatusText.Text = $"بارگذاری افزودنی‌ها ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void ClearProductAddon_Click(object sender, RoutedEventArgs e)
+    {
+        ProductAddonsGrid.SelectedItem = null;
+        ProductAddonNameInput.Clear();
+        ProductAddonPriceInput.Clear();
+        ProductAddonActiveInput.IsChecked = true;
+        ProductAddonStatusText.Text = "فرم افزودنی جدید آماده است.";
+    }
+
+    private void ProductAddonsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingProductAddons)
+            return;
+        if (ProductAddonsGrid.SelectedItem is not ProductAddonRecord addon)
+            return;
+        ProductAddonNameInput.Text = addon.Name;
+        ProductAddonPriceInput.Text = addon.Price.ToString(CultureInfo.CurrentCulture);
+        ProductAddonActiveInput.IsChecked = addon.IsActive;
+    }
+
+    private async void AddProductAddon_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(ProductAddonStatusText, "افزودن افزودنی", "Cafe")) return;
+        var name = ProductAddonNameInput.Text.Trim();
+        if (!TryParseAmount(ProductAddonPriceInput.Text, out var price) || price < 0m)
+        {
+            ProductAddonStatusText.Text = "قیمت افزودنی باید عددی معتبر و غیرمنفی باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await new ProductAddonService(db).SaveDefinitionAsync(null, name, price, ProductAddonActiveInput.IsChecked == true);
+            ProductAddonStatusText.Text = $"افزودنی «{name}» ذخیره شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            ProductAddonStatusText.Text = $"افزودن افزودنی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void SaveProductAddon_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(ProductAddonStatusText, "ویرایش افزودنی", "Cafe")) return;
+        if (ProductAddonsGrid.SelectedItem is not ProductAddonRecord selected)
+        {
+            ProductAddonStatusText.Text = "ابتدا افزودنی موردنظر را انتخاب کنید.";
+            return;
+        }
+        var name = ProductAddonNameInput.Text.Trim();
+        if (!TryParseAmount(ProductAddonPriceInput.Text, out var price) || price < 0m)
+        {
+            ProductAddonStatusText.Text = "قیمت افزودنی باید عددی معتبر و غیرمنفی باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await new ProductAddonService(db).SaveDefinitionAsync(selected.Id, name, price, ProductAddonActiveInput.IsChecked == true);
+            ProductAddonStatusText.Text = $"افزودنی «{name}» به‌روزرسانی شد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            ProductAddonStatusText.Text = $"ذخیره افزودنی ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private void AddonProductInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingProductAddons || AddonProductInput.SelectedValue is not Guid productId)
+            return;
+        _ = LoadProductAddonAssignmentsAsync(productId);
+    }
+
+    private async Task LoadProductAddonAssignmentsAsync(Guid productId)
+    {
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var addons = await db.ProductAddons.AsNoTracking().OrderBy(addon => addon.Name).ToListAsync();
+            var assignedIds = await db.StoreProductAddons.AsNoTracking()
+                .Where(link => link.ProductId == productId)
+                .Select(link => link.AddonId)
+                .ToListAsync();
+            ProductAddonAssignmentsGrid.ItemsSource = addons.Select(addon => new ProductAddonAssignmentRow
+            {
+                AddonId = addon.Id,
+                Name = addon.Name,
+                Price = addon.Price,
+                IsActive = addon.IsActive,
+                IsAssigned = addon.IsActive && assignedIds.Contains(addon.Id)
+            }).ToList();
+            ProductAddonAssignmentStatusText.Text = $"افزودنی‌های قابل انتخاب برای محصول «{AddonProductInput.Text}».";
+        }
+        catch (Exception ex)
+        {
+            ProductAddonAssignmentStatusText.Text = $"بارگذاری اتصال افزودنی‌ها ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void SaveProductAddonAssignments_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(ProductAddonAssignmentStatusText, "تنظیم افزودنی‌های محصول", "Cafe")) return;
+        if (AddonProductInput.SelectedValue is not Guid productId)
+        {
+            ProductAddonAssignmentStatusText.Text = "ابتدا محصول موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        ProductAddonAssignmentsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        ProductAddonAssignmentsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        var addonIds = ProductAddonAssignmentsGrid.ItemsSource is IEnumerable<ProductAddonAssignmentRow> rows
+            ? rows.Where(row => row.IsAssigned).Select(row => row.AddonId).ToArray()
+            : [];
+        if (addonIds.Length > 20)
+        {
+            ProductAddonAssignmentStatusText.Text = "هر محصول حداکثر می‌تواند ۲۰ افزودنی داشته باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            await new ProductAddonService(db).SetProductAddonsAsync(productId, addonIds);
+            ProductAddonAssignmentStatusText.Text = $"افزودنی‌های محصول ذخیره شد: {addonIds.Length} مورد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            ProductAddonAssignmentStatusText.Text = $"ذخیره افزودنی‌های محصول ناموفق بود: {ex.Message}";
         }
     }
 
