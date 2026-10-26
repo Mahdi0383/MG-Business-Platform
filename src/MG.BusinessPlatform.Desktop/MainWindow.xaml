@@ -582,8 +582,10 @@
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Button Content="تنظیم خودکار انتقال درگاه‌های روتر (UPnP)" Click="ConfigureRouterPorts_Click"/>
                                 <Button Content="حذف انتقال‌های ایجادشده توسط برنامه" Click="RemoveRouterPorts_Click"/>
+                                <Button Content="تشخیص CGNAT / NAT چندمرحله‌ای" Click="DiagnoseRouterWan_Click"/>
                             </StackPanel>
                             <TextBlock x:Name="RouterPortStatusText" Text="تنظیم خودکار روتر اختیاری است و فقط پس از تأیید شما درگاه‌های TCP 80 و 443 را باز می‌کند." TextWrapping="Wrap" Margin="4,6" Foreground="#334155"/>
+                            <TextBlock x:Name="RouterWanDiagnosticText" Text="وضعیت IP سمت اینترنت روتر هنوز بررسی نشده است." TextWrapping="Wrap" Margin="4,4" Foreground="#334155"/>
                             <TextBlock x:Name="PublicHostingStatusText" Text="انتشار عمومی راه‌اندازی نشده است." TextWrapping="Wrap" Margin="4,8" Foreground="#334155"/>
                             <Separator Margin="0,12,0,8"/>
                             <TextBlock Text="لینک و QR سفارش آنلاین" FontSize="18" FontWeight="SemiBold"/>
