@@ -1848,6 +1848,47 @@ public partial class MainWindow : Window
         StatusText.Text = $"«{product.Name}» به سبد اضافه شد.";
     }
 
+    private async void EditPosCartAddons_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("مدیریت افزودنی‌های فروش حضوری", "Cafe", "POS")) return;
+        if (PosCartGrid.SelectedItem is not PosCartLineDraft selected)
+        {
+            StatusText.Text = "ابتدا یک ردیف از سبد فروش را انتخاب کنید.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var available = await new ProductAddonService(db)
+                .GetAssignedActiveAddonsAsync(selected.ProductId);
+            if (available.Count == 0)
+            {
+                StatusText.Text = "برای این محصول افزودنی فعالی تعریف نشده است. ابتدا از صفحه افزودنی‌ها آن‌ها را به محصول متصل کنید.";
+                return;
+            }
+
+            var picker = new ProductAddonPickerWindow(selected.ProductName, available, selected.Addons)
+            {
+                Owner = this
+            };
+            if (picker.ShowDialog() != true)
+                return;
+
+            var index = _posCartLines.IndexOf(selected);
+            if (index < 0)
+                return;
+            _posCartLines[index] = selected with { Addons = picker.SelectedAddons };
+            PosCartGrid.SelectedItem = _posCartLines[index];
+            UpdatePosCartTotal();
+            StatusText.Text = $"افزودنی‌های «{selected.ProductName}» به‌روزرسانی شد.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"انتخاب افزودنی‌های سبد ناموفق بود: {ex.Message}";
+        }
+    }
+
     private void RemovePosCartItem_Click(object sender, RoutedEventArgs e)
     {
         if (!RequireLicensedModules("حذف کالا از سبد فروش", "POS", "Inventory")) return;
