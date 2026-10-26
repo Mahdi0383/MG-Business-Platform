@@ -1964,7 +1964,7 @@ public partial class MainWindow : Window
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
             invoice = await accounting.CreatePosSaleAsync(
-                cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
+                cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice, x.Addons.Select(addon => addon.AddonId).ToArray())).ToArray(),
                 customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
                 DateOnly.FromDateTime(DateTime.Today));
         }
