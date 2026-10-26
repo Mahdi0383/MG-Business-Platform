@@ -25,7 +25,7 @@ using MG.BusinessPlatform.Desktop.Services;
 namespace MG.BusinessPlatform.Desktop;
 
 public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string CustomerName, string CustomerPhone,
-    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
+    DateOnly IssueDate, DateOnly? DueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount, string CurrencyCode, string Status);
 
 public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, string CurrencyCode)
 {
@@ -39,7 +39,7 @@ public sealed record PurchaseInvoiceDraftLine(Guid ProductId, string ProductName
 }
 
 public sealed record PurchaseInvoiceGridRow(Guid Id, string InvoiceNumber, string SupplierName,
-    DateOnly IssueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
+    DateOnly IssueDate, DateOnly? DueDate, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount,
     string CurrencyCode, string Status);
 
 public sealed record TrialBalanceRow(string AccountCode, string AccountName, string AccountType,
@@ -55,7 +55,8 @@ public sealed record AuditEventGridRow(DateTimeOffset OccurredAtUtc, string Acto
     string Action, string EntityType, string EntityId, string ChangedFields);
 
 public sealed record InvoiceAgingGridRow(string DocumentType, string DocumentNumber, string CounterpartyName,
-    DateOnly IssueDate, int AgeDays, string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
+    DateOnly IssueDate, DateOnly? DueDate, DateOnly AgingDate, string AgingBasisText, int AgeDays,
+    string BucketText, decimal TotalAmount, decimal PaidAmount, decimal OutstandingAmount);
 
 public sealed record GeneralLedgerGridRow(string EntryDate, string EntryNumber, string Description,
     decimal Debit, decimal Credit, decimal RunningBalance);
@@ -451,7 +452,7 @@ public partial class MainWindow : Window
                 .ThenByDescending(x => x.CreatedAt)
                 .Take(500)
                 .Select(x => new InvoiceListItem(x.Id, x.InvoiceNumber, x.CustomerName, x.CustomerPhone,
-                    x.IssueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
+                    x.IssueDate, x.DueDate, x.TotalAmount, x.PaidAmount, x.TotalAmount - x.PaidAmount, x.CurrencyCode, x.Status))
                 .ToList();
             InvoicesGrid.ItemsSource = invoiceRows;
             PosRecentInvoicesGrid.ItemsSource = invoiceRows.Take(100).ToList();
@@ -460,7 +461,7 @@ public partial class MainWindow : Window
                 from purchase in db.PurchaseInvoices.AsNoTracking()
                 join supplier in db.Suppliers.AsNoTracking() on purchase.SupplierId equals supplier.Id
                 select new PurchaseInvoiceGridRow(purchase.Id, purchase.InvoiceNumber, supplier.DisplayName,
-                    purchase.IssueDate, purchase.TotalAmount, purchase.PaidAmount,
+                    purchase.IssueDate, purchase.DueDate, purchase.TotalAmount, purchase.PaidAmount,
                     purchase.TotalAmount - purchase.PaidAmount, purchase.CurrencyCode, purchase.Status))
                 .ToListAsync();
             PurchaseInvoicesGrid.ItemsSource = purchaseRows
@@ -1966,22 +1967,23 @@ public partial class MainWindow : Window
                 salesInvoices.Count + purchaseInvoices.Count);
             documents.AddRange(salesInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
                 "مطالبات مشتریان", invoice.InvoiceNumber, invoice.CustomerName, invoice.IssueDate,
-                invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+                invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status, invoice.DueDate)));
             documents.AddRange(purchaseInvoices.Select(invoice => new MG.BusinessPlatform.Domain.Finance.AgingDocument(
                 "بدهی تأمین‌کنندگان", invoice.InvoiceNumber,
                 suppliers.TryGetValue(invoice.SupplierId, out var supplier) ? supplier.DisplayName : "تأمین‌کننده نامشخص",
-                invoice.IssueDate, invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status)));
+                invoice.IssueDate, invoice.TotalAmount, invoice.PaidAmount, invoice.CurrencyCode, invoice.Status, invoice.DueDate)));
 
             var report = MG.BusinessPlatform.Domain.Finance.InvoiceAgingCalculator.Calculate(documents, asOfDate, settings.CurrencyCode);
             InvoiceAgingGrid.ItemsSource = report.Lines.Select(line => new InvoiceAgingGridRow(
-                line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate, line.AgeDays,
+                line.DocumentType, line.DocumentNumber, line.CounterpartyName, line.IssueDate,
+                line.DueDate, line.AgingDate, line.UsesIssueDateFallback ? "تاریخ صدور (جایگزین)" : "سررسید ثبت‌شده", line.AgeDays,
                 InvoiceAgeBucketText(line.Bucket), line.TotalAmount.Amount, line.PaidAmount.Amount,
                 line.OutstandingAmount.Amount)).ToArray();
             InvoiceAgingTotalsText.Text =
                 $"مانده باز تا {asOfDate:yyyy-MM-dd} ({report.CurrencyCode}) | آینده‌تاریخ‌دار: {report.FutureDated.Amount:N2} | " +
                 $"۰ تا ۳۰ روز: {report.Current0To30Days.Amount:N2} | ۳۱ تا ۶۰ روز: {report.Days31To60.Amount:N2} | " +
                 $"۶۱ تا ۹۰ روز: {report.Days61To90.Amount:N2} | بیش از ۹۰ روز: {report.Over90Days.Amount:N2} | " +
-                $"مجموع: {report.TotalOutstanding.Amount:N2}. سن بر اساس تاریخ صدور محاسبه شده است، نه تاریخ سررسید قراردادی.";
+                $"مجموع: {report.TotalOutstanding.Amount:N2}. سن بر اساس سررسید ثبت‌شده محاسبه می‌شود؛ اسنادی که سررسید ندارند بر اساس تاریخ صدور محاسبه و در ستون مبنای سن مشخص می‌شوند.";
         }
         catch (Exception ex)
         {
@@ -2290,6 +2292,14 @@ public partial class MainWindow : Window
         }
 
         var issueDate = DateOnly.FromDateTime(PurchaseInvoiceDateInput.SelectedDate ?? DateTime.Today);
+        var dueDate = PurchaseDueDateInput.SelectedDate is DateTime selectedDueDate
+            ? DateOnly.FromDateTime(selectedDueDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < issueDate)
+        {
+            StatusText.Text = "سررسید فاکتور خرید نمی‌تواند قبل از تاریخ صدور باشد.";
+            return;
+        }
         var lines = _purchaseDraftLines.Select(line => new PurchaseInvoiceLineRequest(
             line.ProductId, line.Quantity, line.UnitCost, line.DiscountPercent / 100m, line.UnitCode)).ToArray();
 
@@ -2297,7 +2307,7 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var invoice = await new PurchasingAccountingService(db).CreatePurchaseInvoiceAsync(
-                supplier.Id, _sessionBranchId, lines, issueDate);
+                supplier.Id, _sessionBranchId, lines, issueDate, dueDate: dueDate);
             _purchaseDraftLines.Clear();
             UpdatePurchaseDraftTotal();
             StatusText.Text = $"فاکتور خرید {invoice.InvoiceNumber} ثبت شد؛ موجودی، میانگین بهای تمام‌شده و دفتر حسابداری به‌روزرسانی شد.";
@@ -2311,6 +2321,53 @@ public partial class MainWindow : Window
 
     private async void RefreshPurchases_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    private void InvoicesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        InvoiceDueDateInput.SelectedDate = InvoicesGrid.SelectedItem is InvoiceListItem selected
+            ? selected.DueDate?.ToDateTime(TimeOnly.MinValue)
+            : null;
+    }
+
+    private async void UpdateSelectedInvoiceDueDate_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting"))
+        {
+            StatusText.Text = "برای تغییر سررسید، لایسنس معتبر دارای ماژول Accounting لازم است.";
+            return;
+        }
+        if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
+        {
+            StatusText.Text = "ابتدا فاکتور فروش موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        var dueDate = InvoiceDueDateInput.SelectedDate is DateTime selectedDate
+            ? DateOnly.FromDateTime(selectedDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < selected.IssueDate)
+        {
+            StatusText.Text = "سررسید نمی‌تواند قبل از تاریخ صدور فاکتور باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await db.SalesInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id)
+                ?? throw new KeyNotFoundException("فاکتور فروش پیدا نشد.");
+            invoice.DueDate = dueDate;
+            await db.SaveChangesAsync();
+            StatusText.Text = dueDate is null
+                ? $"سررسید فاکتور {invoice.InvoiceNumber} پاک شد؛ گزارش از تاریخ صدور به‌عنوان مبنا استفاده می‌کند."
+                : $"سررسید فاکتور {invoice.InvoiceNumber} به {dueDate:yyyy-MM-dd} تغییر کرد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"تغییر سررسید فاکتور ناموفق بود: {ex.Message}";
+        }
+    }
+
     private void PurchaseInvoicesGrid_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         UpdateSupplierPaymentSelection();
 
@@ -2319,12 +2376,55 @@ public partial class MainWindow : Window
         if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
         {
             SupplierPaymentSelectionText.Text = "ابتدا یک فاکتور خرید را انتخاب کنید.";
+            PurchaseDueDateInput.SelectedDate = null;
             return;
         }
+
+        PurchaseDueDateInput.SelectedDate = selected.DueDate?.ToDateTime(TimeOnly.MinValue);
 
         SupplierPaymentSelectionText.Text =
             $"{selected.InvoiceNumber} | مانده: {selected.OutstandingAmount:N2} {selected.CurrencyCode}";
         SupplierPaymentAmountInput.Text = selected.OutstandingAmount.ToString(CultureInfo.CurrentCulture);
+    }
+
+    private async void UpdateSelectedPurchaseDueDate_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
+        {
+            StatusText.Text = "برای تغییر سررسید خرید، لایسنس معتبر دارای ماژول‌های Accounting و Inventory لازم است.";
+            return;
+        }
+        if (PurchaseInvoicesGrid.SelectedItem is not PurchaseInvoiceGridRow selected)
+        {
+            StatusText.Text = "ابتدا فاکتور خرید موردنظر را انتخاب کنید.";
+            return;
+        }
+
+        var dueDate = PurchaseDueDateInput.SelectedDate is DateTime selectedDate
+            ? DateOnly.FromDateTime(selectedDate)
+            : (DateOnly?)null;
+        if (dueDate is DateOnly actualDueDate && actualDueDate < selected.IssueDate)
+        {
+            StatusText.Text = "سررسید نمی‌تواند قبل از تاریخ صدور فاکتور خرید باشد.";
+            return;
+        }
+
+        try
+        {
+            await using var db = new BusinessDbContext(CreateOptions());
+            var invoice = await db.PurchaseInvoices.SingleOrDefaultAsync(x => x.Id == selected.Id)
+                ?? throw new KeyNotFoundException("فاکتور خرید پیدا نشد.");
+            invoice.DueDate = dueDate;
+            await db.SaveChangesAsync();
+            StatusText.Text = dueDate is null
+                ? $"سررسید فاکتور خرید {invoice.InvoiceNumber} پاک شد؛ گزارش از تاریخ صدور به‌عنوان مبنا استفاده می‌کند."
+                : $"سررسید فاکتور خرید {invoice.InvoiceNumber} به {dueDate:yyyy-MM-dd} تغییر کرد.";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"تغییر سررسید فاکتور خرید ناموفق بود: {ex.Message}";
+        }
     }
 
     private async void RecordSupplierPayment_Click(object sender, RoutedEventArgs e)

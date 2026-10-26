@@ -30,6 +30,7 @@ public sealed class SalesInvoiceRecord
     public string InvoiceNumber { get; set; } = string.Empty;
     public Guid OrderId { get; set; }
     public DateOnly IssueDate { get; set; }
+    public DateOnly? DueDate { get; set; }
     public string CustomerName { get; set; } = string.Empty;
     public string CustomerPhone { get; set; } = string.Empty;
     public string CurrencyCode { get; set; } = "IRR";
@@ -101,6 +102,7 @@ public sealed class PurchaseInvoiceRecord
     public Guid BranchId { get; set; }
     public Guid SupplierId { get; set; }
     public DateOnly IssueDate { get; set; }
+    public DateOnly? DueDate { get; set; }
     public string CurrencyCode { get; set; } = "IRR";
     public decimal TotalAmount { get; set; }
     public decimal PaidAmount { get; set; }
@@ -312,6 +314,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        ValidateInvoiceDueDates();
         AddAuditEvents();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
@@ -319,8 +322,29 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        ValidateInvoiceDueDates();
         AddAuditEvents();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ValidateInvoiceDueDates()
+    {
+        ChangeTracker.DetectChanges();
+        var invalidSalesInvoice = ChangeTracker.Entries<SalesInvoiceRecord>()
+            .FirstOrDefault(entry => (entry.State is EntityState.Added or EntityState.Modified)
+                && entry.Entity.DueDate is DateOnly dueDate
+                && dueDate < entry.Entity.IssueDate);
+        if (invalidSalesInvoice is not null)
+            throw new InvalidOperationException(
+                $"Sales invoice {invalidSalesInvoice.Entity.InvoiceNumber} cannot have a due date before its issue date.");
+
+        var invalidPurchaseInvoice = ChangeTracker.Entries<PurchaseInvoiceRecord>()
+            .FirstOrDefault(entry => (entry.State is EntityState.Added or EntityState.Modified)
+                && entry.Entity.DueDate is DateOnly dueDate
+                && dueDate < entry.Entity.IssueDate);
+        if (invalidPurchaseInvoice is not null)
+            throw new InvalidOperationException(
+                $"Purchase invoice {invalidPurchaseInvoice.Entity.InvoiceNumber} cannot have a due date before its issue date.");
     }
 
     private void AddAuditEvents()

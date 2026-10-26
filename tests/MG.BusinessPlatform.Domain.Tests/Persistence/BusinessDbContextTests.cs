@@ -96,6 +96,37 @@ public sealed class BusinessDbContextTests
     }
 
     [Fact]
+    public async Task Database_RejectsInvoiceDueDatesBeforeIssueDateBeforeWriting()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        db.SalesInvoices.Add(new SalesInvoiceRecord
+        {
+            Id = Guid.NewGuid(),
+            InvoiceNumber = "INV-INVALID-DUE",
+            OrderId = Guid.NewGuid(),
+            IssueDate = new DateOnly(2026, 10, 16),
+            DueDate = new DateOnly(2026, 10, 15),
+            CustomerName = "Test customer",
+            CustomerPhone = "",
+            CurrencyCode = "IRR",
+            TotalAmount = 100m,
+            CostTotal = 50m,
+            PaidAmount = 0m,
+            Status = "Issued",
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+        Assert.Contains("due date before its issue date", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await db.SalesInvoices.ToListAsync());
+    }
+
+    [Fact]
     public async Task Database_EnforcesOrderIdempotencyKeyUniqueness()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

@@ -17,13 +17,17 @@ public sealed record AgingDocument(
     decimal TotalAmount,
     decimal PaidAmount,
     string CurrencyCode,
-    string Status);
+    string Status,
+    DateOnly? DueDate = null);
 
 public sealed record InvoiceAgingLine(
     string DocumentType,
     string DocumentNumber,
     string CounterpartyName,
     DateOnly IssueDate,
+    DateOnly? DueDate,
+    DateOnly AgingDate,
+    bool UsesIssueDateFallback,
     int AgeDays,
     InvoiceAgeBucket Bucket,
     Money TotalAmount,
@@ -31,8 +35,8 @@ public sealed record InvoiceAgingLine(
     Money OutstandingAmount);
 
 /// <summary>
-/// Open receivable/payable invoice aging by invoice issue date. This is explicitly not
-/// due-date aging because invoice due dates/payment terms are not yet stored consistently.
+/// Open receivable/payable invoice aging using recorded due dates when available.
+/// Legacy invoices without a due date fall back to issue-date aging and are flagged in the report.
 /// </summary>
 public sealed class InvoiceAgingReport
 {
@@ -83,6 +87,8 @@ public static class InvoiceAgingCalculator
                 throw new ArgumentException("Document number is required and must not exceed 100 characters.", nameof(documents));
             if (string.IsNullOrWhiteSpace(document.CounterpartyName) || document.CounterpartyName.Trim().Length > 200)
                 throw new ArgumentException("Counterparty name is required and must not exceed 200 characters.", nameof(documents));
+            if (document.DueDate is DateOnly dueDate && dueDate < document.IssueDate)
+                throw new InvalidOperationException($"Document {document.DocumentNumber} has a due date before its issue date.");
             var documentCurrency = Money.Zero(document.CurrencyCode).CurrencyCode;
             if (!string.Equals(documentCurrency, currency, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Document {document.DocumentNumber} uses {documentCurrency}, not report currency {currency}.");
@@ -95,7 +101,8 @@ public static class InvoiceAgingCalculator
             if (outstanding == 0m)
                 continue;
 
-            var difference = asOfDate.DayNumber - document.IssueDate.DayNumber;
+            var agingDate = document.DueDate ?? document.IssueDate;
+            var difference = asOfDate.DayNumber - agingDate.DayNumber;
             var ageDays = Math.Max(0, difference);
             var bucket = difference < 0
                 ? InvoiceAgeBucket.FutureDated
@@ -105,7 +112,8 @@ public static class InvoiceAgingCalculator
                 : InvoiceAgeBucket.Over90Days;
 
             lines.Add(new InvoiceAgingLine(document.DocumentType.Trim(), document.DocumentNumber.Trim(),
-                document.CounterpartyName.Trim(), document.IssueDate, ageDays, bucket,
+                document.CounterpartyName.Trim(), document.IssueDate, document.DueDate, agingDate,
+                document.DueDate is null, ageDays, bucket,
                 new Money(document.TotalAmount, currency), new Money(document.PaidAmount, currency),
                 new Money(outstanding, currency)));
         }

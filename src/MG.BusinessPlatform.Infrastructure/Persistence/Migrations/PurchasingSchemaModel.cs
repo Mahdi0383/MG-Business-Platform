@@ -13,6 +13,7 @@ internal static class PurchasingSchemaModel
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("InvoiceNumber").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<DateOnly?>("DueDate").HasColumnType("TEXT");
             b.Property<DateOnly>("IssueDate").HasColumnType("TEXT");
             b.Property<decimal>("PaidAmount").HasColumnType("TEXT");
             b.Property<Guid>("SupplierId").HasColumnType("TEXT");

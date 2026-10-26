@@ -38,6 +38,29 @@ public sealed class InvoiceAgingCalculatorTests
     }
 
     [Fact]
+    public void Calculate_UsesRecordedDueDateAndFlagsIssueDateFallback()
+    {
+        var documents = new[]
+        {
+            Doc("WITH-DUE", AsOf.AddDays(-90), dueDate: AsOf.AddDays(-10)),
+            Doc("LEGACY", AsOf.AddDays(-45))
+        };
+
+        var report = InvoiceAgingCalculator.Calculate(documents, AsOf, "IRR");
+
+        var dueDateLine = Assert.Single(report.Lines, line => line.DocumentNumber == "WITH-DUE");
+        Assert.Equal(AsOf.AddDays(-10), dueDateLine.AgingDate);
+        Assert.Equal(10, dueDateLine.AgeDays);
+        Assert.Equal(InvoiceAgeBucket.Current0To30Days, dueDateLine.Bucket);
+        Assert.False(dueDateLine.UsesIssueDateFallback);
+
+        var legacyLine = Assert.Single(report.Lines, line => line.DocumentNumber == "LEGACY");
+        Assert.Equal(legacyLine.IssueDate, legacyLine.AgingDate);
+        Assert.True(legacyLine.UsesIssueDateFallback);
+        Assert.Equal(InvoiceAgeBucket.Days31To60, legacyLine.Bucket);
+    }
+
+    [Fact]
     public void Calculate_ExcludesPaidAndVoidedDocumentsAndUsesOutstandingBalance()
     {
         var documents = new[]
@@ -67,6 +90,15 @@ public sealed class InvoiceAgingCalculatorTests
     }
 
     [Fact]
+    public void Calculate_RejectsDueDateBeforeIssueDate()
+    {
+        var invalid = Doc("INVALID-DUE", AsOf, dueDate: AsOf.AddDays(-1));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            InvoiceAgingCalculator.Calculate([invalid], AsOf, "IRR"));
+    }
+
+    [Fact]
     public void Calculate_RejectsInvalidDocumentIdentity()
     {
         var invalid = Doc(" ", AsOf);
@@ -79,6 +111,7 @@ public sealed class InvoiceAgingCalculatorTests
         decimal total = 1m,
         decimal paid = 0m,
         string status = "Issued",
-        string currency = "IRR") =>
-        new("Receivable", number, "Test customer", issueDate, total, paid, currency, status);
+        string currency = "IRR",
+        DateOnly? dueDate = null) =>
+        new("Receivable", number, "Test customer", issueDate, total, paid, currency, status, dueDate);
 }
