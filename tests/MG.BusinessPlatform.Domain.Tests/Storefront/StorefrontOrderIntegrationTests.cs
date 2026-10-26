@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -32,6 +33,167 @@ public sealed class StorefrontOrderIntegrationTests
             foreach (var response in responses)
                 response.Dispose();
         }
+    }
+
+    [Fact]
+    public async Task OnlineOrdering_RequiresAccountingAndInventoryEntitlements()
+    {
+        await using var factory = new StorefrontTestFactory(["Core", "Storefront"]);
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = Guid.NewGuid(), Sku = "LICENSE-ORDER-1", Name = "Licensed item",
+                UnitPrice = 10m, UnitCost = 5m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var infoResponse = await client.GetAsync("/api/storefront");
+        infoResponse.EnsureSuccessStatusCode();
+        using var info = JsonDocument.Parse(await infoResponse.Content.ReadAsStringAsync());
+        Assert.False(info.RootElement.GetProperty("onlineOrderingEnabled").GetBoolean());
+
+        var products = await client.GetFromJsonAsync<JsonElement[]>("/api/storefront/products");
+        Assert.Empty(products!);
+
+        using var orderRequest = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Test customer",
+                customerPhone = "09120000000",
+                items = new[] { new { productId = Guid.NewGuid(), quantity = 1 } }
+            })
+        };
+        orderRequest.Headers.Add("Idempotency-Key", "integration-order-dep-missing-0001");
+        using var orderResponse = await client.SendAsync(orderRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, orderResponse.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Empty(await verificationDb.CustomerOrders.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CrossOriginBrowserMutation_IsRejectedBeforeBusinessDataChanges()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Cross-site caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "https://attacker.example");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        Assert.Empty(await db.CustomerOrders.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CrossSiteFetchWithoutOrigin_IsRejected()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Cross-site caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "cross-site");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SameOriginBrowserMutation_PassesOriginGuard()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Same origin caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", client.BaseAddress!.GetLeftPart(UriPartial.Authority));
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+        request.Headers.Add("Idempotency-Key", "integration-same-origin-invalid-0001");
+
+        using var response = await client.SendAsync(request);
+
+        // The empty order is invalid at the endpoint, but it must not be rejected by
+        // the cross-origin guard when the browser origin matches the storefront.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SameOriginBrowserMutation_AcceptsForwardedHttpsOriginFromTrustedLoopbackProxy()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.PublicHostname = "shop.example";
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Forwarded same-origin caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "https://shop.example");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "shop.example");
+        request.Headers.Add("Idempotency-Key", "integration-forwarded-https-origin-0001");
+
+        using var response = await client.SendAsync(request);
+
+        // An empty order is invalid, but a same-origin HTTPS request forwarded by
+        // the trusted local reverse proxy must pass the origin guard first.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

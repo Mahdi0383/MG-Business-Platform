@@ -63,6 +63,45 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Browser-based state-changing requests must originate from this storefront's own
+// origin. Non-browser API clients without an Origin header remain supported; when
+// browsers send Fetch Metadata, explicitly reject cross-site mutations as defense in depth.
+app.Use(async (context, next) =>
+{
+    var isMutation = HttpMethods.IsPost(context.Request.Method)
+        || HttpMethods.IsPut(context.Request.Method)
+        || HttpMethods.IsPatch(context.Request.Method)
+        || HttpMethods.IsDelete(context.Request.Method);
+    if (isMutation)
+    {
+        var fetchSite = context.Request.Headers["Sec-Fetch-Site"].ToString();
+        var originHeader = context.Request.Headers["Origin"].ToString();
+        var crossSiteFetch = string.Equals(fetchSite, "cross-site", StringComparison.OrdinalIgnoreCase);
+        var originMismatch = false;
+
+        if (!string.IsNullOrWhiteSpace(originHeader))
+        {
+            var expectedOriginText = $"{context.Request.Scheme}://{context.Request.Host}";
+            originMismatch = !Uri.TryCreate(originHeader, UriKind.Absolute, out var origin)
+                || !Uri.TryCreate(expectedOriginText, UriKind.Absolute, out var expectedOrigin)
+                || !string.Equals(origin.Scheme, expectedOrigin.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(origin.Host, expectedOrigin.Host, StringComparison.OrdinalIgnoreCase)
+                || origin.Port != expectedOrigin.Port;
+        }
+
+        if (crossSiteFetch || originMismatch)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(
+                new { error = "Cross-origin state-changing requests are not allowed." },
+                context.RequestAborted);
+            return;
+        }
+    }
+
+    await next();
+});
+
 // Apply endpoint rate limits before the host allow-list performs a database lookup.
 app.UseRateLimiter();
 
@@ -88,6 +127,18 @@ app.Use(async (context, next) =>
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new { error = "The current license does not include the online storefront module." }, context.RequestAborted);
+        return;
+    }
+
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.StartsWithSegments("/api/storefront/orders")
+        && (!validation.Payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+            || !validation.Payload.Modules.Contains("Inventory", StringComparer.Ordinal)))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(
+            new { error = "Online ordering requires both Accounting and Inventory entitlements so orders can be fulfilled consistently." },
+            context.RequestAborted);
         return;
     }
 
@@ -141,18 +192,27 @@ app.MapGet("/api/storefront", async (BusinessDbContext db, IStorefrontLicenseGua
 {
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
     var license = licenseGuard.Validate();
+    var canOrder = license.Payload is { } payload
+        && payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+        && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
     var reservationsEnabled = settings.OnlineReservationsEnabled
         && license.Payload?.Modules.Contains("Reservations", StringComparer.Ordinal) == true;
     return Results.Ok(new StorefrontInfo(settings.StoreName, settings.CurrencyCode,
-        settings.OnlineOrderingEnabled, reservationsEnabled));
+        settings.OnlineOrderingEnabled && canOrder, reservationsEnabled));
 }).RequireRateLimiting("public");
 
-app.MapGet("/api/storefront/products", async (BusinessDbContext db, CancellationToken ct) =>
+app.MapGet("/api/storefront/products", async (
+    BusinessDbContext db, IStorefrontLicenseGuard licenseGuard, CancellationToken ct) =>
 {
-    // Do not expose the shop's catalogue or pricing while online ordering is disabled.
+    // Do not expose the shop's catalogue or pricing while online ordering is disabled or
+    // its license lacks the accounting/inventory modules required to fulfill an order.
     // Returning an empty array preserves the customer page contract for reservation-only stores.
     var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
-    if (!settings.OnlineOrderingEnabled)
+    var license = licenseGuard.Validate();
+    var canOrder = license.Payload is { } payload
+        && payload.Modules.Contains("Accounting", StringComparer.Ordinal)
+        && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
+    if (!settings.OnlineOrderingEnabled || !canOrder)
         return Results.Ok(Array.Empty<ProductResponse>());
 
     var products = await db.StoreProducts.AsNoTracking()
