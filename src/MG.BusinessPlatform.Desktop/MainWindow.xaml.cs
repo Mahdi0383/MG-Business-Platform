@@ -2078,7 +2078,7 @@ public partial class MainWindow : Window
             csv.AppendLine(string.Join(",", new[]
             {
                 "زمان UTC", "کاربر", "رایانه", "عملیات", "نوع داده", "شناسه رکورد", "فیلدهای تغییرکرده"
-            }.Select(EscapeCsvField)));
+            }.Select(AuditCsvFormatter.EscapeField)));
 
             foreach (var item in events)
             {
@@ -2092,7 +2092,7 @@ public partial class MainWindow : Window
                     item.EntityType,
                     item.EntityId,
                     item.ChangedFields
-                }.Select(EscapeCsvField)));
+                }.Select(AuditCsvFormatter.EscapeField)));
             }
 
             var outputPath = Path.GetFullPath(dialog.FileName);
@@ -2118,18 +2118,6 @@ public partial class MainWindow : Window
                 catch (UnauthorizedAccessException) { }
             }
         }
-    }
-
-    private static string EscapeCsvField(string? value)
-    {
-        var text = value ?? string.Empty;
-        // Prevent spreadsheet formula injection, including values preceded by whitespace
-        // or control characters that spreadsheet software may ignore before parsing formulas.
-        var firstVisibleCharacter = text.TrimStart(' ', '\t', '\r', '\n');
-        if (firstVisibleCharacter.Length > 0
-            && firstVisibleCharacter[0] is '=' or '+' or '-' or '@')
-            text = "'" + text;
-        return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
 
     private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e)
