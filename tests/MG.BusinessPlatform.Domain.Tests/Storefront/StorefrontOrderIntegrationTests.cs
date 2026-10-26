@@ -345,6 +345,128 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task PublicOrder_AddsSelectedAddonPriceAndPersistsSnapshotIdempotently()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+        var productId = Guid.NewGuid();
+        var addonId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = productId, Sku = "ADDON-WEB", Name = "Coffee",
+                UnitPrice = 10m, UnitCost = 4m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            db.ProductAddons.Add(new ProductAddonRecord
+            {
+                Id = addonId, Name = "Vanilla syrup", Price = 3m,
+                CurrencyCode = "IRR", IsActive = true, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            db.StoreProductAddons.Add(new StoreProductAddonLink { ProductId = productId, AddonId = addonId });
+            await db.SaveChangesAsync();
+        }
+
+        var catalog = await client.GetFromJsonAsync<ProductResponse[]>("/api/storefront/products");
+        Assert.NotNull(catalog);
+        Assert.Single(catalog);
+        Assert.Single(catalog[0].Addons);
+        Assert.Equal(addonId, catalog[0].Addons[0].Id);
+
+        var payload = new
+        {
+            customerName = "Addon Customer",
+            customerPhone = "09120000000",
+            items = new[] { new { productId, quantity = 2, addonIds = new[] { addonId } } }
+        };
+        const string key = "integration-addon-order-key-0001";
+        async Task<HttpResponseMessage> SubmitAsync()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return await client.SendAsync(request);
+        }
+
+        using var first = await SubmitAsync();
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var body = await first.Content.ReadFromJsonAsync<OrderResponse>();
+        Assert.NotNull(body);
+        Assert.Equal(26m, body.Total);
+
+        using var retry = await SubmitAsync();
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        var retryBody = await retry.Content.ReadFromJsonAsync<OrderResponse>();
+        Assert.Equal(body.Id, retryBody!.Id);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+        var order = await verificationDb.CustomerOrders.Include(x => x.Lines).SingleAsync();
+        Assert.Equal(13m, order.Lines.Single().UnitPrice);
+        Assert.Equal(26m, order.Lines.Single().LineTotal);
+        var snapshot = JsonSerializer.Deserialize<ProductAddonSnapshot[]>(order.Lines.Single().AddonsJson);
+        Assert.NotNull(snapshot);
+        Assert.Single(snapshot);
+        Assert.Equal(addonId, snapshot[0].AddonId);
+        Assert.Equal(3m, snapshot[0].UnitPrice);
+        Assert.Equal(3, (await verificationDb.StoreProducts.SingleAsync(x => x.Id == productId)).StockQuantity);
+        Assert.Single(await verificationDb.StockMovements.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PublicOrder_AddonsRequireCafeEntitlement()
+    {
+        await using var factory = new StorefrontTestFactory(["Core", "Storefront", "Accounting", "Inventory"]);
+        using var client = factory.CreateClient();
+        var productId = Guid.NewGuid();
+        var addonId = Guid.NewGuid();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.OnlineOrderingEnabled = true;
+            db.StoreProducts.Add(new StoreProduct
+            {
+                Id = productId, Sku = "ADDON-NO-CAFE", Name = "Coffee",
+                UnitPrice = 10m, UnitCost = 4m, CurrencyCode = "IRR",
+                IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            db.ProductAddons.Add(new ProductAddonRecord
+            {
+                Id = addonId, Name = "Syrup", Price = 2m,
+                CurrencyCode = "IRR", IsActive = true, UpdatedAt = DateTimeOffset.UtcNow
+            });
+            db.StoreProductAddons.Add(new StoreProductAddonLink { ProductId = productId, AddonId = addonId });
+            await db.SaveChangesAsync();
+        }
+
+        var catalog = await client.GetFromJsonAsync<ProductResponse[]>("/api/storefront/products");
+        Assert.NotNull(catalog);
+        Assert.Empty(catalog!.Single().Addons);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "No Cafe Module",
+                customerPhone = "09120000000",
+                items = new[] { new { productId, quantity = 1, addonIds = new[] { addonId } } }
+            })
+        };
+        request.Headers.Add("Idempotency-Key", "integration-addon-no-cafe-0001");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task ConcurrentRetries_WithSameIdempotencyKeyCreateOnlyOneOrder()
     {
         await using var factory = new StorefrontTestFactory();
