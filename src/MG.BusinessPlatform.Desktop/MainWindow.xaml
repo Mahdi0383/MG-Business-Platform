@@ -65,6 +65,7 @@
                     </Border>
                     <Border Grid.Row="2" Background="White" CornerRadius="10" Padding="8" Margin="0,0,0,10">
                         <WrapPanel>
+                            <Button Content="ورود کالا از دیتابیس قدیمی" Click="ImportLegacyDatabase_Click" Margin="4"/>
                             <Button Content="ورود کالا از CSV" Click="ImportProductsCsv_Click" Margin="4"/>
                             <Button Content="خروجی کالاها به CSV" Click="ExportProductsCsv_Click" Margin="4"/>
                             <TextBlock x:Name="ProductCsvStatusText" Text="در ورود، کالاهای دارای کد تکراری رد می‌شوند و موجودی اولیه در گردش انبار ثبت می‌شود." VerticalAlignment="Center" Margin="8,4" TextWrapping="Wrap"/>
