@@ -41,7 +41,7 @@
             </TabItem>
             <TabItem Header="محصولات">
                 <Grid Margin="12">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Border Background="White" CornerRadius="10" Padding="12" Margin="0,0,0,10">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -63,7 +63,14 @@
                             <Button Grid.Column="2" Content="اعمال اصلاح موجودی برای کالای انتخاب‌شده" Click="AdjustStock_Click"/>
                         </Grid>
                     </Border>
-                    <DataGrid x:Name="ProductsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White" SelectionChanged="ProductsGrid_SelectionChanged">
+                    <Border Grid.Row="2" Background="White" CornerRadius="10" Padding="8" Margin="0,0,0,10">
+                        <WrapPanel>
+                            <Button Content="ورود کالا از CSV" Click="ImportProductsCsv_Click" Margin="4"/>
+                            <Button Content="خروجی کالاها به CSV" Click="ExportProductsCsv_Click" Margin="4"/>
+                            <TextBlock Text="در ورود، کالاهای دارای کد تکراری رد می‌شوند و موجودی اولیه در گردش انبار ثبت می‌شود." VerticalAlignment="Center" Margin="8,4" TextWrapping="Wrap"/>
+                        </WrapPanel>
+                    </Border>
+                    <DataGrid x:Name="ProductsGrid" Grid.Row="3" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Background="White" SelectionChanged="ProductsGrid_SelectionChanged">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="کد کالا" Binding="{Binding Sku}" Width="1.1*"/>
                             <DataGridTextColumn Header="نام محصول" Binding="{Binding Name}" Width="2*"/>
