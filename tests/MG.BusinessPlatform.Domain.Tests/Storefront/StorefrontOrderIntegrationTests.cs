@@ -160,6 +160,43 @@ public sealed class StorefrontOrderIntegrationTests
     }
 
     [Fact]
+    public async Task SameOriginBrowserMutation_AcceptsForwardedHttpsOriginFromTrustedLoopbackProxy()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
+            var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1);
+            settings.PublicHostname = "shop.example";
+            settings.OnlineOrderingEnabled = true;
+            await db.SaveChangesAsync();
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/storefront/orders")
+        {
+            Content = JsonContent.Create(new
+            {
+                customerName = "Forwarded same-origin caller",
+                customerPhone = "000",
+                items = Array.Empty<object>()
+            })
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "https://shop.example");
+        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "shop.example");
+        request.Headers.Add("Idempotency-Key", "integration-forwarded-https-origin-0001");
+
+        using var response = await client.SendAsync(request);
+
+        // An empty order is invalid, but a same-origin HTTPS request forwarded by
+        // the trusted local reverse proxy must pass the origin guard first.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CustomerStorefront_UsesJsonFieldCasingForAvailabilityAndCurrency()
     {
         await using var factory = new StorefrontTestFactory();
