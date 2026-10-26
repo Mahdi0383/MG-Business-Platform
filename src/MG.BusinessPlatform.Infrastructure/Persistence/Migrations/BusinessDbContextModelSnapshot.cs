@@ -73,6 +73,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid>("InvoiceId").HasColumnType("TEXT");
             b.Property<decimal>("LineTotal").HasColumnType("TEXT");
             b.Property<string>("ProductName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("AddonsJson").IsRequired().HasMaxLength(4000).HasColumnType("TEXT");
             b.Property<Guid>("ProductId").HasColumnType("TEXT");
             b.Property<int>("Quantity").HasColumnType("INTEGER");
             b.Property<decimal>("UnitCost").HasColumnType("TEXT");
@@ -298,6 +299,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid>("OrderId").HasColumnType("TEXT");
             b.Property<Guid>("ProductId").HasColumnType("TEXT");
             b.Property<string>("ProductName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("AddonsJson").IsRequired().HasMaxLength(4000).HasColumnType("TEXT");
             b.Property<int>("Quantity").HasColumnType("INTEGER");
             b.Property<decimal>("LineTotal").HasColumnType("TEXT");
             b.Property<decimal>("UnitCost").HasColumnType("TEXT");
@@ -391,5 +393,6 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
 
         PurchasingSchemaModel.BuildModel(modelBuilder);
         GameSessionsSchemaModel.BuildModel(modelBuilder);
+        ProductAddonsSchemaModel.BuildModel(modelBuilder);
     }
 }
