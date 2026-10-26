@@ -148,6 +148,50 @@ public sealed class RouterPortMappingService
             : "انتقال خودکار TCP 80 و 443 با UPnP تنظیم شد. دسترسی عمومی همچنان به DNS، محدودیت‌های ISP و نبود CGNAT وابسته است.");
     }
 
+    public async Task<RouterPortMappingResult> DiagnoseWanAddressAsync(CancellationToken cancellationToken = default)
+    {
+        var network = GetDefaultGatewayAndLocalAddress();
+        if (network is null)
+            return new(false, "درگاه پیش‌فرض و IP محلی این رایانه پیدا نشد؛ وضعیت NAT قابل تشخیص نیست.");
+
+        RouterContext router;
+        try
+        {
+            router = await DiscoverRouterAsync(network, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidOperationException or IOException or System.Xml.XmlException or OperationCanceledException)
+        {
+            if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                throw;
+            return new(false, $"روتر اطلاعات WAN را از طریق UPnP ارائه نمی‌کند؛ احتمال CGNAT یا NAT چندمرحله‌ای از این مسیر قابل بررسی نیست. {ex.Message}");
+        }
+
+        try
+        {
+            var routerResult = await SendSoapAsync(router, "GetExternalIPAddress", [], cancellationToken);
+            var wanText = routerResult.Document is null ? null : ReadElement(routerResult.Document, "NewExternalIPAddress");
+            if (!routerResult.Success || !IPAddress.TryParse(wanText, out var routerWanAddress)
+                || routerWanAddress.AddressFamily != AddressFamily.InterNetwork)
+                return new(false, "IP سمت اینترنت روتر از طریق UPnP قابل خواندن نیست؛ وضعیت CGNAT به‌صورت خودکار تأیید نشد.");
+
+            var publicText = (await Http.GetStringAsync("https://api.ipify.org", cancellationToken)).Trim();
+            if (!IPAddress.TryParse(publicText, out var publicAddress)
+                || publicAddress.AddressFamily != AddressFamily.InterNetwork)
+                return new(false, "IP عمومی IPv4 قابل تشخیص نیست؛ وضعیت CGNAT را با پشتیبانی اینترنت بررسی کنید.");
+
+            if (!routerWanAddress.Equals(publicAddress))
+                return new(false, $"IP سمت اینترنت روتر ({routerWanAddress}) با IP عمومی دیده‌شده ({publicAddress}) متفاوت است. احتمال CGNAT یا NAT چندمرحله‌ای وجود دارد؛ انتقال درگاه فقط روی این روتر کافی نیست و باید IP عمومی مستقیم یا تونل/رله بیرونی تهیه شود.");
+
+            return new(true, $"IP سمت اینترنت روتر ({routerWanAddress}) با IP عمومی ({publicAddress}) یکسان است؛ نشانه‌ای از CGNAT در این مقایسه دیده نشد. دسترسی واقعی همچنان باید از اینترنت بیرونی آزمایش شود.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidOperationException or IOException or System.Xml.XmlException or OperationCanceledException)
+        {
+            if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                throw;
+            return new(false, $"بررسی IP سمت اینترنت روتر کامل نشد؛ انتشار دستی همچنان قابل تنظیم است. {ex.Message}");
+        }
+    }
+
     public async Task<RouterPortMappingResult> RemoveWebPortsAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_statePath))
