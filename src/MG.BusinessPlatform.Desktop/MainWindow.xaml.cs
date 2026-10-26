@@ -1835,9 +1835,10 @@ public partial class MainWindow : Window
             StatusText.Text = "واحد پول کالا با سبد فعلی متفاوت است.";
             return;
         }
-        var existing = _posCartLines.FirstOrDefault(x => x.ProductId == product.Id);
+        var existing = _posCartLines.FirstOrDefault(x => x.ProductId == product.Id && x.Addons.Count == 0);
+        var totalForProduct = checked(_posCartLines.Where(x => x.ProductId == product.Id).Sum(x => x.Quantity) + quantity);
         var combined = checked((existing?.Quantity ?? 0) + quantity);
-        if (combined > product.StockQuantity || combined > 10000)
+        if (totalForProduct > product.StockQuantity || totalForProduct > 10000)
         {
             StatusText.Text = $"موجودی «{product.Name}» کافی نیست؛ موجودی {product.StockQuantity} عدد است.";
             return;
