@@ -109,6 +109,7 @@ public partial class MainWindow : Window
     private bool _isPurchaseInvoiceInProgress;
     private bool _isSalesPaymentInProgress;
     private bool _isSupplierPaymentInProgress;
+    private bool _isLoadingProductAddons;
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
@@ -248,6 +249,7 @@ public partial class MainWindow : Window
             var module = tab.Header?.ToString() switch
             {
                 "نمای کلی" => "Core",
+                "افزودنی‌ها" => "Cafe",
                 "محصولات" or "گردش انبار" => "Inventory",
                 "مشتریان" or "تأمین‌کنندگان" => "Core",
                 "فروش حضوری (POS)" => "POS",
