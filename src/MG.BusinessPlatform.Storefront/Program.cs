@@ -213,6 +213,7 @@ app.MapGet("/api/storefront/products", async (
     var canOrder = license.Payload is { } payload
         && payload.Modules.Contains("Accounting", StringComparer.Ordinal)
         && payload.Modules.Contains("Inventory", StringComparer.Ordinal);
+    var canUseAddons = license.Payload?.Modules.Contains("Cafe", StringComparer.Ordinal) == true;
     if (!settings.OnlineOrderingEnabled || !canOrder)
         return Results.Ok(Array.Empty<ProductResponse>());
 
@@ -222,17 +223,21 @@ app.MapGet("/api/storefront/products", async (
         .Take(500)
         .ToListAsync(ct);
     var productIds = products.Select(product => product.Id).ToArray();
-    var addonRows = await (
-        from link in db.StoreProductAddons.AsNoTracking()
-        join addon in db.ProductAddons.AsNoTracking() on link.AddonId equals addon.Id
-        where productIds.Contains(link.ProductId) && addon.IsActive
-        select new { link.ProductId, Addon = addon }).ToListAsync(ct);
-    var addonsByProduct = addonRows
-        .GroupBy(row => row.ProductId)
-        .ToDictionary(group => group.Key, group => group
-            .OrderBy(row => row.Addon.Name)
-            .Select(row => new ProductAddonResponse(row.Addon.Id, row.Addon.Name, row.Addon.Price))
-            .ToArray());
+    var addonsByProduct = new Dictionary<Guid, ProductAddonResponse[]>();
+    if (canUseAddons)
+    {
+        var addonRows = await (
+            from link in db.StoreProductAddons.AsNoTracking()
+            join addon in db.ProductAddons.AsNoTracking() on link.AddonId equals addon.Id
+            where productIds.Contains(link.ProductId) && addon.IsActive
+            select new { link.ProductId, Addon = addon }).ToListAsync(ct);
+        addonsByProduct = addonRows
+            .GroupBy(row => row.ProductId)
+            .ToDictionary(group => group.Key, group => group
+                .OrderBy(row => row.Addon.Name)
+                .Select(row => new ProductAddonResponse(row.Addon.Id, row.Addon.Name, row.Addon.Price))
+                .ToArray());
+    }
     return Results.Ok(products.Select(product => new ProductResponse(
         product.Id, product.Sku, product.Name, product.Description, product.UnitPrice,
         product.CurrencyCode, product.StockQuantity > 0,
@@ -453,6 +458,7 @@ app.MapPost("/api/storefront/orders", async (
     CreateOrderRequest? request,
     BusinessDbContext db,
     IConfiguration config,
+    IStorefrontLicenseGuard licenseGuard,
     CancellationToken ct) =>
 {
     var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1, ct);
@@ -463,6 +469,9 @@ app.MapPost("/api/storefront/orders", async (
         {
             ["Request"] = ["A valid order request is required."]
         });
+    if (request.Items?.Any(item => item.AddonIds is { Count: > 0 }) == true
+        && licenseGuard.Validate().Payload?.Modules.Contains("Cafe", StringComparer.Ordinal) != true)
+        return Results.Problem("Product add-ons require the Cafe license module.", statusCode: StatusCodes.Status403Forbidden);
 
     var key = context.Request.Headers["Idempotency-Key"].ToString().Trim();
     if (key.Length is < 16 or > 100 || key.Any(char.IsControl))
