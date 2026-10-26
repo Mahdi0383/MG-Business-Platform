@@ -1512,6 +1512,12 @@ public partial class MainWindow : Window
 
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ثبت فروش حضوری", "POS", "Accounting", "Inventory")) return;
+        if (_isPosCheckoutInProgress) return;
+        _isPosCheckoutInProgress = true;
+        CompletePosSaleButton.IsEnabled = false;
+        try
+        {
         var cart = _posCartLines.ToArray();
         if (cart.Length == 0)
         {
@@ -1544,23 +1550,32 @@ public partial class MainWindow : Window
             "ثبت فروش"))
             return;
 
+        SalesInvoiceRecord invoice;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
-            var invoice = await accounting.CreatePosSaleAsync(
+            invoice = await accounting.CreatePosSaleAsync(
                 cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
                 customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
                 DateOnly.FromDateTime(DateTime.Today));
-            _posCartLines.Clear();
-            UpdatePosCartTotal();
-            StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
-            await RefreshAsync();
-            await RefreshTrialBalanceAsync();
         }
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+            return;
+        }
+
+        _posCartLines.Clear();
+        UpdatePosCartTotal();
+        StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+        await RefreshAsync();
+        await RefreshTrialBalanceAsync();
+        }
+        finally
+        {
+            _isPosCheckoutInProgress = false;
+            CompletePosSaleButton.IsEnabled = true;
         }
     }
 
@@ -1690,6 +1705,7 @@ public partial class MainWindow : Window
     private async void RecordPayment_Click(object sender, RoutedEventArgs e)
     {
         if (!RequireLicensedModules("ثبت دریافت وجه", "Accounting")) return;
+        if (_isSalesPaymentInProgress) return;
         if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
         {
             StatusText.Text = "ابتدا یک فاکتور را انتخاب کنید.";
@@ -1717,6 +1733,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _isSalesPaymentInProgress = true;
+        RecordPaymentButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -1733,6 +1751,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت دریافت وجه ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            _isSalesPaymentInProgress = false;
+            RecordPaymentButton.IsEnabled = true;
         }
     }
 
@@ -2324,6 +2347,7 @@ public partial class MainWindow : Window
 
     private async void CreatePurchaseInvoice_Click(object sender, RoutedEventArgs e)
     {
+        if (_isPurchaseInvoiceInProgress) return;
         if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
         {
             StatusText.Text = "ثبت خرید به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
@@ -2352,6 +2376,8 @@ public partial class MainWindow : Window
         var lines = _purchaseDraftLines.Select(line => new PurchaseInvoiceLineRequest(
             line.ProductId, line.Quantity, line.UnitCost, line.DiscountPercent / 100m, line.UnitCode)).ToArray();
 
+        _isPurchaseInvoiceInProgress = true;
+        CreatePurchaseInvoiceButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -2365,6 +2391,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت فاکتور خرید ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            _isPurchaseInvoiceInProgress = false;
+            CreatePurchaseInvoiceButton.IsEnabled = true;
         }
     }
 
@@ -2478,6 +2509,7 @@ public partial class MainWindow : Window
 
     private async void RecordSupplierPayment_Click(object sender, RoutedEventArgs e)
     {
+        if (_isSupplierPaymentInProgress) return;
         if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
         {
             StatusText.Text = "ثبت پرداخت تأمین‌کننده به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
@@ -2500,6 +2532,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _isSupplierPaymentInProgress = true;
+        RecordSupplierPaymentButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -2514,6 +2548,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت پرداخت تأمین‌کننده ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            _isSupplierPaymentInProgress = false;
+            RecordSupplierPaymentButton.IsEnabled = true;
         }
     }
 
