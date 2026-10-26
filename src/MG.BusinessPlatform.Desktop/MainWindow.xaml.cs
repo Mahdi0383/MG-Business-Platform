@@ -2026,6 +2026,103 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ExportAuditEvents_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(AuditEventsStatusText, "خروجی سابقه تغییرات", "Core"))
+            return;
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "ذخیره سابقه تغییرات",
+            FileName = $"MG-Audit-{DateTime.Today:yyyyMMdd}.csv",
+            Filter = "CSV files (*.csv)|*.csv",
+            DefaultExt = ".csv",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        string? temporaryPath = null;
+        try
+        {
+            var fromDate = DateOnly.FromDateTime(
+                AuditFromDateInput.SelectedDate ?? new DateTime(DateTime.Today.Year, 1, 1));
+            var toDate = DateOnly.FromDateTime(AuditToDateInput.SelectedDate ?? DateTime.Today);
+            if (fromDate > toDate)
+            {
+                AuditEventsStatusText.Text = "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.";
+                return;
+            }
+
+            var fromUtcMilliseconds = new DateTimeOffset(
+                fromDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Local))
+                .ToUniversalTime().ToUnixTimeMilliseconds();
+            var toUtcExclusiveMilliseconds = new DateTimeOffset(
+                toDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Local))
+                .ToUniversalTime().ToUnixTimeMilliseconds();
+
+            await using var db = new BusinessDbContext(CreateOptions());
+            var events = await db.AuditEvents.AsNoTracking()
+                .Where(item => item.OccurredAtUnixMilliseconds >= fromUtcMilliseconds
+                    && item.OccurredAtUnixMilliseconds < toUtcExclusiveMilliseconds)
+                .OrderBy(item => item.OccurredAtUnixMilliseconds)
+                .Take(100001)
+                .ToListAsync();
+
+            var truncated = events.Count > 100000;
+            if (truncated)
+                events = events.Take(100000).ToList();
+
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine(string.Join(",", new[]
+            {
+                "زمان UTC", "کاربر", "رایانه", "عملیات", "نوع داده", "شناسه رکورد", "فیلدهای تغییرکرده"
+            }.Select(EscapeCsvField)));
+
+            foreach (var item in events)
+            {
+                csv.AppendLine(string.Join(",", new[]
+                {
+                    DateTimeOffset.FromUnixTimeMilliseconds(item.OccurredAtUnixMilliseconds)
+                        .ToString("O", CultureInfo.InvariantCulture),
+                    item.Actor,
+                    item.MachineName,
+                    item.Action,
+                    item.EntityType,
+                    item.EntityId,
+                    item.ChangedFields
+                }.Select(EscapeCsvField)));
+            }
+
+            var outputPath = Path.GetFullPath(dialog.FileName);
+            temporaryPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            await File.WriteAllTextAsync(temporaryPath, csv.ToString(),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            File.Move(temporaryPath, outputPath, overwrite: true);
+            temporaryPath = null;
+
+            AuditEventsStatusText.Text = $"خروجی CSV ذخیره شد: {events.Count} رویداد، {outputPath}" +
+                (truncated ? "؛ به‌دلیل محدودیت ایمنی، فقط ۱۰۰٬۰۰۰ رویداد نخست صادر شد." : ".");
+        }
+        catch (Exception ex)
+        {
+            AuditEventsStatusText.Text = $"خروجی CSV ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            if (temporaryPath is not null && File.Exists(temporaryPath))
+            {
+                try { File.Delete(temporaryPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    private static string EscapeCsvField(string? value) =>
+        "\"" + (value ?? string.Empty).Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+
     private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e)
     {
         if (!RequireLicensedModules("گزارش سن مطالبات و بدهی", "Accounting")) return;
