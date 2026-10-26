@@ -6,14 +6,15 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 ## Current implementation
 
-- Windows WPF management UI with product creation/editing, inventory movement history, customer/supplier records, multi-line POS cart, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
+- Windows WPF management UI with product creation/editing and CSV import/export, inventory movement history, customer/supplier records, multi-line POS cart, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
+- Product CSV import validates the entire file before writing, skips existing SKUs without overwriting them, and records imported opening stock in the inventory ledger. See [product CSV format and safety rules](docs/PRODUCT_CSV_IMPORT.md). Audit history can be exported to date-filtered CSV.
 - Local SQLite persistence with versioned EF Core migrations, an inventory movement ledger, customers/suppliers, sales invoices, journal entries and payment records.
 - Consistent online SQLite backups, integrity checks and guarded restore with an automatic safety backup.
 - Customer-facing Persian RTL storefront, public product catalog and ordering, server-side price calculation and stock checks, idempotent order submission, request throttling, and basic security headers.
 - Online reservations for store-defined tables/game stations/rooms/service slots, capacity and time-window validation, overlap rejection, idempotent requests, and desktop approval/cancellation controls. Reservations are opt-in and remain requests until the store confirms them.
 - Opt-in Caddy reverse proxy for automatic HTTPS certificate provisioning/renewal when public DNS and inbound networking are correctly configured; in-app diagnostics show DNS A/AAAA records, detected public IPv4 and local 80/443 port availability. Compatible UPnP IGD routers can optionally forward TCP 80/443 after explicit confirmation, with manual configuration as fallback. Store settings can synchronize a confirmed ParsPack DNS A record, preview the customer HTTPS URL, generate a QR code and export it as PNG.
 - Domain models for money, chart of accounts, balanced journal entries, financial periods, sales invoices, payment allocations, business/branch identity, catalog items, and stock movements.
-- Initial profit-and-loss and balance-sheet summaries, trial balance, and accounting posting for single-item POS checkout.
+- Initial profit-and-loss and balance-sheet summaries, trial balance, and transactional accounting posting for multi-line POS checkout.
 - Separate Persian RTL graphical License Manager and command-line tool, RSA-PSS signing/verification, device/software serial binding, expiry checks, desktop module gating and separate installer/ZIP artifacts. Server-side authorization across every protected operation still needs completion.
 - Windows release pipeline that produces the main app installer, separate license-manager installer, and checksummed portable/source packages.
 - CI workflow restores, builds, runs automated tests, publishes Windows binaries, bundles Caddy, validates archives/checksums and compiles both Inno Setup installers.
