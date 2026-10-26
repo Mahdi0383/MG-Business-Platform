@@ -66,8 +66,13 @@ public sealed class ProductCsvImportService(BusinessDbContext db)
                 continue;
             }
 
-            string Read(int column, string fallback = "") =>
-                column >= 0 && column < record.Fields.Count ? record.Fields[column].Trim() : fallback;
+            string Read(int column, string fallback = "")
+            {
+                var value = column >= 0 && column < record.Fields.Count
+                    ? record.Fields[column].Trim()
+                    : string.Empty;
+                return string.IsNullOrWhiteSpace(value) ? fallback : value;
+            }
 
             var sku = Read(skuColumn);
             var name = Read(nameColumn);
