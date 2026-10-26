@@ -570,6 +570,7 @@
                                 <Button Content="بررسی دسترسی HTTPS" Click="CheckPublicHosting_Click"/>
                                 <Button Content="توقف انتشار عمومی" Click="StopPublicHosting_Click"/>
                                 <Button Content="تنظیم فایروال ویندوز" Click="ConfigureFirewall_Click"/>
+                                <Button Content="حذف قانون فایروال برنامه" Click="RemoveFirewall_Click"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Button Content="تنظیم خودکار انتقال درگاه‌های روتر (UPnP)" Click="ConfigureRouterPorts_Click"/>
