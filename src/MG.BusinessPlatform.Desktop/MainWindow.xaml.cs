@@ -29,7 +29,11 @@ public sealed record InvoiceListItem(Guid Id, string InvoiceNumber, string Custo
 
 public sealed record PosCartLineDraft(Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, string CurrencyCode)
 {
-    public decimal LineTotal => checked(UnitPrice * Quantity);
+    public IReadOnlyList<ProductAddonSnapshot> Addons { get; init; } = Array.Empty<ProductAddonSnapshot>();
+    public decimal AddonUnitTotal => Addons.Sum(addon => addon.UnitPrice);
+    public decimal TotalUnitPrice => checked(UnitPrice + AddonUnitTotal);
+    public string AddonSummary => Addons.Count == 0 ? "—" : string.Join("، ", Addons.Select(addon => addon.Name));
+    public decimal LineTotal => checked(TotalUnitPrice * Quantity);
 }
 
 public sealed record PurchaseInvoiceDraftLine(Guid ProductId, string ProductName, int Quantity,
