@@ -1614,7 +1614,7 @@ public partial class MainWindow : Window
                 return;
             }
             if (!string.Equals(settings.CurrencyCode, currency, StringComparison.Ordinal)
-                && await db.StoreProducts.AnyAsync())
+                && (await db.StoreProducts.AnyAsync() || await db.ProductAddons.AnyAsync()))
             {
                 StatusText.Text = "تغییر واحد پول پس از ثبت کالا مجاز نیست؛ ابتدا باید تبدیل و بازبینی قیمت‌ها انجام شود.";
                 return;
