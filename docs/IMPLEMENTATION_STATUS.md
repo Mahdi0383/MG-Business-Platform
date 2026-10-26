@@ -35,6 +35,7 @@ This document distinguishes source-code presence from verified behavior. A featu
 ## Verification status
 
 - Main commit `c111c279a09272acf9a763df806468a9ecabc248` passed Windows CI run `38849065240`: Release build succeeded with zero compiler errors, all 194 automated tests passed, both Windows installers and portable package were produced, separate License Manager packages and source archives were verified, and SHA-256 checksums were generated.
+- Latest main commit `36c803f24495a8d3b7c1d883d3462f23c966286f` is **not verified**. GitHub Actions reports failure before runner allocation (`runner_id: 0`, no steps/logs), so this is an infrastructure-blocked run rather than a compiler/test result. The successful evidence below is historical and does not cover the latest changes.
 - The main desktop package SHA-256 for that run is `1F4AB4624FFEFDA43A5E03E1C94B4FB1E05E211DC9BFB6EDC12ED9CB4371628F`; the separate License Manager package SHA-256 is `D0718AD9ED1E357CA6F3028D6ED9F931175C03AC7378E04D881C3B47C93D9DC4`. Do not treat a CI artifact as proof of real router, printer or payment-terminal operation.
 - The build/test evidence comes from GitHub Actions; local .NET SDK execution was not available in the authoring environment.
 - Public HTTPS must be tested from a truly external network, such as a phone on mobile data. A successful local health check alone does not prove public reachability. The separate `release-windows.yml` workflow publishes versioned prereleases on `[release]` commits or manual dispatch; it does not run on every ordinary commit.
