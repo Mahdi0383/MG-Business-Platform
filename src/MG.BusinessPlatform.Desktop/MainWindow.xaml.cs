@@ -104,6 +104,7 @@ public partial class MainWindow : Window
     private readonly RouterPortMappingService _routerPortMappingService;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
     private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
+    private bool _isPosCheckoutInProgress;
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
@@ -1521,7 +1522,12 @@ public partial class MainWindow : Window
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
         if (!RequireLicensedModules("ثبت فروش حضوری", "POS", "Accounting", "Inventory")) return;
+        if (_isPosCheckoutInProgress) return;
 
+        _isPosCheckoutInProgress = true;
+        CompletePosSaleButton.IsEnabled = false;
+        try
+        {
         var cart = _posCartLines.ToArray();
         if (cart.Length == 0)
         {
@@ -1571,6 +1577,12 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+        }
+        }
+        finally
+        {
+            _isPosCheckoutInProgress = false;
+            CompletePosSaleButton.IsEnabled = true;
         }
     }
 
