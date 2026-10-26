@@ -19,7 +19,7 @@ The desktop app can start the customer storefront, generate a Caddy reverse-prox
 - A domain alone does not provide hosting or internet reachability.
 - If the ISP uses CGNAT, blocks inbound ports, or the router cannot forward ports, direct hosting will not work. Use a separately configured outbound tunnel/relay or a public server. No application can bypass these network constraints merely by saving a domain.
 - Certificate issuance can fail until DNS points to the correct public endpoint and inbound port 80 or 443 validation can reach Caddy.
-- If the store PC is shut down, asleep, disconnected, or the application host is stopped, the public storefront is unavailable.
+- If the store PC is shut down, asleep, disconnected, or the application host is stopped, the public storefront is unavailable. During uninstall, the installer verifies PID files against the exact executable paths under the installation directory, stops only the owned Caddy/storefront processes, and preserves the business database and other user data.
 - The app must not show a "published and verified" status until an HTTPS health check succeeds. A same-network check may fail because some routers do not support NAT loopback; confirm externally from mobile data.
 
 ## Security boundaries
