@@ -162,9 +162,6 @@ public static class FinancialStatementCalculator
             {
                 if (!accountMap.TryGetValue(line.AccountCode, out var account))
                     throw new InvalidOperationException($"Journal line references unknown account code {line.AccountCode}.");
-                if (!account.IsPostingAllowed)
-                    throw new InvalidOperationException($"Journal line references non-posting account code {line.AccountCode}.");
-
                 var current = totals[line.AccountCode];
                 totals[line.AccountCode] = line.Side == EntrySide.Debit
                     ? (checked(current.Debits + line.Amount.Amount), current.Credits)
