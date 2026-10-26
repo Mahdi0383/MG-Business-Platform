@@ -16,7 +16,8 @@ function Get-ExactApplicationRules {
         $isOwnedShape = ($rule.Direction -eq "Inbound") -and
             ($rule.Action -eq "Allow") -and
             ($protocol -eq "TCP") -and
-            ($ports -eq "80,443")
+            ($ports -eq "80,443") -and
+            ([string]$rule.Profile -eq "Any")
         if ($isOwnedShape) {
             $rule
         }
