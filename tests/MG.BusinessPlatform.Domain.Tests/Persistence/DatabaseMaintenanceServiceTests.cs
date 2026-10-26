@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -30,6 +31,54 @@ public sealed class DatabaseMaintenanceServiceTests
         }
         finally
         {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackup_ClearsIdlePooledWalConnectionsBeforeReplacingDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-wal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Backup state");
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = true,
+                Cache = SqliteCacheMode.Shared
+            }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    PRAGMA journal_mode=WAL;
+                    UPDATE StoreSettings SET StoreName = 'Changed in WAL' WHERE Id = 1;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(File.Exists(databasePath + "-wal") || File.Exists(databasePath + "-shm"),
+                "The regression setup must leave a pooled WAL/SHM sidecar.");
+
+            var restored = await service.RestoreBackupAsync(backupPath, databasePath);
+
+            Assert.Equal(databasePath, restored.Path);
+            Assert.Equal("Backup state", await ReadStoreNameAsync(databasePath));
+            Assert.Single(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
             try { Directory.Delete(directory, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -85,7 +134,13 @@ public sealed class DatabaseMaintenanceServiceTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = "CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY, value TEXT NOT NULL);";
+                command.CommandText = """
+                    CREATE TABLE StoreSettings (Id INTEGER PRIMARY KEY);
+                    CREATE TABLE StoreProducts (Id TEXT PRIMARY KEY);
+                    CREATE TABLE __EFMigrationsHistory (MigrationId TEXT PRIMARY KEY, ProductVersion TEXT NOT NULL);
+                    INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion)
+                    VALUES ('20261013000000_InitialStorefrontSchema', '10.0.0');
+                    """;
                 await command.ExecuteNonQueryAsync();
             }
 
