@@ -7,7 +7,14 @@ using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Licensing;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 64 * 1024);
+// The desktop app publishes through Caddy on 127.0.0.1:8080. Bind explicitly to
+// loopback even when the process is launched outside the desktop app or the machine
+// inherits an ASPNETCORE_URLS value that would otherwise expose Kestrel to the LAN.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 64 * 1024;
+    options.ListenLocalhost(8080);
+});
 
 var configuredPath = Environment.GetEnvironmentVariable("MG_BUSINESS_DB_PATH")
     ?? builder.Configuration["Storefront:DatabasePath"]
