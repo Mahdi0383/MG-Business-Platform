@@ -132,6 +132,44 @@ public sealed class DatabaseMaintenanceService
         if (result != 3)
             throw new InvalidDataException(
                 "The selected file is a valid SQLite database but is not an MG Business Platform database. The current data was not replaced.");
+
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM __EFMigrationsHistory
+            WHERE MigrationId = '20261013000000_InitialStorefrontSchema';
+            """;
+        var hasInitialMigration = Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            System.Globalization.CultureInfo.InvariantCulture);
+        if (hasInitialMigration != 1)
+            throw new InvalidDataException(
+                "The selected SQLite file does not contain the MG Business Platform migration history. The current data was not replaced.");
+
+        await EnsureColumnsAsync(connection, "StoreSettings",
+            ["Id", "StoreName", "CurrencyCode", "PublicHostname"], cancellationToken);
+        await EnsureColumnsAsync(connection, "StoreProducts",
+            ["Id", "Sku", "Name", "UnitPrice", "UnitCost", "CurrencyCode", "IsAvailable", "StockQuantity"],
+            cancellationToken);
+    }
+
+    private static async Task EnsureColumnsAsync(
+        SqliteConnection connection,
+        string tableName,
+        IReadOnlyCollection<string> requiredColumns,
+        CancellationToken cancellationToken)
+    {
+        // Table names are internal constants at every call site, never user input.
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info('{tableName}');";
+        var actualColumns = new HashSet<string>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            actualColumns.Add(reader.GetString(1));
+
+        var missing = requiredColumns.Where(column => !actualColumns.Contains(column)).ToArray();
+        if (missing.Length > 0)
+            throw new InvalidDataException(
+                $"The selected SQLite file is missing required {tableName} columns: {string.Join(", ", missing)}. The current data was not replaced.");
     }
 
     private static async Task CopyDatabaseAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
