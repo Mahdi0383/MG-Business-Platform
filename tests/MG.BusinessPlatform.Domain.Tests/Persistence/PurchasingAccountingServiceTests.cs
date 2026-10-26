@@ -76,6 +76,41 @@ public sealed class PurchasingAccountingServiceTests
     }
 
     [Fact]
+    public async Task PurchaseInvoice_RepeatedProductLinesAccumulateStockAndWeightedAverageCost()
+    {
+        await using var fixture = await PurchasingFixture.CreateAsync();
+        var service = new PurchasingAccountingService(fixture.Db);
+
+        var invoice = await service.CreatePurchaseInvoiceAsync(
+            fixture.SupplierId,
+            fixture.BranchId,
+            [
+                new PurchaseInvoiceLineRequest(fixture.ProductId, 3, 20m, 0.1m),
+                new PurchaseInvoiceLineRequest(fixture.ProductId, 2, 30m)
+            ],
+            new DateOnly(2026, 10, 16));
+
+        Assert.Equal(114m, invoice.TotalAmount);
+        Assert.Equal(2, invoice.Lines.Count);
+
+        var product = await fixture.Db.StoreProducts.SingleAsync(x => x.Id == fixture.ProductId);
+        Assert.Equal(10, product.StockQuantity);
+        Assert.Equal(16.4m, product.UnitCost);
+
+        var movements = await fixture.Db.StockMovements
+            .Where(x => x.Reference == invoice.InvoiceNumber)
+            .ToListAsync();
+        Assert.Equal(2, movements.Count);
+        Assert.Equal(5, movements.Sum(x => x.SignedQuantity));
+        Assert.Equal(114m, movements.Sum(x => x.Quantity * x.UnitCost));
+
+        var journal = await fixture.Db.JournalEntries.Include(x => x.Lines)
+            .SingleAsync(x => x.SourceType == "PurchaseInvoice" && x.SourceId == invoice.Id);
+        Assert.Equal(114m, journal.Lines.Where(x => x.Side == "Debit").Sum(x => x.Amount));
+        Assert.Equal(114m, journal.Lines.Where(x => x.Side == "Credit").Sum(x => x.Amount));
+    }
+
+    [Fact]
     public async Task SupplierPayment_RejectsOverpaymentWithoutWritingLedgerEntries()
     {
         await using var fixture = await PurchasingFixture.CreateAsync();
