@@ -91,18 +91,25 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             CreatedAt = now
         };
 
+        // Apply stock and weighted-average cost once per product. A supplier invoice
+        // may contain multiple lines for the same SKU; updating from the original
+        // quantity for each line would overwrite earlier receipts and misstate stock.
+        foreach (var group in lineDrafts.GroupBy(draft => draft.Product.Id))
+        {
+            var product = group.First().Product;
+            var receivedQuantity = group.Aggregate(0, (sum, draft) => checked(sum + draft.Request.Quantity));
+            var incomingValue = group.Aggregate(0m, (sum, draft) => checked(sum + draft.NetTotal));
+            var previousQuantity = product.StockQuantity;
+            var newQuantity = checked(previousQuantity + receivedQuantity);
+            var previousValue = checked(previousQuantity * product.UnitCost);
+            product.StockQuantity = newQuantity;
+            product.UnitCost = checked(previousValue + incomingValue) / newQuantity;
+            product.UpdatedAt = now;
+        }
+
         foreach (var draft in lineDrafts)
         {
             var product = draft.Product;
-            var previousQuantity = product.StockQuantity;
-            var newQuantity = checked(previousQuantity + draft.Request.Quantity);
-            var previousValue = checked(previousQuantity * product.UnitCost);
-            var incomingValue = draft.NetTotal;
-            var newAverageCost = checked(previousValue + incomingValue) / newQuantity;
-            product.StockQuantity = newQuantity;
-            product.UnitCost = newAverageCost;
-            product.UpdatedAt = now;
-
             invoice.Lines.Add(new PurchaseInvoiceLineRecord
             {
                 Id = Guid.NewGuid(),
