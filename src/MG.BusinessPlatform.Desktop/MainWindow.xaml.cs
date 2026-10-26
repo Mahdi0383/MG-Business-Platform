@@ -2124,7 +2124,7 @@ public partial class MainWindow : Window
     {
         var text = value ?? string.Empty;
         // Prevent spreadsheet formula injection when audit fields are opened in Excel-like tools.
-        if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\\t' or '\\r')
+        if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
             text = "'" + text;
         return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
