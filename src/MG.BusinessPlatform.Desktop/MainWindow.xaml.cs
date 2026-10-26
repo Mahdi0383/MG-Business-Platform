@@ -661,6 +661,8 @@ public partial class MainWindow : Window
                 .Where(link => link.ProductId == productId)
                 .Select(link => link.AddonId)
                 .ToListAsync();
+            if (AddonProductInput.SelectedValue is not Guid currentProductId || currentProductId != productId)
+                return;
             ProductAddonAssignmentsGrid.ItemsSource = addons.Select(addon => new ProductAddonAssignmentRow
             {
                 AddonId = addon.Id,
@@ -688,9 +690,11 @@ public partial class MainWindow : Window
 
         ProductAddonAssignmentsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         ProductAddonAssignmentsGrid.CommitEdit(DataGridEditingUnit.Row, true);
-        var addonIds = ProductAddonAssignmentsGrid.ItemsSource is IEnumerable<ProductAddonAssignmentRow> rows
-            ? rows.Where(row => row.IsAssigned).Select(row => row.AddonId).ToArray()
-            : [];
+        Guid[] addonIds;
+        if (ProductAddonAssignmentsGrid.ItemsSource is IEnumerable<ProductAddonAssignmentRow> rows)
+            addonIds = rows.Where(row => row.IsAssigned).Select(row => row.AddonId).ToArray();
+        else
+            addonIds = Array.Empty<Guid>();
         if (addonIds.Length > 20)
         {
             ProductAddonAssignmentStatusText.Text = "هر محصول حداکثر می‌تواند ۲۰ افزودنی داشته باشد.";
