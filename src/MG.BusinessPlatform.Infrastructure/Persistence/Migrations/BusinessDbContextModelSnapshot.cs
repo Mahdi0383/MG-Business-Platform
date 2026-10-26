@@ -229,13 +229,28 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             });
         });
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.ProductAddOnRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<string>("Name").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
+            b.Property<decimal>("Price").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("Name").IsUnique();
+            b.ToTable("ProductAddOns", t => t.HasCheckConstraint("CK_ProductAddOn_Price", "CAST(Price AS NUMERIC) >= 0"));
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("AllowedAddOnIdsJson").IsRequired().HasMaxLength(4000).HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("Description").IsRequired().HasMaxLength(2000).HasColumnType("TEXT");
             b.Property<bool>("IsAvailable").HasColumnType("INTEGER");
             b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<bool>("SupportsAddOns").HasColumnType("INTEGER");
             b.Property<int>("StockQuantity").HasColumnType("INTEGER");
             b.Property<string>("Sku").IsRequired().HasMaxLength(80).HasColumnType("TEXT");
             b.Property<decimal>("UnitCost").HasColumnType("TEXT");
@@ -297,6 +312,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
             b.Property<Guid>("OrderId").HasColumnType("TEXT");
             b.Property<Guid>("ProductId").HasColumnType("TEXT");
+            b.Property<string>("AddOnsJson").IsRequired().HasMaxLength(4000).HasColumnType("TEXT");
             b.Property<string>("ProductName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<int>("Quantity").HasColumnType("INTEGER");
             b.Property<decimal>("LineTotal").HasColumnType("TEXT");
