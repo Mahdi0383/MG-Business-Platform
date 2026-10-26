@@ -2120,8 +2120,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private static string EscapeCsvField(string? value) =>
-        "\"" + (value ?? string.Empty).Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    private static string EscapeCsvField(string? value)
+    {
+        var text = value ?? string.Empty;
+        // Prevent spreadsheet formula injection when audit fields are opened in Excel-like tools.
+        if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\\t' or '\\r')
+            text = "'" + text;
+        return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    }
 
     private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e)
     {
