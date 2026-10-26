@@ -45,6 +45,30 @@ public sealed class FinancialStatementCalculatorTests
     }
 
     [Fact]
+    public void FinancialStatements_IncludeHistoricalPostingsForAccountsNowMarkedNonPosting()
+    {
+        var accounts = Accounts()
+            .Select(account => account.Code == "1000"
+                ? new Account(account.Code, account.Name, account.Type, isPostingAllowed: false)
+                : account)
+            .ToArray();
+        var entries = new[]
+        {
+            Entry(new DateOnly(2026, 1, 1), "Capital", Debit("1000", 1000m), Credit("3000", 1000m)),
+            Entry(new DateOnly(2026, 2, 1), "Sale", Debit("1000", 200m), Credit("4000", 200m))
+        };
+
+        var profitAndLoss = FinancialStatementCalculator.CalculateProfitAndLoss(
+            accounts, entries, new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), "IRR");
+        var balanceSheet = FinancialStatementCalculator.CalculateBalanceSheet(
+            accounts, entries, new DateOnly(2026, 12, 31), "IRR");
+
+        Assert.Equal(new Money(200m, "IRR"), profitAndLoss.TotalRevenue);
+        Assert.Equal(new Money(1200m, "IRR"), balanceSheet.TotalAssets);
+        Assert.True(balanceSheet.IsBalanced);
+    }
+
+    [Fact]
     public void ProfitAndLoss_RejectsInvertedDateRange()
     {
         Assert.Throws<ArgumentException>(() => FinancialStatementCalculator.CalculateProfitAndLoss(
