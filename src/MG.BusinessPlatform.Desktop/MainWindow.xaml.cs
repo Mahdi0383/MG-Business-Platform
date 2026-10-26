@@ -1042,6 +1042,12 @@ public partial class MainWindow : Window
 
         try
         {
+            if (new FileInfo(dialog.FileName).Length > 10L * 1024 * 1024)
+            {
+                ProductCsvStatusText.Text = "فایل CSV بیش از ۱۰ مگابایت است؛ فایل کوچک‌تری انتخاب کنید.";
+                return;
+            }
+
             var csv = await File.ReadAllTextAsync(dialog.FileName);
             await using var db = new BusinessDbContext(CreateOptions());
             var result = await new ProductCsvImportService(db).ImportAsync(csv);
