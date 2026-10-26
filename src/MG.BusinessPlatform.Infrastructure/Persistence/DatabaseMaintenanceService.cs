@@ -61,8 +61,8 @@ public sealed class DatabaseMaintenanceService
         // even though the desktop app has stopped all active database work.
         SqliteConnection.ClearAllPools();
 
-        if (File.Exists(target + "-wal") || File.Exists(target + "-shm"))
-            throw new InvalidOperationException("SQLite sidecar files still exist. Stop every process using the database before restoring.");
+        if (File.Exists(target + "-wal") || File.Exists(target + "-shm") || File.Exists(target + "-journal"))
+            throw new InvalidOperationException("SQLite WAL, SHM or rollback-journal sidecar files still exist. Stop every process using the database before restoring.");
         var temporaryPath = target + ".restore-" + Guid.NewGuid().ToString("N");
         string? safetyBackupPath = null;
         try
