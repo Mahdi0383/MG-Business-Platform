@@ -68,8 +68,18 @@ public partial class App : System.Windows.Application
         await DatabaseInitializer.InitializeAsync(db);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
-        if (!settings.OnlineOrderingEnabled && !settings.OnlineReservationsEnabled)
+        var licensedModules = payload.Modules.ToHashSet(StringComparer.Ordinal);
+        var canServeOrders = settings.OnlineOrderingEnabled
+            && licensedModules.Contains("Accounting")
+            && licensedModules.Contains("Inventory");
+        var canServeReservations = settings.OnlineReservationsEnabled
+            && licensedModules.Contains("Reservations");
+        if (!canServeOrders && !canServeReservations)
+        {
+            await File.AppendAllTextAsync(Path.Combine(dataDirectory, "publication-startup.log"),
+                $"{DateTimeOffset.UtcNow:O} Storefront auto-start skipped: no enabled online feature matches the current license modules.{Environment.NewLine}");
             return;
+        }
 
         var localRunning = false;
         using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) })
