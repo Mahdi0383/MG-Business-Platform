@@ -495,13 +495,14 @@
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Border Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,10">
-                        <StackPanel Orientation="Horizontal">
+                        <WrapPanel>
                             <TextBlock Text="از تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <DatePicker x:Name="AuditFromDateInput" Width="150" Margin="0,0,12,0"/>
                             <TextBlock Text="تا تاریخ" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <DatePicker x:Name="AuditToDateInput" Width="150" Margin="0,0,12,0"/>
-                            <Button Content="بارگذاری سابقه" Click="RefreshAuditEvents_Click"/>
-                        </StackPanel>
+                            <Button Content="بارگذاری سابقه" Click="RefreshAuditEvents_Click" Margin="0,0,6,0"/>
+                            <Button Content="خروجی CSV" Click="ExportAuditEvents_Click"/>
+                        </WrapPanel>
                     </Border>
                     <TextBlock x:Name="AuditEventsStatusText" Grid.Row="1" Text="رویدادهای تغییرات هنوز بارگذاری نشده‌اند." TextWrapping="Wrap" Margin="0,0,0,10"/>
                     <DataGrid x:Name="AuditEventsGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
