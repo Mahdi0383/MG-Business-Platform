@@ -53,6 +53,10 @@ public sealed record LicensePayload
         if (Modules.Contains("Reservations", StringComparer.Ordinal)
             && !Modules.Contains("Storefront", StringComparer.Ordinal))
             throw new ArgumentException("The Reservations module requires Storefront because reservation APIs are hosted by the customer storefront.", nameof(Modules));
+        if (Modules.Contains("POS", StringComparer.Ordinal)
+            && (!Modules.Contains("Accounting", StringComparer.Ordinal)
+                || !Modules.Contains("Inventory", StringComparer.Ordinal)))
+            throw new ArgumentException("The POS module requires both Accounting and Inventory because checkout posts ledger entries and changes stock atomically.", nameof(Modules));
 
         return this with
         {

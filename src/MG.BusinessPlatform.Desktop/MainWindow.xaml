@@ -167,7 +167,7 @@
                                 <TextBox x:Name="PurchaseUnitCodeInput" Width="90" Text="EA" ToolTip="واحد کالا" Margin="4"/>
                                 <Button Content="افزودن ردیف خرید" Click="AddPurchaseLine_Click" Margin="4"/>
                                 <Button Content="حذف ردیف انتخاب‌شده" Click="RemovePurchaseLine_Click" Margin="4"/>
-                                <Button Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
+                                <Button x:Name="CreatePurchaseInvoiceButton" Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
                                 <Button Content="ثبت سررسید خرید انتخاب‌شده" Click="UpdateSelectedPurchaseDueDate_Click" Margin="4"/>
                                 <Button Content="به‌روزرسانی خریدها" Click="RefreshPurchases_Click" Margin="4"/>
                             </WrapPanel>
@@ -212,7 +212,7 @@
                                 </ComboBox>
                                 <TextBox x:Name="SupplierPaymentReferenceInput" ToolTip="شماره پیگیری (اختیاری)" Margin="0,3"/>
                                 <TextBox x:Name="SupplierPaymentNotesInput" ToolTip="توضیحات (اختیاری)" Margin="0,3"/>
-                                <Button Content="ثبت پرداخت" Click="RecordSupplierPayment_Click" Margin="0,6"/>
+                                <Button x:Name="RecordSupplierPaymentButton" Content="ثبت پرداخت" Click="RecordSupplierPayment_Click" Margin="0,6"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -240,7 +240,7 @@
                             <DockPanel Margin="4,6,4,0">
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                                     <Button Content="حذف از سبد" Click="RemovePosCartItem_Click"/>
-                                    <Button Content="ثبت فروش، صدور فاکتور و دریافت وجه" Click="CompletePosSale_Click"/>
+                                    <Button x:Name="CompletePosSaleButton" Content="ثبت فروش، صدور فاکتور و دریافت وجه" Click="CompletePosSale_Click"/>
                                 </StackPanel>
                                 <TextBlock x:Name="PosCartTotalText" Text="مجموع سبد: ۰" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                             </DockPanel>
@@ -279,7 +279,7 @@
                             </ComboBox>
                             <TextBox x:Name="PaymentReferenceInput" Width="180" ToolTip="شماره پیگیری (اختیاری)"/>
                             <TextBox x:Name="PaymentNotesInput" Width="220" ToolTip="توضیحات (اختیاری)"/>
-                            <Button Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
+                            <Button x:Name="RecordPaymentButton" Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
                             <Button Content="چاپ رسید ۵۸ میلی‌متری" Click="PrintSelectedInvoice_Click" Margin="4,0"/>
                         <DatePicker x:Name="InvoiceDueDateInput" Width="150" Margin="4" ToolTip="سررسید قراردادی فاکتور انتخاب‌شده"/>
                             <Button Content="ثبت سررسید فاکتور انتخاب‌شده" Click="UpdateSelectedInvoiceDueDate_Click" Margin="4"/>

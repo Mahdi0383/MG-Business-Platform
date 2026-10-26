@@ -105,6 +105,10 @@ public partial class MainWindow : Window
     private readonly RouterPortMappingService _routerPortMappingService;
     private readonly ObservableCollection<GameSessionPlayerDraft> _sessionPlayerDrafts = [];
     private readonly ObservableCollection<PosCartLineDraft> _posCartLines = [];
+    private bool _isPosCheckoutInProgress;
+    private bool _isPurchaseInvoiceInProgress;
+    private bool _isSalesPaymentInProgress;
+    private bool _isSupplierPaymentInProgress;
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
     private readonly Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
@@ -550,6 +554,8 @@ public partial class MainWindow : Window
 
     private void NewPaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ساخت پروفایل PC-POS", "POS")) return;
+
         _editingPaymentProfileId = Guid.NewGuid();
         PaymentProfileNameInput.Clear();
         PaymentProfileVendorInput.Clear();
@@ -654,6 +660,8 @@ public partial class MainWindow : Window
 
     private async void SavePaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ذخیره پروفایل PC-POS", "POS")) return;
+
         try
         {
             var profile = BuildPaymentProfile();
@@ -670,6 +678,8 @@ public partial class MainWindow : Window
 
     private async void TestPaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "آزمایش اتصال PC-POS", "POS")) return;
+
         try
         {
             var profile = BuildPaymentProfile();
@@ -696,6 +706,8 @@ public partial class MainWindow : Window
 
     private async void DeletePaymentProfile_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "حذف پروفایل PC-POS", "POS")) return;
+
         var id = PaymentTerminalProfilesGrid.SelectedItem is PaymentTerminalProfileGridRow selected
             ? selected.Id
             : _editingPaymentProfileId;
@@ -724,6 +736,7 @@ public partial class MainWindow : Window
 
     private async void RefreshPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "نمایش پروفایل‌های PC-POS", "POS")) return;
         try
         {
             await LoadPaymentTerminalProfilesAsync();
@@ -737,6 +750,8 @@ public partial class MainWindow : Window
 
     private async void ExportPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "خروجی پروفایل‌های PC-POS", "POS")) return;
+
         var dialog = new SaveFileDialog
         {
             Title = "ذخیره پشتیبان پروفایل‌های PC-POS",
@@ -760,6 +775,8 @@ public partial class MainWindow : Window
 
     private async void ImportPaymentProfiles_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PaymentProfileStatusText, "ورود پروفایل‌های PC-POS", "POS")) return;
+
         var dialog = new OpenFileDialog
         {
             Title = "انتخاب پشتیبان پروفایل‌های PC-POS",
@@ -815,6 +832,8 @@ public partial class MainWindow : Window
 
     private void AddSessionPlayer_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "افزودن بازیکن جلسه بازی", "GameCafe")) return;
+
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
         _sessionPlayerDrafts.Add(new GameSessionPlayerDraft
@@ -825,6 +844,8 @@ public partial class MainWindow : Window
 
     private async void StartGameSession_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "شروع جلسه بازی", "GameCafe")) return;
+
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         SessionPlayersGrid.CommitEdit(DataGridEditingUnit.Row, true);
 
@@ -893,8 +914,11 @@ public partial class MainWindow : Window
     private async void CompleteGameSession_Click(object sender, RoutedEventArgs e) =>
         await ChangeSelectedGameSessionAsync(GameSessionTransition.Complete);
 
-    private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e) =>
+    private async void RefreshGameSessions_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules(GameSessionStatusText, "نمایش جلسات بازی", "GameCafe")) return;
         await RefreshAsync();
+    }
 
     private async void CreateGameSessionInvoice_Click(object sender, RoutedEventArgs e)
     {
@@ -932,6 +956,7 @@ public partial class MainWindow : Window
 
     private async Task ChangeSelectedGameSessionAsync(GameSessionTransition transition)
     {
+        if (!RequireLicensedModules(GameSessionStatusText, "مدیریت جلسه بازی", "GameCafe")) return;
         if (GameSessionsGrid.SelectedItem is not GameSessionGridRow row)
         {
             GameSessionStatusText.Text = "ابتدا یک جلسه را از فهرست انتخاب کنید.";
@@ -1002,6 +1027,8 @@ public partial class MainWindow : Window
 
     private async void AddProduct_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن کالا", "Inventory")) return;
+
         var sku = SkuInput.Text.Trim();
         var name = NameInput.Text.Trim();
         if (sku.Length is < 1 or > 80 || name.Length is < 1 or > 200)
@@ -1168,6 +1195,7 @@ public partial class MainWindow : Window
 
     private void DeleteParsPackDnsToken_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("حذف اعتبارنامه DNS پارس‌پک", "Storefront")) return;
         if (!ConfirmationDialog.Confirm(this, "حذف توکن DNS پارس‌پک",
             "توکن ذخیره‌شده از Windows Credential Manager این حساب حذف شود؟"))
             return;
@@ -1207,9 +1235,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (OnlineOrdersInput.IsChecked == true && !HasLicensedModule("Storefront"))
+        if (OnlineOrdersInput.IsChecked == true
+            && (!HasLicensedModule("Storefront")
+                || !HasLicensedModule("Accounting")
+                || !HasLicensedModule("Inventory")))
         {
-            StatusText.Text = "برای فعال‌سازی سفارش آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            StatusText.Text = "برای فعال‌سازی سفارش آنلاین، لایسنس معتبر دارای ماژول‌های Storefront، Accounting و Inventory لازم است.";
             return;
         }
         if (OnlineReservationsInput.IsChecked == true
@@ -1270,6 +1301,8 @@ public partial class MainWindow : Window
 
     private async void UpdateSelectedProduct_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ویرایش کالا", "Inventory")) return;
+
         if (ProductsGrid.SelectedItem is not StoreProduct selected)
         {
             StatusText.Text = "برای ویرایش، ابتدا کالا را از فهرست انتخاب کنید.";
@@ -1336,6 +1369,8 @@ public partial class MainWindow : Window
 
     private async void AdjustStock_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("اصلاح موجودی", "Inventory")) return;
+
         if (ProductsGrid.SelectedItem is not StoreProduct selected)
         {
             StatusText.Text = "ابتدا کالا را از فهرست انتخاب کنید.";
@@ -1423,6 +1458,8 @@ public partial class MainWindow : Window
 
     private void AddPosCartItem_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن کالا به سبد فروش", "POS", "Inventory")) return;
+
         if (PosProductInput.SelectedItem is not StoreProduct product)
         {
             StatusText.Text = "ابتدا کالا را انتخاب کنید.";
@@ -1461,6 +1498,8 @@ public partial class MainWindow : Window
 
     private void RemovePosCartItem_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("حذف کالا از سبد فروش", "POS", "Inventory")) return;
+
         if (PosCartGrid.SelectedItem is not PosCartLineDraft selected)
         {
             StatusText.Text = "برای حذف، یک ردیف از سبد را انتخاب کنید.";
@@ -1486,6 +1525,13 @@ public partial class MainWindow : Window
 
     private async void CompletePosSale_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ثبت فروش حضوری", "POS", "Accounting", "Inventory")) return;
+        if (_isPosCheckoutInProgress) return;
+
+        _isPosCheckoutInProgress = true;
+        CompletePosSaleButton.IsEnabled = false;
+        try
+        {
         var cart = _posCartLines.ToArray();
         if (cart.Length == 0)
         {
@@ -1518,23 +1564,41 @@ public partial class MainWindow : Window
             "ثبت فروش"))
             return;
 
+        SalesInvoiceRecord invoice;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
-            var invoice = await accounting.CreatePosSaleAsync(
+            invoice = await accounting.CreatePosSaleAsync(
                 cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
                 customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
                 DateOnly.FromDateTime(DateTime.Today));
-            _posCartLines.Clear();
-            UpdatePosCartTotal();
-            StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+            return;
+        }
+
+        _posCartLines.Clear();
+        UpdatePosCartTotal();
+        StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+        try
+        {
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+            // The transaction has already committed. Never tell the operator the
+            // sale failed, or encourage a retry, just because a follow-up refresh failed.
+            StatusText.Text = $"فروش ثبت شد (فاکتور {invoice.InvoiceNumber})، اما تازه‌سازی فهرست/گزارش ناموفق بود: {ex.Message}";
+        }
+        }
+        finally
+        {
+            _isPosCheckoutInProgress = false;
+            CompletePosSaleButton.IsEnabled = true;
         }
     }
 
@@ -1663,6 +1727,9 @@ public partial class MainWindow : Window
 
     private async void RecordPayment_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ثبت دریافت وجه", "Accounting")) return;
+        if (_isSalesPaymentInProgress) return;
+
         if (InvoicesGrid.SelectedItem is not InvoiceListItem selected)
         {
             StatusText.Text = "ابتدا یک فاکتور را انتخاب کنید.";
@@ -1690,6 +1757,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _isSalesPaymentInProgress = true;
+        RecordPaymentButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -1706,6 +1775,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت دریافت وجه ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            _isSalesPaymentInProgress = false;
+            RecordPaymentButton.IsEnabled = true;
         }
     }
 
@@ -1771,8 +1845,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateFinancialStatements_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateFinancialStatements_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("محاسبه صورت‌های مالی", "Accounting")) return;
         await CalculateFinancialStatementsAsync();
+    }
 
     private async Task CalculateFinancialStatementsAsync()
     {
@@ -1837,8 +1914,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateCashMovement_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateCashMovement_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("گزارش گردش نقد و بانک", "Accounting")) return;
         await CalculateCashMovementAsync();
+    }
 
     private async Task CalculateCashMovementAsync()
     {
@@ -1946,8 +2026,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e) =>
+    private async void CalculateInvoiceAging_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("گزارش سن مطالبات و بدهی", "Accounting")) return;
         await CalculateInvoiceAgingAsync();
+    }
 
     private async Task CalculateInvoiceAgingAsync()
     {
@@ -2001,8 +2084,11 @@ public partial class MainWindow : Window
         _ => "نامشخص"
     };
 
-    private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e) =>
+    private async void RefreshTrialBalance_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("نمایش تراز آزمایشی", "Accounting")) return;
         await RefreshTrialBalanceAsync();
+    }
 
     private async Task RefreshTrialBalanceAsync()
     {
@@ -2043,10 +2129,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void RefreshReservations_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+    private async void RefreshReservations_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("نمایش رزروها", "Reservations")) return;
+        await RefreshAsync();
+    }
 
     private async void AddReservationResource_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن منبع رزرو", "Reservations")) return;
+
         var name = ReservationResourceNameInput.Text.Trim();
         if (name.Length is < 1 or > 160)
         {
@@ -2096,6 +2188,8 @@ public partial class MainWindow : Window
 
     private async void ToggleReservationResource_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("تغییر وضعیت منبع رزرو", "Reservations")) return;
+
         if (ReservationResourcesGrid.SelectedItem is not ReservationResourceRecord selected)
         {
             StatusText.Text = "ابتدا یک منبع رزرو را انتخاب کنید.";
@@ -2130,6 +2224,7 @@ public partial class MainWindow : Window
 
     private async Task UpdateReservationStatusAsync(string status)
     {
+        if (!RequireLicensedModules("تغییر وضعیت رزرو", "Reservations")) return;
         if (CustomerReservationsGrid.SelectedItem is not ReservationListRow selected)
         {
             StatusText.Text = "ابتدا یک درخواست رزرو را انتخاب کنید.";
@@ -2162,6 +2257,8 @@ public partial class MainWindow : Window
 
     private async void AddCustomer_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن مشتری", "Core")) return;
+
         var name = CustomerNameInput.Text.Trim();
         var phone = CustomerPhoneInput.Text.Trim();
         var email = CustomerEmailInput.Text.Trim();
@@ -2177,6 +2274,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        _isSupplierPaymentInProgress = true;
+        RecordSupplierPaymentButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -2206,6 +2305,8 @@ public partial class MainWindow : Window
 
     private void AddPurchaseLine_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن ردیف خرید", "Accounting", "Inventory")) return;
+
         if (PurchaseProductInput.SelectedItem is not StoreProduct product)
         {
             StatusText.Text = "برای افزودن ردیف خرید، یک کالا انتخاب کنید.";
@@ -2250,6 +2351,7 @@ public partial class MainWindow : Window
 
     private void RemovePurchaseLine_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("ویرایش پیش‌نویس خرید", "Accounting", "Inventory")) return;
         if (PurchaseDraftGrid.SelectedItem is not PurchaseInvoiceDraftLine selected)
         {
             StatusText.Text = "ابتدا یک ردیف پیش‌نویس خرید را انتخاب کنید.";
@@ -2275,6 +2377,7 @@ public partial class MainWindow : Window
 
     private async void CreatePurchaseInvoice_Click(object sender, RoutedEventArgs e)
     {
+        if (_isPurchaseInvoiceInProgress) return;
         if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
         {
             StatusText.Text = "ثبت خرید به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
@@ -2303,6 +2406,8 @@ public partial class MainWindow : Window
         var lines = _purchaseDraftLines.Select(line => new PurchaseInvoiceLineRequest(
             line.ProductId, line.Quantity, line.UnitCost, line.DiscountPercent / 100m, line.UnitCode)).ToArray();
 
+        _isPurchaseInvoiceInProgress = true;
+        CreatePurchaseInvoiceButton.IsEnabled = false;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
@@ -2316,6 +2421,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = $"ثبت فاکتور خرید ناموفق بود: {ex.Message}";
+        }
+        finally
+        {
+            _isPurchaseInvoiceInProgress = false;
+            CreatePurchaseInvoiceButton.IsEnabled = true;
         }
     }
 
@@ -2429,6 +2539,7 @@ public partial class MainWindow : Window
 
     private async void RecordSupplierPayment_Click(object sender, RoutedEventArgs e)
     {
+        if (_isSupplierPaymentInProgress) return;
         if (!HasLicensedModule("Accounting") || !HasLicensedModule("Inventory"))
         {
             StatusText.Text = "ثبت پرداخت تأمین‌کننده به لایسنس معتبر دارای ماژول‌های Accounting و Inventory نیاز دارد.";
@@ -2466,10 +2577,17 @@ public partial class MainWindow : Window
         {
             StatusText.Text = $"ثبت پرداخت تأمین‌کننده ناموفق بود: {ex.Message}";
         }
+        finally
+        {
+            _isSupplierPaymentInProgress = false;
+            RecordSupplierPaymentButton.IsEnabled = true;
+        }
     }
 
     private async void AddSupplier_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("افزودن تأمین‌کننده", "Core")) return;
+
         var name = SupplierNameInput.Text.Trim();
         var phone = SupplierPhoneInput.Text.Trim();
         var email = SupplierEmailInput.Text.Trim();
@@ -2519,6 +2637,8 @@ public partial class MainWindow : Window
 
     private async void FulfillOrder_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("تحویل سفارش آنلاین", "Storefront", "Accounting", "Inventory")) return;
+
         if (OrdersGrid.SelectedItem is not CustomerOrder selected)
         {
             StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
@@ -2546,6 +2666,8 @@ public partial class MainWindow : Window
 
     private async void CancelOrder_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules("لغو سفارش آنلاین", "Storefront")) return;
+
         if (OrdersGrid.SelectedItem is not CustomerOrder selected)
         {
             StatusText.Text = "ابتدا یک سفارش را انتخاب کنید.";
@@ -2721,6 +2843,8 @@ public partial class MainWindow : Window
 
     private async void ConfigureFirewall_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "تنظیم فایروال انتشار عمومی", "Storefront")) return;
+
         var scriptPath = Path.Combine(AppContext.BaseDirectory, "configure-firewall.ps1");
         if (!File.Exists(scriptPath))
         {
@@ -2783,6 +2907,8 @@ public partial class MainWindow : Window
 
     private async void GenerateStorefrontQr_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "ساخت QR فروشگاه آنلاین", "Storefront")) return;
+
         try
         {
             var qr = await BuildStorefrontQrAsync();
@@ -2806,6 +2932,7 @@ public partial class MainWindow : Window
 
     private async void SaveStorefrontQr_Click(object sender, RoutedEventArgs e)
     {
+        if (!RequireLicensedModules(PublicHostingStatusText, "ذخیره QR فروشگاه آنلاین", "Storefront")) return;
         try
         {
             var qr = await BuildStorefrontQrAsync();
@@ -3079,6 +3206,19 @@ public partial class MainWindow : Window
             ? validPayload
             : null;
         return payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
+    }
+
+    private bool RequireLicensedModules(string operation, params string[] modules) =>
+        RequireLicensedModules(StatusText, operation, modules);
+
+    private bool RequireLicensedModules(TextBlock target, string operation, params string[] modules)
+    {
+        var missing = modules.Where(module => !HasLicensedModule(module)).ToArray();
+        if (missing.Length == 0)
+            return true;
+
+        target.Text = $"برای {operation}، لایسنس معتبر دارای ماژول‌های {string.Join("، ", missing)} لازم است.";
+        return false;
     }
 
     private async Task<bool> IsStorefrontRunningAsync()
