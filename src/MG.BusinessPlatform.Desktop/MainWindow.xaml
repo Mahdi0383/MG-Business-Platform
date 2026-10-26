@@ -165,7 +165,7 @@
                                 <TextBox x:Name="PurchaseUnitCodeInput" Width="90" Text="EA" ToolTip="واحد کالا" Margin="4"/>
                                 <Button Content="افزودن ردیف خرید" Click="AddPurchaseLine_Click" Margin="4"/>
                                 <Button Content="حذف ردیف انتخاب‌شده" Click="RemovePurchaseLine_Click" Margin="4"/>
-                                <Button Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
+                                <Button x:Name="CreatePurchaseInvoiceButton" Content="ثبت فاکتور خرید و افزایش موجودی" Click="CreatePurchaseInvoice_Click" Margin="4"/>
                                 <Button Content="به‌روزرسانی خریدها" Click="RefreshPurchases_Click" Margin="4"/>
                             </WrapPanel>
                         </StackPanel>
@@ -208,7 +208,7 @@
                                 </ComboBox>
                                 <TextBox x:Name="SupplierPaymentReferenceInput" ToolTip="شماره پیگیری (اختیاری)" Margin="0,3"/>
                                 <TextBox x:Name="SupplierPaymentNotesInput" ToolTip="توضیحات (اختیاری)" Margin="0,3"/>
-                                <Button Content="ثبت پرداخت" Click="RecordSupplierPayment_Click" Margin="0,6"/>
+                                <Button x:Name="RecordSupplierPaymentButton" Content="ثبت پرداخت" Click="RecordSupplierPayment_Click" Margin="0,6"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -275,7 +275,7 @@
                             </ComboBox>
                             <TextBox x:Name="PaymentReferenceInput" Width="180" ToolTip="شماره پیگیری (اختیاری)"/>
                             <TextBox x:Name="PaymentNotesInput" Width="220" ToolTip="توضیحات (اختیاری)"/>
-                            <Button Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
+                            <Button x:Name="RecordPaymentButton" Content="ثبت دریافت وجه فاکتور انتخاب‌شده" Click="RecordPayment_Click"/>
                             <Button Content="چاپ رسید ۵۸ میلی‌متری" Click="PrintSelectedInvoice_Click" Margin="4,0"/>
                         </StackPanel>
                     </Border>
