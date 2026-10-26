@@ -54,6 +54,7 @@ public sealed class SalesInvoiceLineRecord
     public decimal UnitCost { get; set; }
     public decimal LineTotal { get; set; }
     public decimal CostTotal { get; set; }
+    public string AddonsJson { get; set; } = "[]";
 }
 
 public sealed class JournalEntryRecord
@@ -152,6 +153,24 @@ public sealed class StoreProduct
     public int StockQuantity { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+public sealed class ProductAddonRecord
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public decimal Price { get; set; }
+    public string CurrencyCode { get; set; } = "IRR";
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class StoreProductAddonLink
+{
+    public Guid ProductId { get; set; }
+    public Guid AddonId { get; set; }
+}
+
+public sealed record ProductAddonSnapshot(Guid AddonId, string Name, decimal UnitPrice);
 
 public sealed class CustomerRecord
 {
@@ -286,11 +305,14 @@ public sealed class CustomerOrderLine
     public decimal UnitCost { get; set; }
     public int Quantity { get; set; }
     public decimal LineTotal { get; set; }
+    public string AddonsJson { get; set; } = "[]";
 }
 
 public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> options) : DbContext(options)
 {
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
+    public DbSet<ProductAddonRecord> ProductAddons => Set<ProductAddonRecord>();
+    public DbSet<StoreProductAddonLink> StoreProductAddons => Set<StoreProductAddonLink>();
     public DbSet<LedgerAccountRecord> LedgerAccounts => Set<LedgerAccountRecord>();
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
     public DbSet<SalesInvoiceRecord> SalesInvoices => Set<SalesInvoiceRecord>();
@@ -447,6 +469,23 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
         });
 
+        modelBuilder.Entity<ProductAddonRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
+            entity.ToTable(t => t.HasCheckConstraint("CK_ProductAddon_Price", "CAST(Price AS NUMERIC) >= 0"));
+            entity.HasIndex(x => x.Name);
+        });
+
+        modelBuilder.Entity<StoreProductAddonLink>(entity =>
+        {
+            entity.HasKey(x => new { x.ProductId, x.AddonId });
+            entity.HasIndex(x => x.AddonId);
+            entity.HasOne<StoreProduct>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ProductAddonRecord>().WithMany().HasForeignKey(x => x.AddonId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<LedgerAccountRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -475,6 +514,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.AddonsJson).HasMaxLength(4000).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_SalesInvoiceLine_Quantity", "Quantity > 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_SalesInvoiceLine_Amounts", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0 AND CAST(CostTotal AS NUMERIC) >= 0"));
         });
@@ -697,6 +737,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.ProductName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.AddonsJson).HasMaxLength(4000).IsRequired();
             entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Quantity", "Quantity > 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0"));
         });
