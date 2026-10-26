@@ -525,7 +525,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
                 UnitPrice = line.UnitPrice,
                 UnitCost = line.UnitCost,
                 LineTotal = line.LineTotal,
-                CostTotal = checked(line.UnitCost * line.Quantity)
+                CostTotal = checked(line.UnitCost * line.Quantity),
+                AddonsJson = line.AddonsJson
             }).ToList()
         };
         db.SalesInvoices.Add(invoice);
