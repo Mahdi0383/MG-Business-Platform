@@ -315,16 +315,32 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         ValidateInvoiceDueDates();
-        AddAuditEvents();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        var generatedAuditEvents = AddAuditEvents();
+        try
+        {
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+        catch
+        {
+            DetachGeneratedAuditEvents(generatedAuditEvents);
+            throw;
+        }
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
         ValidateInvoiceDueDates();
-        AddAuditEvents();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var generatedAuditEvents = AddAuditEvents();
+        try
+        {
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+        catch
+        {
+            DetachGeneratedAuditEvents(generatedAuditEvents);
+            throw;
+        }
     }
 
     private void ValidateInvoiceDueDates()
@@ -347,7 +363,13 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 $"Purchase invoice {invalidPurchaseInvoice.Entity.InvoiceNumber} cannot have a due date before its issue date.");
     }
 
-    private void AddAuditEvents()
+    private void DetachGeneratedAuditEvents(IEnumerable<AuditEventRecord> generatedAuditEvents)
+    {
+        foreach (var auditEvent in generatedAuditEvents)
+            Entry(auditEvent).State = EntityState.Detached;
+    }
+
+    private AuditEventRecord[] AddAuditEvents()
     {
         ChangeTracker.DetectChanges();
         var changes = ChangeTracker.Entries()
@@ -364,22 +386,37 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 var fields = entry.State == EntityState.Modified
                     ? entry.Properties.Where(property => property.IsModified).Select(property => property.Metadata.Name)
                     : entry.Properties.Select(property => property.Metadata.Name);
+                var changedFields = string.Join(",", fields.Distinct(StringComparer.Ordinal).Take(100));
+                if (changedFields.Length > 2000)
+                    changedFields = changedFields[..1997] + "...";
                 return new AuditEventRecord
                 {
                     Id = Guid.NewGuid(),
                     OccurredAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Actor = $"{Environment.UserDomainName}\\{Environment.UserName}",
-                    MachineName = Environment.MachineName,
-                    Action = entry.State.ToString(),
-                    EntityType = entry.Metadata.ClrType.Name,
-                    EntityId = key.Length == 0 ? "(unknown)" : string.Join(",", key),
-                    ChangedFields = string.Join(",", fields.Distinct(StringComparer.Ordinal).Take(100))
+                    Actor = LimitAuditValue($"{Environment.UserDomainName}\\{Environment.UserName}", 300, "unknown"),
+                    MachineName = LimitAuditValue(Environment.MachineName, 200, "unknown"),
+                    Action = LimitAuditValue(entry.State.ToString(), 20, "Unknown"),
+                    EntityType = LimitAuditValue(entry.Metadata.ClrType.Name, 200, "Unknown"),
+                    EntityId = LimitAuditValue(key.Length == 0 ? "(unknown)" : string.Join(",", key), 300, "(truncated)"),
+                    ChangedFields = changedFields
                 };
             })
             .ToArray();
 
         if (changes.Length > 0)
             AuditEvents.AddRange(changes);
+        return changes;
+    }
+
+    private static string LimitAuditValue(string? value, int maxLength, string fallback)
+    {
+        if (maxLength < 4)
+            throw new ArgumentOutOfRangeException(nameof(maxLength), "Audit field limits must allow a truncation marker.");
+
+        var normalized = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..(maxLength - 3)] + "...";
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
