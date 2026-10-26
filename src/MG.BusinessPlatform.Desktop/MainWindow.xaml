@@ -236,7 +236,7 @@
                             <DockPanel Margin="4,6,4,0">
                                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                                     <Button Content="حذف از سبد" Click="RemovePosCartItem_Click"/>
-                                    <Button Content="ثبت فروش، صدور فاکتور و دریافت وجه" Click="CompletePosSale_Click"/>
+                                    <Button x:Name="CompletePosSaleButton" Content="ثبت فروش، صدور فاکتور و دریافت وجه" Click="CompletePosSale_Click"/>
                                 </StackPanel>
                                 <TextBlock x:Name="PosCartTotalText" Text="مجموع سبد: ۰" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                             </DockPanel>
