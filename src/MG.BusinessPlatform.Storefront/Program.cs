@@ -492,7 +492,7 @@ app.MapPost("/api/storefront/orders", async (
             ["DeliveryAddress"] = ["Address and notes must not exceed 1000 characters."]
         });
 
-    var requested = new Dictionary<Guid, int>();
+    var requested = new Dictionary<string, RequestedOrderLine>(StringComparer.Ordinal);
     foreach (var item in request.Items)
     {
         if (item.ProductId == Guid.Empty || item.Quantity is < 1 or > 99)
@@ -500,13 +500,41 @@ app.MapPost("/api/storefront/orders", async (
             {
                 ["Items"] = ["Each product must have a valid ID and quantity between 1 and 99."]
             });
-        requested[item.ProductId] = checked(requested.GetValueOrDefault(item.ProductId) + item.Quantity);
-        if (requested[item.ProductId] > 99)
+
+        var addonIds = item.AddonIds?.ToArray() ?? Array.Empty<Guid>();
+        if (addonIds.Length > 20 || addonIds.Any(id => id == Guid.Empty)
+            || addonIds.Distinct().Count() != addonIds.Length)
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["Items"] = ["Combined quantity for a product cannot exceed 99."]
+                ["Items"] = ["Each product line can contain at most 20 unique, valid add-ons."]
             });
+
+        addonIds = addonIds.Order().ToArray();
+        var lineKey = Program.GetOrderLineKey(item.ProductId, addonIds);
+        if (requested.TryGetValue(lineKey, out var existingLine))
+        {
+            var combinedQuantity = checked(existingLine.Quantity + item.Quantity);
+            if (combinedQuantity > 99)
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["Items"] = ["Combined quantity for the same product and add-ons cannot exceed 99."]
+                });
+            requested[lineKey] = existingLine with { Quantity = combinedQuantity };
+        }
+        else
+        {
+            requested[lineKey] = new RequestedOrderLine(item.ProductId, item.Quantity, addonIds);
+        }
     }
+
+    var quantities = requested.Values
+        .GroupBy(line => line.ProductId)
+        .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+    if (quantities.Values.Any(quantity => quantity > 99))
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["Items"] = ["Combined quantity for a product cannot exceed 99, even when add-on selections differ."]
+        });
 
     var existing = await db.CustomerOrders.AsNoTracking()
         .Include(x => x.Lines)
@@ -536,10 +564,10 @@ app.MapPost("/api/storefront/orders", async (
                 existingInTransaction.TotalAmount, existingInTransaction.CurrencyCode, existingInTransaction.Status));
         }
 
-        var productIds = requested.Keys.ToArray();
+        var productIds = quantities.Keys.ToArray();
         var products = await db.StoreProducts.Where(x => productIds.Contains(x.Id) && x.IsAvailable)
             .ToDictionaryAsync(x => x.Id, ct);
-        if (products.Count != requested.Count)
+        if (products.Count != quantities.Count)
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
                 ["Items"] = ["One or more products are unavailable. Refresh the catalog and try again."]
@@ -549,7 +577,37 @@ app.MapPost("/api/storefront/orders", async (
         if (products.Values.Any(x => x.CurrencyCode != currency))
             return Results.Problem("The store catalog contains mixed currencies.", statusCode: StatusCodes.Status500InternalServerError);
 
-        foreach (var (id, quantity) in requested)
+        var addonIdsUsed = requested.Values.SelectMany(line => line.AddonIds).Distinct().ToArray();
+        var addons = addonIdsUsed.Length == 0
+            ? new Dictionary<Guid, ProductAddonRecord>()
+            : await db.ProductAddons
+                .Where(addon => addonIdsUsed.Contains(addon.Id) && addon.IsActive)
+                .ToDictionaryAsync(addon => addon.Id, ct);
+        var assignedAddonPairs = addonIdsUsed.Length == 0
+            ? new HashSet<(Guid ProductId, Guid AddonId)>()
+            : (await db.StoreProductAddons.AsNoTracking()
+                    .Where(link => productIds.Contains(link.ProductId) && addonIdsUsed.Contains(link.AddonId))
+                    .ToListAsync(ct))
+                .Select(link => (link.ProductId, link.AddonId))
+                .ToHashSet();
+
+        foreach (var line in requested.Values)
+        {
+            var product = products[line.ProductId];
+            foreach (var addonId in line.AddonIds)
+            {
+                if (!addons.TryGetValue(addonId, out var addon)
+                    || !assignedAddonPairs.Contains((line.ProductId, addonId)))
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        ["Items"] = [$"Add-on {addonId} is inactive or is not assigned to {product.Name}."]
+                    });
+                if (!string.Equals(addon.CurrencyCode, product.CurrencyCode, StringComparison.Ordinal))
+                    return Results.Problem("A product add-on uses a different currency from its product.", statusCode: StatusCodes.Status500InternalServerError);
+            }
+        }
+
+        foreach (var (id, quantity) in quantities)
         {
             var product = products[id];
             if (product.StockQuantity < quantity)
