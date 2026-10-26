@@ -2123,8 +2123,11 @@ public partial class MainWindow : Window
     private static string EscapeCsvField(string? value)
     {
         var text = value ?? string.Empty;
-        // Prevent spreadsheet formula injection when audit fields are opened in Excel-like tools.
-        if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+        // Prevent spreadsheet formula injection, including values preceded by whitespace
+        // or control characters that spreadsheet software may ignore before parsing formulas.
+        var firstVisibleCharacter = text.TrimStart(' ', '\t', '\r', '\n');
+        if (firstVisibleCharacter.Length > 0
+            && firstVisibleCharacter[0] is '=' or '+' or '-' or '@')
             text = "'" + text;
         return "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
