@@ -20,6 +20,8 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - CI workflow restores, builds, runs automated tests, publishes Windows binaries, bundles Caddy, validates archives/checksums and compiles both Inno Setup installers.
 - Versioned Windows prereleases are published by `release-windows.yml` on explicitly marked `[release]` commits or a manual workflow dispatch. Download installers, portable ZIPs, source archives and SHA-256 checksums from the latest verified [GitHub Release](https://github.com/Mahdi0383/MG-Business-Platform/releases).
 
+**Latest verification note (2026-10-27):** the current main commit has not been build/test verified. GitHub Actions jobs are failing before a runner is assigned (`runner_id: 0`, no steps/logs); the last successful Windows CI evidence applies to an older commit. Do not treat current changes as a verified release until the runner issue is resolved and the full pipeline passes.
+
 ## Important current limitations
 
 - Public domain publication is not magic: DNS must point to the store's public endpoint and TCP 80/443 must reach the Windows computer. Compatible routers may be configured through optional UPnP after explicit consent; manual forwarding remains the fallback. CGNAT or blocked inbound ports still requires a public IP or a compatible outbound tunnel/relay, which is not yet included.
