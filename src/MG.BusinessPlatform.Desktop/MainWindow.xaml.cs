@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -2091,7 +2092,12 @@ public partial class MainWindow : Window
         foreach (var line in invoice.Lines.OrderBy(item => item.ProductName, StringComparer.Ordinal))
         {
             AddText($"{line.ProductName} × {line.Quantity}", 9, true);
-            AddText($"هر واحد: {FormatReceiptAmount(line.UnitPrice, invoice.CurrencyCode)}", 8);
+            var addons = ParseProductAddonSnapshots(line.AddonsJson);
+            var addonUnitTotal = addons.Sum(addon => addon.UnitPrice);
+            AddText($"قیمت پایه هر واحد: {FormatReceiptAmount(line.UnitPrice - addonUnitTotal, invoice.CurrencyCode)}", 8);
+            foreach (var addon in addons)
+                AddText($"+ {addon.Name}: {FormatReceiptAmount(addon.UnitPrice, invoice.CurrencyCode)}", 8);
+            AddText($"قیمت واحد نهایی: {FormatReceiptAmount(line.UnitPrice, invoice.CurrencyCode)}", 8);
             AddText($"جمع: {FormatReceiptAmount(line.LineTotal, invoice.CurrencyCode)}", 9, false);
         }
 
@@ -2111,6 +2117,22 @@ public partial class MainWindow : Window
         AddDivider();
         AddText("با تشکر از خرید شما", 10, true, TextAlignment.Center);
         return receipt;
+    }
+
+    private static IReadOnlyList<ProductAddonSnapshot> ParseProductAddonSnapshots(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return Array.Empty<ProductAddonSnapshot>();
+        try
+        {
+            return JsonSerializer.Deserialize<ProductAddonSnapshot[]>(json) ?? Array.Empty<ProductAddonSnapshot>();
+        }
+        catch (JsonException)
+        {
+            // Older or externally repaired databases may contain malformed optional
+            // display metadata; keep invoice printing available and show the final price.
+            return Array.Empty<ProductAddonSnapshot>();
+        }
     }
 
     private static string FormatReceiptAmount(decimal amount, string currencyCode)
