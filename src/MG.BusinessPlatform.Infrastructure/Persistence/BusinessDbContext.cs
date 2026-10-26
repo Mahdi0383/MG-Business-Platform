@@ -371,11 +371,11 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 {
                     Id = Guid.NewGuid(),
                     OccurredAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Actor = $"{Environment.UserDomainName}\\{Environment.UserName}",
-                    MachineName = Environment.MachineName,
-                    Action = entry.State.ToString(),
-                    EntityType = entry.Metadata.ClrType.Name,
-                    EntityId = key.Length == 0 ? "(unknown)" : string.Join(",", key),
+                    Actor = LimitAuditValue($"{Environment.UserDomainName}\\{Environment.UserName}", 300, "unknown"),
+                    MachineName = LimitAuditValue(Environment.MachineName, 200, "unknown"),
+                    Action = LimitAuditValue(entry.State.ToString(), 20, "Unknown"),
+                    EntityType = LimitAuditValue(entry.Metadata.ClrType.Name, 200, "Unknown"),
+                    EntityId = LimitAuditValue(key.Length == 0 ? "(unknown)" : string.Join(",", key), 300, "(truncated)"),
                     ChangedFields = changedFields
                 };
             })
@@ -384,6 +384,17 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         if (changes.Length > 0)
             AuditEvents.AddRange(changes);
         return changes;
+    }
+
+    private static string LimitAuditValue(string? value, int maxLength, string fallback)
+    {
+        if (maxLength < 4)
+            throw new ArgumentOutOfRangeException(nameof(maxLength), "Audit field limits must allow a truncation marker.");
+
+        var normalized = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        return normalized.Length <= maxLength
+            ? normalized
+            : normalized[..(maxLength - 3)] + "...";
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
