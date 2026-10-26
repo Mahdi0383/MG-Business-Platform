@@ -40,5 +40,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: postinstall nowait skipifsilent
 
+[UninstallRun]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\stop-host.ps1"" -AppDirectory ""{app}"" -DataDirectory ""{localappdata}\MGBusinessPlatform"""; Flags: runhidden waituntilterminated; RunOnceId: "StopMGBackgroundHosts"
+
 [UninstallDelete]
 ; User data in LocalAppData is intentionally preserved.
