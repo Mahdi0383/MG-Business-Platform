@@ -13,10 +13,10 @@ function Get-ExactApplicationRules {
         $portFilter = $rule | Get-NetFirewallPortFilter
         $ports = @($portFilter.LocalPort) -join ","
         $protocol = [string]$portFilter.Protocol
-        $isOwnedShape = $rule.Direction -eq "Inbound"
-            -and $rule.Action -eq "Allow"
-            -and $protocol -eq "TCP"
-            -and $ports -eq "80,443"
+        $isOwnedShape = ($rule.Direction -eq "Inbound") -and
+            ($rule.Action -eq "Allow") -and
+            ($protocol -eq "TCP") -and
+            ($ports -eq "80,443")
         if ($isOwnedShape) {
             $rule
         }
