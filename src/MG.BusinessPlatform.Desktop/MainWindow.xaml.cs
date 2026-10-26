@@ -1560,23 +1560,35 @@ public partial class MainWindow : Window
             "ثبت فروش"))
             return;
 
+        SalesInvoiceRecord invoice;
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var accounting = new SalesAccountingService(db);
-            var invoice = await accounting.CreatePosSaleAsync(
+            invoice = await accounting.CreatePosSaleAsync(
                 cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
                 customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
                 DateOnly.FromDateTime(DateTime.Today));
-            _posCartLines.Clear();
-            UpdatePosCartTotal();
-            StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+            return;
+        }
+
+        _posCartLines.Clear();
+        UpdatePosCartTotal();
+        StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+        try
+        {
             await RefreshAsync();
             await RefreshTrialBalanceAsync();
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+            // The transaction has already committed. Never tell the operator the
+            // sale failed, or encourage a retry, just because a follow-up refresh failed.
+            StatusText.Text = $"فروش ثبت شد (فاکتور {invoice.InvoiceNumber})، اما تازه‌سازی فهرست/گزارش ناموفق بود: {ex.Message}";
         }
         }
         finally
