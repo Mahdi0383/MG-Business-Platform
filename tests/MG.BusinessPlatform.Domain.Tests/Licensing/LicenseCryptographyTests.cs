@@ -214,6 +214,27 @@ public sealed class LicenseCryptographyTests
     }
 
     [Fact]
+    public void Sign_RejectsPosLicenseWithoutAccountingOrInventoryDependencies()
+    {
+        var keys = LicenseCryptography.GenerateKeyPair(2048);
+        var missingAccounting = CreatePayload(DateTimeOffset.UtcNow.AddDays(30)) with
+        {
+            Modules = ["Core", "Inventory", "POS"]
+        };
+        var missingInventory = CreatePayload(DateTimeOffset.UtcNow.AddDays(30)) with
+        {
+            Modules = ["Core", "Accounting", "POS"]
+        };
+
+        var accountingError = Assert.Throws<ArgumentException>(() =>
+            LicenseCryptography.Sign(missingAccounting, keys.PrivateKeyPem));
+        var inventoryError = Assert.Throws<ArgumentException>(() =>
+            LicenseCryptography.Sign(missingInventory, keys.PrivateKeyPem));
+        Assert.Contains("requires both Accounting and Inventory", accountingError.Message, StringComparison.Ordinal);
+        Assert.Contains("requires both Accounting and Inventory", inventoryError.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Verify_RejectsEnvelopeWithoutPayload()
     {
         var result = LicenseCryptography.Verify(
@@ -244,7 +265,7 @@ public sealed class LicenseCryptographyTests
         IssuedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
         ExpiresAtUtc = expiry,
         LicenseType = "Full",
-        Modules = ["Core", "POS", "Accounting"],
+        Modules = ["Core", "POS", "Accounting", "Inventory"],
         MaxBranches = 2,
         MaxUsers = 10
     };
