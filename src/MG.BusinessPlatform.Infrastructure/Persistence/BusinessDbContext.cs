@@ -297,7 +297,7 @@ public sealed class CustomerOrderLine
     public decimal UnitPrice { get; set; }
     public decimal UnitCost { get; set; }
     public int Quantity { get; set; }
-    public decimal LineTotal { get; set; }
+    public decimal LineTotal { get; set; }    public string AddOnsJson { get; set; } = "[]";
 }
 
 public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> options) : DbContext(options)
