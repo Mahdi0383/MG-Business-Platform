@@ -7,6 +7,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 ## Current implementation
 
 - Windows WPF management UI with product creation/editing and CSV import/export, inventory movement history, customer/supplier records, multi-line POS cart, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
+- Product CSV import validates the complete file before writing, skips existing SKUs without overwriting them, and records imported opening stock in the inventory ledger. See [product CSV format and safety rules](docs/PRODUCT_CSV_IMPORT.md). Audit history can also be exported to date-filtered CSV.
 - Local SQLite persistence with versioned EF Core migrations, an inventory movement ledger, customers/suppliers, sales invoices, journal entries and payment records.
 - Consistent online SQLite backups, integrity checks and guarded restore with an automatic safety backup.
 - Customer-facing Persian RTL storefront, public product catalog and ordering, server-side price calculation and stock checks, idempotent order submission, request throttling, and basic security headers.
