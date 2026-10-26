@@ -614,7 +614,23 @@ app.MapPost("/api/storefront/orders", async (
                 return Results.Conflict(new { error = $"Insufficient stock for {product.Name}." });
         }
 
-        decimal total = 0m;
+        var lineDrafts = requested.Values
+            .OrderBy(line => line.ProductId)
+            .ThenBy(line => string.Join(",", line.AddonIds.Select(id => id.ToString("N"))), StringComparer.Ordinal)
+            .Select(line =>
+            {
+                var product = products[line.ProductId];
+                var addonSnapshots = line.AddonIds
+                    .Select(id => addons[id])
+                    .OrderBy(addon => addon.Name, StringComparer.Ordinal)
+                    .Select(addon => new ProductAddonSnapshot(addon.Id, addon.Name, addon.Price))
+                    .ToArray();
+                var unitPrice = checked(product.UnitPrice + addonSnapshots.Sum(addon => addon.UnitPrice));
+                return (Request: line, Product: product, Addons: addonSnapshots,
+                    UnitPrice: unitPrice, LineTotal: checked(unitPrice * line.Quantity));
+            })
+            .ToArray();
+        var total = lineDrafts.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal));
         var order = new CustomerOrder
         {
             Id = Guid.NewGuid(),
@@ -626,14 +642,28 @@ app.MapPost("/api/storefront/orders", async (
             Notes = request.Notes?.Trim() ?? string.Empty,
             CurrencyCode = currency,
             Status = "Received",
+            TotalAmount = total,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        foreach (var (id, quantity) in requested)
+        foreach (var line in lineDrafts)
+        {
+            order.Lines.Add(new CustomerOrderLine
+            {
+                Id = Guid.NewGuid(),
+                ProductId = line.Product.Id,
+                ProductName = line.Product.Name,
+                UnitPrice = line.UnitPrice,
+                UnitCost = line.Product.UnitCost,
+                Quantity = line.Request.Quantity,
+                LineTotal = line.LineTotal,
+                AddonsJson = JsonSerializer.Serialize(line.Addons)
+            });
+        }
+
+        foreach (var (id, quantity) in quantities)
         {
             var product = products[id];
-            var lineTotal = checked(product.UnitPrice * quantity);
-            total = checked(total + lineTotal);
             var updatedAt = DateTimeOffset.UtcNow;
             var affected = await db.StoreProducts
                 .Where(x => x.Id == id && x.IsAvailable && x.StockQuantity >= quantity
@@ -645,21 +675,11 @@ app.MapPost("/api/storefront/orders", async (
             if (affected != 1)
                 return Results.Conflict(new { error = $"Stock or price changed for {product.Name}. Refresh the catalog and retry." });
 
-            order.Lines.Add(new CustomerOrderLine
-            {
-                Id = Guid.NewGuid(),
-                ProductId = product.Id,
-                ProductName = product.Name,
-                UnitPrice = product.UnitPrice,
-                UnitCost = product.UnitCost,
-                Quantity = quantity,
-                LineTotal = lineTotal
-            });
             db.StockMovements.Add(new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
                 ProductId = product.Id,
-                OccurredAt = DateTimeOffset.UtcNow,
+                OccurredAt = updatedAt,
                 MovementType = "WebOrderIssue",
                 Quantity = quantity,
                 SignedQuantity = -quantity,
@@ -670,7 +690,6 @@ app.MapPost("/api/storefront/orders", async (
             });
         }
 
-        order.TotalAmount = total;
         db.CustomerOrders.Add(order);
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
