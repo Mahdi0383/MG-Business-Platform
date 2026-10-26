@@ -3286,6 +3286,8 @@ public partial class MainWindow : Window
                 }
             }
 
+            await RefreshRouterWanDiagnosticAsync();
+
             if (_routerPortMappingService.HasSavedMappings)
             {
                 try
@@ -3434,6 +3436,27 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             PublicHostingStatusText.Text = $"توقف انتشار HTTPS ناموفق بود: {ex.Message}";
+        }
+    }
+
+    private async void DiagnoseRouterWan_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RequireLicensedModules("تشخیص CGNAT و NAT چندمرحله‌ای", "Storefront"))
+            return;
+        await RefreshRouterWanDiagnosticAsync();
+    }
+
+    private async Task RefreshRouterWanDiagnosticAsync()
+    {
+        RouterWanDiagnosticText.Text = "در حال بررسی IP سمت اینترنت روتر…";
+        try
+        {
+            var result = await _routerPortMappingService.DiagnoseWanAddressAsync();
+            RouterWanDiagnosticText.Text = result.Message;
+        }
+        catch (Exception ex)
+        {
+            RouterWanDiagnosticText.Text = $"تشخیص وضعیت NAT ناموفق بود؛ تنظیم دستی همچنان ممکن است. {ex.Message}";
         }
     }
 
