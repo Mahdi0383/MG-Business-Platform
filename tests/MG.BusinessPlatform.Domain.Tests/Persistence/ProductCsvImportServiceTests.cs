@@ -58,7 +58,7 @@ public sealed class ProductCsvImportServiceTests
 
         Assert.Equal(0, result.ImportedCount);
         Assert.Single(result.Issues);
-        Assert.Contains("non-negative", result.Issues[0].Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("غیرمنفی", result.Issues[0].Message, StringComparison.Ordinal);
         Assert.Empty(await db.StoreProducts.ToListAsync());
         Assert.Empty(await db.StockMovements.ToListAsync());
     }
