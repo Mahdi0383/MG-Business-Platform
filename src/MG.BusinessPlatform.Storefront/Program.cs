@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -218,10 +219,24 @@ app.MapGet("/api/storefront/products", async (
     var products = await db.StoreProducts.AsNoTracking()
         .Where(x => x.IsAvailable)
         .OrderBy(x => x.Name)
-        .Select(x => new ProductResponse(x.Id, x.Sku, x.Name, x.Description, x.UnitPrice, x.CurrencyCode, x.StockQuantity > 0))
         .Take(500)
         .ToListAsync(ct);
-    return Results.Ok(products);
+    var productIds = products.Select(product => product.Id).ToArray();
+    var addonRows = await (
+        from link in db.StoreProductAddons.AsNoTracking()
+        join addon in db.ProductAddons.AsNoTracking() on link.AddonId equals addon.Id
+        where productIds.Contains(link.ProductId) && addon.IsActive
+        select new { link.ProductId, Addon = addon }).ToListAsync(ct);
+    var addonsByProduct = addonRows
+        .GroupBy(row => row.ProductId)
+        .ToDictionary(group => group.Key, group => group
+            .OrderBy(row => row.Addon.Name)
+            .Select(row => new ProductAddonResponse(row.Addon.Id, row.Addon.Name, row.Addon.Price))
+            .ToArray());
+    return Results.Ok(products.Select(product => new ProductResponse(
+        product.Id, product.Sku, product.Name, product.Description, product.UnitPrice,
+        product.CurrencyCode, product.StockQuantity > 0,
+        addonsByProduct.GetValueOrDefault(product.Id) ?? Array.Empty<ProductAddonResponse>())).ToArray());
 }).RequireRateLimiting("public");
 
 app.MapGet("/api/storefront/reservation-resources", async (BusinessDbContext db, CancellationToken ct) =>
@@ -665,9 +680,10 @@ public sealed record CreateReservationRequest(Guid ResourceId, string GuestName,
     DateTimeOffset StartsAt, DateTimeOffset EndsAt, string? Notes);
 public sealed record ReservationCreatedResponse(Guid Id, string ReservationNumber, Guid ResourceId,
     DateTimeOffset StartsAtUtc, DateTimeOffset EndsAtUtc, string Status);
-public sealed record ProductResponse(Guid Id, string Sku, string Name, string Description, decimal Price, string CurrencyCode, bool InStock);
+public sealed record ProductAddonResponse(Guid Id, string Name, decimal Price);
+public sealed record ProductResponse(Guid Id, string Sku, string Name, string Description, decimal Price, string CurrencyCode, bool InStock, IReadOnlyList<ProductAddonResponse> Addons);
 public sealed record CreateOrderRequest(string CustomerName, string CustomerPhone, string? DeliveryAddress, string? Notes, List<CreateOrderItemRequest>? Items);
-public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity);
+public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity, List<Guid>? AddonIds = null);
 public sealed record OrderCreatedResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
 
 public partial class Program
