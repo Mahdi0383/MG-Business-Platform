@@ -762,13 +762,17 @@ public sealed record ProductResponse(Guid Id, string Sku, string Name, string De
 public sealed record CreateOrderRequest(string CustomerName, string CustomerPhone, string? DeliveryAddress, string? Notes, List<CreateOrderItemRequest>? Items);
 public sealed record CreateOrderItemRequest(Guid ProductId, int Quantity, List<Guid>? AddonIds = null);
 public sealed record OrderCreatedResponse(Guid Id, string OrderNumber, decimal Total, string CurrencyCode, string Status);
+internal sealed record RequestedOrderLine(Guid ProductId, int Quantity, Guid[] AddonIds);
 
 public partial class Program
 {
+    internal static string GetOrderLineKey(Guid productId, IReadOnlyCollection<Guid> addonIds) =>
+        $"{productId:N}|{string.Join(",", addonIds.Order().Select(id => id.ToString("N")))}";
+
     internal static bool MatchesOrderRequest(
         CustomerOrder order,
         CreateOrderRequest request,
-        IReadOnlyDictionary<Guid, int> requested)
+        IReadOnlyDictionary<string, RequestedOrderLine> requested)
     {
         if (!string.Equals(order.CustomerName, request.CustomerName.Trim(), StringComparison.Ordinal)
             || !string.Equals(order.CustomerPhone, request.CustomerPhone.Trim(), StringComparison.Ordinal)
@@ -777,8 +781,25 @@ public partial class Program
             || order.Lines.Count != requested.Count)
             return false;
 
-        return order.Lines.All(line =>
-            requested.TryGetValue(line.ProductId, out var quantity) && line.Quantity == quantity);
+        foreach (var line in order.Lines)
+        {
+            ProductAddonSnapshot[] snapshots;
+            try
+            {
+                snapshots = JsonSerializer.Deserialize<ProductAddonSnapshot[]>(line.AddonsJson) ?? Array.Empty<ProductAddonSnapshot>();
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
+            var addonIds = snapshots.Select(snapshot => snapshot.AddonId).Order().ToArray();
+            var key = GetOrderLineKey(line.ProductId, addonIds);
+            if (!requested.TryGetValue(key, out var requestedLine) || requestedLine.Quantity != line.Quantity)
+                return false;
+        }
+
+        return true;
     }
 }
 
