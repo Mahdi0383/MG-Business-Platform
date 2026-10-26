@@ -134,7 +134,13 @@ public sealed class DatabaseMaintenanceServiceTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = "CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY, value TEXT NOT NULL);";
+                command.CommandText = """
+                    CREATE TABLE StoreSettings (Id INTEGER PRIMARY KEY);
+                    CREATE TABLE StoreProducts (Id TEXT PRIMARY KEY);
+                    CREATE TABLE __EFMigrationsHistory (MigrationId TEXT PRIMARY KEY, ProductVersion TEXT NOT NULL);
+                    INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion)
+                    VALUES ('20261013000000_InitialStorefrontSchema', '10.0.0');
+                    """;
                 await command.ExecuteNonQueryAsync();
             }
 
