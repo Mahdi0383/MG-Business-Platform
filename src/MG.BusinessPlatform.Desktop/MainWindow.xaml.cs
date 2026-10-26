@@ -2914,7 +2914,7 @@ public partial class MainWindow : Window
             try
             {
                 await LoadSettingsAsync();
-                if (HasLicensedModule("Storefront") && (OnlineOrdersInput.IsChecked == true || OnlineReservationsInput.IsChecked == true) && !await IsStorefrontRunningAsync())
+                if (HasLicensedOnlineFeature(OnlineOrdersInput.IsChecked == true, OnlineReservationsInput.IsChecked == true) && !await IsStorefrontRunningAsync())
                 {
                     StartServer_Click(this, new RoutedEventArgs());
                     for (var attempt = 0; attempt < 10 && !await IsStorefrontRunningAsync(); attempt++)
@@ -2923,7 +2923,9 @@ public partial class MainWindow : Window
 
                 await using var db = new BusinessDbContext(CreateOptions());
                 var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
-                if (HasLicensedModule("Storefront") && settings.PublicPublicationEnabled && !string.IsNullOrWhiteSpace(settings.PublicHostname))
+                if (settings.PublicPublicationEnabled
+                    && HasLicensedOnlineFeature(settings.OnlineOrderingEnabled, settings.OnlineReservationsEnabled)
+                    && !string.IsNullOrWhiteSpace(settings.PublicHostname))
                     await _publicHostingManager.StartAsync(settings.PublicHostname);
                 await RefreshAsync();
             }
@@ -3142,6 +3144,11 @@ public partial class MainWindow : Window
                     PublicHostingStatusText.Text = "ابتدا سفارش آنلاین یا رزرو آنلاین را در تنظیمات فعال و ذخیره کنید.";
                     return;
                 }
+                if (!HasLicensedOnlineFeature(settings.OnlineOrderingEnabled, settings.OnlineReservationsEnabled))
+                {
+                    PublicHostingStatusText.Text = "قابلیت‌های آنلاین فعال‌شده با ماژول‌های لایسنس سازگار نیستند؛ وابستگی‌های سفارش و رزرو را بررسی کنید.";
+                    return;
+                }
                 if (!string.Equals(settings.PublicHostname, hostname, StringComparison.OrdinalIgnoreCase))
                 {
                     PublicHostingStatusText.Text = "ابتدا تنظیمات فروشگاه را ذخیره کنید.";
@@ -3348,6 +3355,18 @@ public partial class MainWindow : Window
         return payload?.Modules.Contains(module, StringComparer.Ordinal) == true;
     }
 
+    private bool HasLicensedOnlineFeature(bool onlineOrderingEnabled, bool onlineReservationsEnabled)
+    {
+        var canServeOrders = onlineOrderingEnabled
+            && HasLicensedModule("Storefront")
+            && HasLicensedModule("Accounting")
+            && HasLicensedModule("Inventory");
+        var canServeReservations = onlineReservationsEnabled
+            && HasLicensedModule("Storefront")
+            && HasLicensedModule("Reservations");
+        return canServeOrders || canServeReservations;
+    }
+
     private bool RequireLicensedModules(string operation, params string[] modules) =>
         RequireLicensedModules(StatusText, operation, modules);
 
@@ -3418,6 +3437,11 @@ public partial class MainWindow : Window
         if (!HasLicensedModule("Storefront"))
         {
             StatusText.Text = "برای راه‌اندازی فروشگاه آنلاین، لایسنس معتبر دارای ماژول Storefront لازم است.";
+            return;
+        }
+        if (!HasLicensedOnlineFeature(OnlineOrdersInput.IsChecked == true, OnlineReservationsInput.IsChecked == true))
+        {
+            StatusText.Text = "هیچ قابلیت آنلاین فعال‌شده‌ای با ماژول‌های موجود در لایسنس سازگار نیست؛ وابستگی‌های سفارش و رزرو را در تنظیمات بررسی کنید.";
             return;
         }
         if (await IsStorefrontRunningAsync())
