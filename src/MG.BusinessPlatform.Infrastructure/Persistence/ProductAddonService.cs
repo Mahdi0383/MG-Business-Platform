@@ -74,9 +74,12 @@ public sealed class ProductAddonService(BusinessDbContext db)
             ?? throw new KeyNotFoundException("Product was not found.");
 
         var selectedIds = addonIds.ToArray();
-        var selectedAddons = selectedIds.Length == 0
-            ? []
-            : await db.ProductAddons.Where(x => selectedIds.Contains(x.Id))
+        List<ProductAddonRecord> selectedAddons;
+        if (selectedIds.Length == 0)
+            selectedAddons = [];
+        else
+            selectedAddons = await db.ProductAddons
+                .Where(x => selectedIds.Contains(x.Id))
                 .ToListAsync(cancellationToken);
         if (selectedAddons.Count != selectedIds.Length)
             throw new KeyNotFoundException("One or more selected add-ons were not found.");
