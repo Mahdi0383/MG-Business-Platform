@@ -83,6 +83,50 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
+            <TabItem Header="افزودنی‌ها">
+                <Grid Margin="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="1*"/><ColumnDefinition Width="1.25*"/></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Grid.Column="0" Grid.Row="0" Background="White" CornerRadius="10" Padding="10" Margin="0,0,8,8">
+                        <StackPanel>
+                            <TextBlock Text="تعریف افزودنی" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <TextBox x:Name="ProductAddonNameInput" ToolTip="نام افزودنی؛ مانند سیروپ وانیل" Margin="0,3"/>
+                            <TextBox x:Name="ProductAddonPriceInput" ToolTip="قیمت افزوده‌شونده به هر واحد محصول" Margin="0,3"/>
+                            <CheckBox x:Name="ProductAddonActiveInput" Content="فعال" IsChecked="True" Margin="0,5"/>
+                            <WrapPanel>
+                                <Button Content="افزودن جدید" Click="AddProductAddon_Click" Margin="3"/>
+                                <Button Content="ذخیره افزودنی انتخاب‌شده" Click="SaveProductAddon_Click" Margin="3"/>
+                                <Button Content="پاک‌کردن فرم" Click="ClearProductAddon_Click" Margin="3"/>
+                                <Button Content="تازه‌سازی" Click="RefreshProductAddons_Click" Margin="3"/>
+                            </WrapPanel>
+                            <TextBlock x:Name="ProductAddonStatusText" Text="افزودنی‌ها قیمت مستقل دارند و قیمت آن‌ها به قیمت پایه محصول اضافه می‌شود." TextWrapping="Wrap" Margin="3,6"/>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="ProductAddonsGrid" Grid.Column="0" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White" SelectionChanged="ProductAddonsGrid_SelectionChanged" Margin="0,0,8,0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="نام افزودنی" Binding="{Binding Name}" Width="2*"/>
+                            <DataGridTextColumn Header="قیمت" Binding="{Binding Price}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsActive}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Column="1" Grid.Row="0" Background="White" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="اتصال افزودنی‌ها به محصول" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <ComboBox x:Name="AddonProductInput" DisplayMemberPath="Name" SelectedValuePath="Id" ToolTip="محصول موردنظر" SelectionChanged="AddonProductInput_SelectionChanged" Margin="0,3"/>
+                            <Button Content="ذخیره افزودنی‌های محصول انتخاب‌شده" Click="SaveProductAddonAssignments_Click" Margin="3"/>
+                            <TextBlock x:Name="ProductAddonAssignmentStatusText" Text="برای هر محصول، افزودنی‌های قابل انتخاب را مشخص کنید." TextWrapping="Wrap" Margin="3,6"/>
+                        </StackPanel>
+                    </Border>
+                    <DataGrid x:Name="ProductAddonAssignmentsGrid" Grid.Column="1" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="False" CanUserAddRows="False" Background="White">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="قابل افزودن" Binding="{Binding IsAssigned, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                            <DataGridTextColumn Header="نام افزودنی" Binding="{Binding Name}" IsReadOnly="True" Width="2*"/>
+                            <DataGridTextColumn Header="قیمت" Binding="{Binding Price}" IsReadOnly="True" Width="*"/>
+                            <DataGridCheckBoxColumn Header="فعال" Binding="{Binding IsActive}" IsReadOnly="True" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
             <TabItem Header="گردش انبار">
                 <DataGrid x:Name="StockMovementsGrid" Margin="12" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Background="White">
                     <DataGrid.Columns>
