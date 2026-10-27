@@ -37,9 +37,14 @@ public static class DatabaseInitializer
             });
         }
 
-        if (!await db.LedgerAccounts.AnyAsync(cancellationToken))
-        {
-            db.LedgerAccounts.AddRange(DefaultAccounts.Select(account => new LedgerAccountRecord
+        // Seed by account code rather than table emptiness. A partially populated chart
+        // must still receive every required system account without overwriting custom data.
+        var existingCodes = await db.LedgerAccounts
+            .Select(account => account.Code)
+            .ToHashSetAsync(cancellationToken);
+        var missingAccounts = DefaultAccounts
+            .Where(account => !existingCodes.Contains(account.Code))
+            .Select(account => new LedgerAccountRecord
             {
                 Id = Guid.NewGuid(),
                 Code = account.Code,
@@ -47,8 +52,11 @@ public static class DatabaseInitializer
                 AccountType = account.Type,
                 IsPostingAllowed = true,
                 IsActive = true
-            }));
-        }
+            })
+            .ToArray();
+
+        if (missingAccounts.Length > 0)
+            db.LedgerAccounts.AddRange(missingAccounts);
 
         await db.SaveChangesAsync(cancellationToken);
     }
