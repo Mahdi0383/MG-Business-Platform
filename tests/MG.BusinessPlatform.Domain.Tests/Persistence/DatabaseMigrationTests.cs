@@ -144,4 +144,39 @@ public sealed class DatabaseMigrationTests
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
+    [Fact]
+    public async Task InitializeAsync_SeedsMissingDefaultLedgerAccountsWithoutOverwritingExistingAccounts()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+
+        db.LedgerAccounts.Add(new LedgerAccountRecord
+        {
+            Id = Guid.NewGuid(),
+            Code = "1000",
+            Name = "Custom cash account",
+            AccountType = "Asset",
+            IsPostingAllowed = true,
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var accounts = await db.LedgerAccounts.AsNoTracking().ToDictionaryAsync(x => x.Code);
+        Assert.Equal(10, accounts.Count);
+        Assert.Equal("Custom cash account", accounts["1000"].Name);
+        Assert.Contains("1010", accounts.Keys);
+        Assert.Contains("1100", accounts.Keys);
+        Assert.Contains("4000", accounts.Keys);
+        Assert.Contains("6000", accounts.Keys);
+
+        // Running initialization repeatedly must be safe and must not create duplicates.
+        await DatabaseInitializer.InitializeAsync(db);
+        Assert.Equal(10, await db.LedgerAccounts.CountAsync());
+    }
+
 }
