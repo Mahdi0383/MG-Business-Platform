@@ -159,8 +159,8 @@ public sealed class DatabaseMigrationTests
             Code = "1000",
             Name = "Custom cash account",
             AccountType = "Asset",
-            IsPostingAllowed = true,
-            IsActive = true
+            IsPostingAllowed = false,
+            IsActive = false
         });
         await db.SaveChangesAsync();
 
@@ -169,6 +169,9 @@ public sealed class DatabaseMigrationTests
         var accounts = await db.LedgerAccounts.AsNoTracking().ToDictionaryAsync(x => x.Code);
         Assert.Equal(10, accounts.Count);
         Assert.Equal("Custom cash account", accounts["1000"].Name);
+        Assert.Equal("Asset", accounts["1000"].AccountType);
+        Assert.False(accounts["1000"].IsPostingAllowed);
+        Assert.False(accounts["1000"].IsActive);
         Assert.Contains("1010", accounts.Keys);
         Assert.Contains("1100", accounts.Keys);
         Assert.Contains("4000", accounts.Keys);
