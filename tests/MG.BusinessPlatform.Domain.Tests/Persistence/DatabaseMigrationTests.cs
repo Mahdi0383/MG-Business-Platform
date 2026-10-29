@@ -153,6 +153,19 @@ public sealed class DatabaseMigrationTests
         await using var db = new BusinessDbContext(options);
         await db.Database.MigrateAsync();
 
+        // Initialization must not replace store-specific configuration in an existing database.
+        db.StoreSettings.Add(new StoreSettings
+        {
+            Id = 1,
+            StoreName = "Configured Store",
+            CurrencyCode = "USD",
+            OnlineOrderingEnabled = true,
+            OnlineReservationsEnabled = true,
+            PublicPublicationEnabled = true,
+            PublicHostname = "shop.example.test",
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
         db.LedgerAccounts.Add(new LedgerAccountRecord
         {
             Id = Guid.NewGuid(),
@@ -165,6 +178,14 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         await DatabaseInitializer.InitializeAsync(db);
+
+        var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        Assert.Equal("Configured Store", storeSettings.StoreName);
+        Assert.Equal("USD", storeSettings.CurrencyCode);
+        Assert.True(storeSettings.OnlineOrderingEnabled);
+        Assert.True(storeSettings.OnlineReservationsEnabled);
+        Assert.True(storeSettings.PublicPublicationEnabled);
+        Assert.Equal("shop.example.test", storeSettings.PublicHostname);
 
         var accounts = await db.LedgerAccounts.AsNoTracking().ToDictionaryAsync(x => x.Code);
         Assert.Equal(10, accounts.Count);
