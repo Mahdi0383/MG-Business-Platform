@@ -145,6 +145,38 @@ public sealed class DatabaseMigrationTests
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
     [Fact]
+    public async Task InitializeAsync_CreatesDefaultStoreSettingsAndLedgerAccountsForFreshDatabase()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        Assert.Equal(1, settings.Id);
+        Assert.Equal("فروشگاه شما", settings.StoreName);
+        Assert.Equal("IRR", settings.CurrencyCode);
+        Assert.False(settings.OnlineOrderingEnabled);
+        Assert.False(settings.OnlineReservationsEnabled);
+        Assert.False(settings.PublicPublicationEnabled);
+        Assert.Equal(string.Empty, settings.PublicHostname);
+
+        var accounts = await db.LedgerAccounts.AsNoTracking()
+            .OrderBy(account => account.Code)
+            .ToArrayAsync();
+        Assert.Equal(
+            new[] { "1000", "1010", "1020", "1100", "1200", "2000", "3000", "4000", "5000", "6000" },
+            accounts.Select(account => account.Code).ToArray());
+        Assert.All(accounts, account =>
+        {
+            Assert.True(account.IsActive);
+            Assert.True(account.IsPostingAllowed);
+        });
+    }
+
+    [Fact]
     public async Task InitializeAsync_SeedsMissingDefaultLedgerAccountsWithoutOverwritingExistingAccounts()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
