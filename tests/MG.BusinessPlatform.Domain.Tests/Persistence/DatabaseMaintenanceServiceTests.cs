@@ -144,9 +144,16 @@ public sealed class DatabaseMaintenanceServiceTests
                 await command.ExecuteNonQueryAsync();
             }
 
+            var invalidCopyPath = Path.Combine(directory, "invalid-copy.db");
+            const string existingDestinationContents = "preserve-existing-backup";
+            await File.WriteAllTextAsync(invalidCopyPath, existingDestinationContents);
+
             await Assert.ThrowsAsync<InvalidDataException>(() =>
-                service.CreateBackupAsync(unrelatedBackupPath, Path.Combine(directory, "invalid-copy.db")));
-            Assert.False(File.Exists(Path.Combine(directory, "invalid-copy.db")));
+                service.CreateBackupAsync(unrelatedBackupPath, invalidCopyPath));
+
+            // A rejected source must not replace a previously usable destination backup.
+            Assert.Equal(existingDestinationContents, await File.ReadAllTextAsync(invalidCopyPath));
+            Assert.Empty(Directory.GetFiles(directory, "invalid-copy.db.tmp-*"));
 
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 service.RestoreBackupAsync(unrelatedBackupPath, databasePath));
