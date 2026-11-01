@@ -97,3 +97,17 @@ jobs:
           if (-not (Test-Path "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256")) {
             throw "License manager installer SHA-256 checksum was not produced."
           }
+
+      # Keep CI validation packages available for reviewer QA; production releases
+      # are still published only by the separately gated release workflow.
+      - name: Upload verified Windows packages for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: mg-windows-x64-${{ github.sha }}
+          path: |
+            artifacts/installer/*.exe
+            artifacts/installer/*.exe.sha256
+            artifacts/*.zip
+            artifacts/*.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
