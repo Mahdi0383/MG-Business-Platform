@@ -189,6 +189,36 @@ public sealed class DatabaseMaintenanceServiceTests
         }
     }
 
+    [Fact]
+    public async Task CreateBackup_WithCorruptSource_LeavesExistingDestinationUntouched()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var corruptSourcePath = Path.Combine(directory, "corrupt-source.db");
+        var backupPath = Path.Combine(directory, "existing-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            const string corruptSourceContents = "not a SQLite database";
+            const string existingBackupContents = "preserve-existing-backup";
+            await File.WriteAllTextAsync(corruptSourcePath, corruptSourceContents);
+            await File.WriteAllTextAsync(backupPath, existingBackupContents);
+
+            await Assert.ThrowsAsync<SqliteException>(() =>
+                service.CreateBackupAsync(corruptSourcePath, backupPath));
+
+            Assert.Equal(existingBackupContents, await File.ReadAllTextAsync(backupPath));
+            Assert.Empty(Directory.GetFiles(directory, "existing-backup.db.tmp-*"));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static async Task SetStoreNameAsync(string path, string name)
     {
         var options = new DbContextOptionsBuilder<BusinessDbContext>()
