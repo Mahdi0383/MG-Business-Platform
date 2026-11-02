@@ -86,6 +86,58 @@ public sealed class DatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task RestoreBackup_WithActiveWalConnection_RefusesToReplaceDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-active-wal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Before restore");
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            // Keep a non-pooled connection open so ClearAllPools cannot close it.
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString());
+            await connection.OpenAsync();
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = """
+                    PRAGMA journal_mode=WAL;
+                    UPDATE StoreSettings SET StoreName = 'Changed by active connection' WHERE Id = 1;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(File.Exists(databasePath + "-wal") || File.Exists(databasePath + "-shm"),
+                "The active connection must leave a SQLite WAL/SHM sidecar.");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RestoreBackupAsync(backupPath, databasePath));
+
+            await using var verify = connection.CreateCommand();
+            verify.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+            Assert.Equal("Changed by active connection", Convert.ToString(
+                await verify.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task RestoreBackup_WithCorruptBackup_LeavesCurrentDatabaseUntouched()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
