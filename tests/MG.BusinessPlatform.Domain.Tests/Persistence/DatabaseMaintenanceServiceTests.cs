@@ -86,6 +86,126 @@ public sealed class DatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task RestoreBackup_WithActiveWalConnection_RefusesToReplaceDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-active-wal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Before restore");
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            // Keep a non-pooled connection open so ClearAllPools cannot close it.
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString());
+            await connection.OpenAsync();
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = """
+                    PRAGMA journal_mode=WAL;
+                    UPDATE StoreSettings SET StoreName = 'Changed by active connection' WHERE Id = 1;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(File.Exists(databasePath + "-wal") || File.Exists(databasePath + "-shm"),
+                "The active connection must leave a SQLite WAL/SHM sidecar.");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RestoreBackupAsync(backupPath, databasePath));
+
+            await using var verify = connection.CreateCommand();
+            verify.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+            Assert.Equal("Changed by active connection", Convert.ToString(
+                await verify.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
+    public async Task RestoreBackup_WithActiveRollbackJournal_RefusesToReplaceDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-active-journal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Before restore");
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            // A non-pooled connection with an uncommitted DELETE-journal write
+            // keeps the rollback journal present while restore checks the target.
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString());
+            await connection.OpenAsync();
+
+            await using (var journalMode = connection.CreateCommand())
+            {
+                journalMode.CommandText = "PRAGMA journal_mode=DELETE;";
+                Assert.Equal("delete", Convert.ToString(
+                    await journalMode.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            await using var transaction = connection.BeginTransaction();
+            await using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE StoreSettings SET StoreName = 'Changed in active transaction' WHERE Id = 1;";
+                await update.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(File.Exists(databasePath + "-journal"),
+                "The uncommitted transaction must keep the SQLite rollback journal present.");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RestoreBackupAsync(backupPath, databasePath));
+
+            await using (var verify = connection.CreateCommand())
+            {
+                verify.Transaction = transaction;
+                verify.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Changed in active transaction", Convert.ToString(
+                    await verify.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            await transaction.RollbackAsync();
+
+            Assert.Equal("Before restore", await ReadStoreNameAsync(databasePath));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task RestoreBackup_WithCorruptBackup_LeavesCurrentDatabaseUntouched()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
@@ -144,9 +264,16 @@ public sealed class DatabaseMaintenanceServiceTests
                 await command.ExecuteNonQueryAsync();
             }
 
+            var invalidCopyPath = Path.Combine(directory, "invalid-copy.db");
+            const string existingDestinationContents = "preserve-existing-backup";
+            await File.WriteAllTextAsync(invalidCopyPath, existingDestinationContents);
+
             await Assert.ThrowsAsync<InvalidDataException>(() =>
-                service.CreateBackupAsync(unrelatedBackupPath, Path.Combine(directory, "invalid-copy.db")));
-            Assert.False(File.Exists(Path.Combine(directory, "invalid-copy.db")));
+                service.CreateBackupAsync(unrelatedBackupPath, invalidCopyPath));
+
+            // A rejected source must not replace a previously usable destination backup.
+            Assert.Equal(existingDestinationContents, await File.ReadAllTextAsync(invalidCopyPath));
+            Assert.Empty(Directory.GetFiles(directory, "invalid-copy.db.tmp-*"));
 
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 service.RestoreBackupAsync(unrelatedBackupPath, databasePath));
@@ -173,6 +300,36 @@ public sealed class DatabaseMaintenanceServiceTests
             await SetStoreNameAsync(databasePath, "Store");
             var service = new DatabaseMaintenanceService();
             await Assert.ThrowsAsync<ArgumentException>(() => service.CreateBackupAsync(databasePath, databasePath));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
+    public async Task CreateBackup_WithCorruptSource_LeavesExistingDestinationUntouched()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var corruptSourcePath = Path.Combine(directory, "corrupt-source.db");
+        var backupPath = Path.Combine(directory, "existing-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            const string corruptSourceContents = "not a SQLite database";
+            const string existingBackupContents = "preserve-existing-backup";
+            await File.WriteAllTextAsync(corruptSourcePath, corruptSourceContents);
+            await File.WriteAllTextAsync(backupPath, existingBackupContents);
+
+            await Assert.ThrowsAsync<SqliteException>(() =>
+                service.CreateBackupAsync(corruptSourcePath, backupPath));
+
+            Assert.Equal(existingBackupContents, await File.ReadAllTextAsync(backupPath));
+            Assert.Empty(Directory.GetFiles(directory, "existing-backup.db.tmp-*"));
         }
         finally
         {
