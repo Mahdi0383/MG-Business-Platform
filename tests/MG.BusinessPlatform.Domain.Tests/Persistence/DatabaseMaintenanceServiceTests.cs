@@ -138,6 +138,74 @@ public sealed class DatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task RestoreBackup_WithActiveRollbackJournal_RefusesToReplaceDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-active-journal-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Before restore");
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            // A non-pooled connection with an uncommitted DELETE-journal write
+            // keeps the rollback journal present while restore checks the target.
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString());
+            await connection.OpenAsync();
+
+            await using (var journalMode = connection.CreateCommand())
+            {
+                journalMode.CommandText = "PRAGMA journal_mode=DELETE;";
+                Assert.Equal("delete", Convert.ToString(
+                    await journalMode.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            await using var transaction = connection.BeginTransaction();
+            await using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE StoreSettings SET StoreName = 'Changed in active transaction' WHERE Id = 1;";
+                await update.ExecuteNonQueryAsync();
+            }
+
+            Assert.True(File.Exists(databasePath + "-journal"),
+                "The uncommitted transaction must keep the SQLite rollback journal present.");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RestoreBackupAsync(backupPath, databasePath));
+
+            await using (var verify = connection.CreateCommand())
+            {
+                verify.Transaction = transaction;
+                verify.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Changed in active transaction", Convert.ToString(
+                    await verify.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            await transaction.RollbackAsync();
+
+            Assert.Equal("Before restore", await ReadStoreNameAsync(databasePath));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task RestoreBackup_WithCorruptBackup_LeavesCurrentDatabaseUntouched()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
