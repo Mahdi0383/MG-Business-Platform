@@ -1,0 +1,93 @@
+name: Dependency Security Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nuget-audit:
+    name: NuGet vulnerability audit
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore with NuGet security auditing
+        shell: pwsh
+        run: dotnet restore MG.BusinessPlatform.sln -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=moderate
+
+      - name: Detect vulnerable direct and transitive packages
+        shell: pwsh
+        run: |
+          $reportPath = Join-Path $env:RUNNER_TEMP "nuget-vulnerability-report.json"
+          dotnet list MG.BusinessPlatform.sln package --vulnerable --include-transitive --format json | Set-Content -Path $reportPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) {
+            throw "dotnet list package vulnerability query failed."
+          }
+
+          $report = Get-Content -Path $reportPath -Raw | ConvertFrom-Json
+          $findings = [System.Collections.Generic.List[string]]::new()
+          function Find-Vulnerabilities($node, $path) {
+            if ($null -eq $node) { return }
+            if ($node -is [System.Collections.IDictionary]) {
+              foreach ($key in $node.Keys) {
+                $value = $node[$key]
+                if ($key -eq "vulnerabilities" -and $null -ne $value -and @($value).Count -gt 0) {
+                  $findings.Add("$path : $(@($value) | ConvertTo-Json -Compress -Depth 10)")
+                } else {
+                  Find-Vulnerabilities $value "$path/$key"
+                }
+              }
+            } elseif ($node -is [System.Collections.IEnumerable] -and $node -isnot [string]) {
+              $index = 0
+              foreach ($item in $node) {
+                Find-Vulnerabilities $item "$path[$index]"
+                $index++
+              }
+            } elseif ($node -is [pscustomobject]) {
+              foreach ($property in $node.PSObject.Properties) {
+                if ($property.Name -eq "vulnerabilities" -and $null -ne $property.Value -and @($property.Value).Count -gt 0) {
+                  $findings.Add("$path/$($property.Name) : $(@($property.Value) | ConvertTo-Json -Compress -Depth 10)")
+                } else {
+                  Find-Vulnerabilities $property.Value "$path/$($property.Name)"
+                }
+              }
+            }
+          }
+
+          Find-Vulnerabilities $report "solution"
+          if ($findings.Count -gt 0) {
+            $findings | ForEach-Object { Write-Error $_ }
+            throw "NuGet vulnerabilities at or above the configured audit threshold were found."
+          }
+          Write-Host "No NuGet vulnerabilities were reported for direct or transitive packages."
+
+  dependency-review:
+    name: Pull request dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
