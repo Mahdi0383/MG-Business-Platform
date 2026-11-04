@@ -17,8 +17,8 @@ OutputBaseFilename=MG-License-Manager-Setup-win-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 CloseApplications=yes
 RestartApplications=no
 
