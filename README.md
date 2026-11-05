@@ -20,7 +20,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - CI workflow restores, builds, runs automated tests, publishes Windows binaries, bundles Caddy, validates archives/checksums and compiles both Inno Setup installers.
 - Versioned Windows prereleases are published by `release-windows.yml` on explicitly marked `[release]` commits or a manual workflow dispatch. Download installers, portable ZIPs, source archives and SHA-256 checksums from the latest verified [GitHub Release](https://github.com/Mahdi0383/MG-Business-Platform/releases).
 
-**Latest verification note (2026-10-27):** the current main commit has not been build/test verified. GitHub Actions jobs are failing before a runner is assigned (`runner_id: 0`, no steps/logs); the last successful Windows CI evidence applies to an older commit. Do not treat current changes as a verified release until the runner issue is resolved and the full pipeline passes.
+**Latest verification note (2026-11-05):** default branch `main` remains at `98a373d0fecb4e3371d8b9ae6150bdddc161d4a5`; its latest Windows CI run [#40422014061](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/40422014061) passed with 0 compiler warnings, 0 errors, 223 automated tests, and successful Windows publish/installer-package verification. Open PRs #96–#101 have separate commit-scoped evidence and remain unmerged; their results are not part of `main`. PR #101's NuGet audit succeeded on its exact head, but that check is not yet required by the active `main` ruleset. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for current evidence and limitations. GitHub metadata currently reports this repository as public.
 
 ## Important current limitations
 
@@ -28,7 +28,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
 - Customer club/membership authentication, verified phone OTP, loyalty points, customer-facing reservation history, automatic SMS notifications and self-service reservation cancellation are not implemented yet.
 - The current POS supports a multi-line walk-in cart with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Basic selected-invoice receipt printing is implemented for narrow thermal-printer content through the Windows print driver; the 58 mm layout and real printer hardware still need operator validation. Advanced discounts, barcode workflows, returns/refunds, cash-flow statements, tax policies, shift closing, multi-branch operation, and full cafe/game-center workflows remain unfinished.
-- Latest completed Windows CI verification before the current release-workflow correction passed with zero compiler errors, 186 automated tests, both Windows installers compiled, and package/source archive checks verified. The latest published GitHub Release must be checked for its source commit before treating its binaries as current. Successful CI does not prove public internet reachability, physical hardware compatibility, or operator acceptance.
+- Latest successful CI evidence for the current `main` commit `98a373d0fecb4e3371d8b9ae6150bdddc161d4a5` is run [#40422014061](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/40422014061): 223 automated tests passed, compiler warnings/errors were zero, and Windows publish plus installer/package verification succeeded. Newer open-PR runs verify only their respective unmerged snapshots. Successful CI does not prove public internet reachability, physical hardware compatibility, interactive installation/upgrade, or operator acceptance.
 
 ## Build and test on Windows
 
@@ -75,4 +75,4 @@ The expected Windows artifacts are:
 - Least privilege, signed license entitlements, secure backups, and no direct public exposure of database files.
 - Small increments with tests and reviewable Git history.
 
-This repository is private. Keep all signing secrets and production credentials out of source control.
+GitHub repository metadata reports this repository as **public** as of 2026-11-05. Verify the intended visibility in Settings → General before sharing or distributing the source. Keep all signing secrets and production credentials out of source control.
