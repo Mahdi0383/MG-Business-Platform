@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -234,5 +236,101 @@ public sealed class DatabaseMigrationTests
         await DatabaseInitializer.InitializeAsync(db);
         Assert.Equal(10, await db.LedgerAccounts.CountAsync());
     }
+
+
+    [Fact]
+    public async Task InitializeAsync_BackupsExistingDatabaseBeforeApplyingPendingMigrations()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"${"mg-db-migration-backup-"}{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+
+        try
+        {
+            var options = new DbContextOptionsBuilder<BusinessDbContext>()
+                .UseSqlite(new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath,
+                    Pooling = false
+                }.ToString())
+                .Options;
+            await using var db = new BusinessDbContext(options);
+
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261013000000_InitialStorefrontSchema");
+
+            await db.Database.OpenConnectionAsync();
+            await using (var seed = db.Database.GetDbConnection().CreateCommand())
+            {
+                seed.CommandText = """
+                    INSERT INTO StoreSettings
+                        (Id, StoreName, CurrencyCode, OnlineOrderingEnabled, PublicPublicationEnabled, PublicHostname, UpdatedAt)
+                    VALUES
+                        (1, 'Pre-migration store', 'IRR', 0, 0, '', '2026-01-01T00:00:00+00:00');
+
+                    INSERT INTO StoreProducts
+                        (Id, Sku, Name, Description, UnitPrice, CurrencyCode, IsAvailable, StockQuantity, UpdatedAt)
+                    VALUES
+                        ('00000000-0000-0000-0000-000000000123', 'LEGACY-1', 'Legacy product',
+                         'Created before schema upgrade', '125.50', 'IRR', 1, 7, '2026-01-01T00:00:00+00:00');
+                    """;
+                await seed.ExecuteNonQueryAsync();
+            }
+            await db.Database.CloseConnectionAsync();
+
+            await DatabaseInitializer.InitializeAsync(db);
+
+            var backups = Directory.GetFiles(directory, "store.db.pre-migration-*.bak");
+            Assert.Single(backups);
+            await new DatabaseMaintenanceService().VerifyIntegrityAsync(backups[0]);
+
+            await using (var backupConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = backups[0],
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString()))
+            {
+                await backupConnection.OpenAsync();
+                await using var backupCommand = backupConnection.CreateCommand();
+                backupCommand.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Pre-migration store", Convert.ToString(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                backupCommand.CommandText = "SELECT Name FROM StoreProducts WHERE Sku = 'LEGACY-1';";
+                Assert.Equal("Legacy product", Convert.ToString(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                backupCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoreProducts') WHERE name = 'UnitCost';";
+                Assert.Equal(0, Convert.ToInt32(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            var upgradedProduct = await db.StoreProducts.AsNoTracking().SingleAsync();
+            Assert.Equal("LEGACY-1", upgradedProduct.Sku);
+            Assert.Equal(125.50m, upgradedProduct.UnitPrice);
+            Assert.Equal(0m, upgradedProduct.UnitCost);
+            Assert.Equal("Pre-migration store",
+                await db.StoreSettings.AsNoTracking().Select(x => x.StoreName).SingleAsync());
+
+            var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+            Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
+
+            // A second startup with no pending migrations must not create another backup.
+            await DatabaseInitializer.InitializeAsync(db);
+            Assert.Single(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 
 }
