@@ -63,6 +63,7 @@ public static class DatabaseInitializer
 
         await db.SaveChangesAsync(cancellationToken);
     }
+
     private static async Task BackupBeforePendingMigrationsAsync(
         BusinessDbContext db,
         CancellationToken cancellationToken)
@@ -85,7 +86,7 @@ public static class DatabaseInitializer
             return;
 
         var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
-        var backupPath = $"${databasePath}.pre-migration-${timestamp}-${Guid.NewGuid():N}.bak";
+        var backupPath = $"{databasePath}.pre-migration-{timestamp}-{Guid.NewGuid():N}.bak";
         await new DatabaseMaintenanceService().CreateBackupAsync(databasePath, backupPath, cancellationToken);
     }
 
