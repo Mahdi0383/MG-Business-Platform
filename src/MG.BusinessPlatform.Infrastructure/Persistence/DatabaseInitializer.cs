@@ -1,4 +1,6 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
@@ -21,6 +23,7 @@ public static class DatabaseInitializer
     public static async Task InitializeAsync(BusinessDbContext db, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(db);
+        await BackupBeforePendingMigrationsAsync(db, cancellationToken);
         await db.Database.MigrateAsync(cancellationToken);
 
         if (!await db.StoreSettings.AnyAsync(cancellationToken))
@@ -60,4 +63,30 @@ public static class DatabaseInitializer
 
         await db.SaveChangesAsync(cancellationToken);
     }
+    private static async Task BackupBeforePendingMigrationsAsync(
+        BusinessDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.GetDbConnection() is not SqliteConnection connection)
+            return;
+
+        var dataSource = connection.DataSource;
+        if (string.IsNullOrWhiteSpace(dataSource)
+            || string.Equals(dataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+            || dataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var databasePath = Path.GetFullPath(dataSource);
+        if (!File.Exists(databasePath) || new FileInfo(databasePath).Length == 0)
+            return;
+
+        var pendingMigrations = await db.Database.GetPendingMigrationsAsync(cancellationToken);
+        if (!pendingMigrations.Any())
+            return;
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
+        var backupPath = $"${databasePath}.pre-migration-${timestamp}-${Guid.NewGuid():N}.bak";
+        await new DatabaseMaintenanceService().CreateBackupAsync(databasePath, backupPath, cancellationToken);
+    }
+
 }
