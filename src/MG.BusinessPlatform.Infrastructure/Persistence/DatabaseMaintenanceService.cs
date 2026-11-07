@@ -147,8 +147,10 @@ public sealed class DatabaseMaintenanceService
 
         await EnsureColumnsAsync(connection, "StoreSettings",
             ["Id", "StoreName", "CurrencyCode", "PublicHostname"], cancellationToken);
+        // Keep this check compatible with the initial supported schema so an older
+        // installation can be backed up before the next migration adds columns.
         await EnsureColumnsAsync(connection, "StoreProducts",
-            ["Id", "Sku", "Name", "UnitPrice", "UnitCost", "CurrencyCode", "IsAvailable", "StockQuantity"],
+            ["Id", "Sku", "Name", "Description", "UnitPrice", "CurrencyCode", "IsAvailable", "StockQuantity"],
             cancellationToken);
     }
 

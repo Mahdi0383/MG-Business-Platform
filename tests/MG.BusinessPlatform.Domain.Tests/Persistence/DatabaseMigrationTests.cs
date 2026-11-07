@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -144,4 +146,191 @@ public sealed class DatabaseMigrationTests
 
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
     }
+    [Fact]
+    public async Task InitializeAsync_CreatesDefaultStoreSettingsAndLedgerAccountsForFreshDatabase()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        Assert.Equal(1, settings.Id);
+        Assert.Equal("فروشگاه شما", settings.StoreName);
+        Assert.Equal("IRR", settings.CurrencyCode);
+        Assert.False(settings.OnlineOrderingEnabled);
+        Assert.False(settings.OnlineReservationsEnabled);
+        Assert.False(settings.PublicPublicationEnabled);
+        Assert.Equal(string.Empty, settings.PublicHostname);
+
+        var accounts = await db.LedgerAccounts.AsNoTracking()
+            .OrderBy(account => account.Code)
+            .ToArrayAsync();
+        Assert.Equal(
+            new[] { "1000", "1010", "1020", "1100", "1200", "2000", "3000", "4000", "5000", "6000" },
+            accounts.Select(account => account.Code).ToArray());
+        Assert.All(accounts, account =>
+        {
+            Assert.True(account.IsActive);
+            Assert.True(account.IsPostingAllowed);
+        });
+    }
+
+    [Fact]
+    public async Task InitializeAsync_SeedsMissingDefaultLedgerAccountsWithoutOverwritingExistingAccounts()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+
+        // Initialization must not replace store-specific configuration in an existing database.
+        db.StoreSettings.Add(new StoreSettings
+        {
+            Id = 1,
+            StoreName = "Configured Store",
+            CurrencyCode = "USD",
+            OnlineOrderingEnabled = true,
+            OnlineReservationsEnabled = true,
+            PublicPublicationEnabled = true,
+            PublicHostname = "shop.example.test",
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        db.LedgerAccounts.Add(new LedgerAccountRecord
+        {
+            Id = Guid.NewGuid(),
+            Code = "1000",
+            Name = "Custom cash account",
+            AccountType = "Asset",
+            IsPostingAllowed = false,
+            IsActive = false
+        });
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        Assert.Equal("Configured Store", storeSettings.StoreName);
+        Assert.Equal("USD", storeSettings.CurrencyCode);
+        Assert.True(storeSettings.OnlineOrderingEnabled);
+        Assert.True(storeSettings.OnlineReservationsEnabled);
+        Assert.True(storeSettings.PublicPublicationEnabled);
+        Assert.Equal("shop.example.test", storeSettings.PublicHostname);
+
+        var accounts = await db.LedgerAccounts.AsNoTracking().ToDictionaryAsync(x => x.Code);
+        Assert.Equal(10, accounts.Count);
+        Assert.Equal("Custom cash account", accounts["1000"].Name);
+        Assert.Equal("Asset", accounts["1000"].AccountType);
+        Assert.False(accounts["1000"].IsPostingAllowed);
+        Assert.False(accounts["1000"].IsActive);
+        Assert.Contains("1010", accounts.Keys);
+        Assert.Contains("1100", accounts.Keys);
+        Assert.Contains("4000", accounts.Keys);
+        Assert.Contains("6000", accounts.Keys);
+
+        // Running initialization repeatedly must be safe and must not create duplicates.
+        await DatabaseInitializer.InitializeAsync(db);
+        Assert.Equal(10, await db.LedgerAccounts.CountAsync());
+    }
+
+
+    [Fact]
+    public async Task InitializeAsync_BackupsExistingDatabaseBeforeApplyingPendingMigrations()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-migration-backup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+
+        try
+        {
+            var options = new DbContextOptionsBuilder<BusinessDbContext>()
+                .UseSqlite(new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath,
+                    Pooling = false
+                }.ToString())
+                .Options;
+            await using var db = new BusinessDbContext(options);
+
+            var migrator = db.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261013000000_InitialStorefrontSchema");
+
+            await db.Database.OpenConnectionAsync();
+            await using (var seed = db.Database.GetDbConnection().CreateCommand())
+            {
+                seed.CommandText = """
+                    INSERT INTO StoreSettings
+                        (Id, StoreName, CurrencyCode, OnlineOrderingEnabled, PublicPublicationEnabled, PublicHostname, UpdatedAt)
+                    VALUES
+                        (1, 'Pre-migration store', 'IRR', 0, 0, '', '2026-01-01T00:00:00+00:00');
+
+                    INSERT INTO StoreProducts
+                        (Id, Sku, Name, Description, UnitPrice, CurrencyCode, IsAvailable, StockQuantity, UpdatedAt)
+                    VALUES
+                        ('00000000-0000-0000-0000-000000000123', 'LEGACY-1', 'Legacy product',
+                         'Created before schema upgrade', '125.50', 'IRR', 1, 7, '2026-01-01T00:00:00+00:00');
+                    """;
+                await seed.ExecuteNonQueryAsync();
+            }
+            await db.Database.CloseConnectionAsync();
+
+            await DatabaseInitializer.InitializeAsync(db);
+
+            var backups = Directory.GetFiles(directory, "store.db.pre-migration-*.bak");
+            Assert.Single(backups);
+            await new DatabaseMaintenanceService().VerifyIntegrityAsync(backups[0]);
+
+            await using (var backupConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = backups[0],
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString()))
+            {
+                await backupConnection.OpenAsync();
+                await using var backupCommand = backupConnection.CreateCommand();
+                backupCommand.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Pre-migration store", Convert.ToString(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                backupCommand.CommandText = "SELECT Name FROM StoreProducts WHERE Sku = 'LEGACY-1';";
+                Assert.Equal("Legacy product", Convert.ToString(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                backupCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoreProducts') WHERE name = 'UnitCost';";
+                Assert.Equal(0, Convert.ToInt32(
+                    await backupCommand.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            var upgradedProduct = await db.StoreProducts.AsNoTracking().SingleAsync();
+            Assert.Equal("LEGACY-1", upgradedProduct.Sku);
+            Assert.Equal(125.50m, upgradedProduct.UnitPrice);
+            Assert.Equal(0m, upgradedProduct.UnitCost);
+            Assert.Equal("Pre-migration store",
+                await db.StoreSettings.AsNoTracking().Select(x => x.StoreName).SingleAsync());
+
+            var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+            Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
+
+            // A second startup with no pending migrations must not create another backup.
+            await DatabaseInitializer.InitializeAsync(db);
+            Assert.Single(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+
 }
