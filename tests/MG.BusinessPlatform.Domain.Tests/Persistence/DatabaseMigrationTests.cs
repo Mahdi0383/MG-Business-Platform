@@ -241,7 +241,7 @@ public sealed class DatabaseMigrationTests
     [Fact]
     public async Task InitializeAsync_BackupsExistingDatabaseBeforeApplyingPendingMigrations()
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"${"mg-db-migration-backup-"}{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-migration-backup-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var databasePath = Path.Combine(directory, "store.db");
 
