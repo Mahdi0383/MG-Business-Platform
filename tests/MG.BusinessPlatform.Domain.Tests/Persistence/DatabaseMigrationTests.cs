@@ -333,4 +333,55 @@ public sealed class DatabaseMigrationTests
     }
 
 
+
+    [Fact]
+    public async Task InitializeAsync_WaitsForExistingInitializationLockBeforeApplyingMigrations()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-initialization-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var lockPath = databasePath + ".migration.lock";
+        var options = new DbContextOptionsBuilder<BusinessDbContext>()
+            .UseSqlite(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString())
+            .Options;
+
+        try
+        {
+            await using (var setupDb = new BusinessDbContext(options))
+            {
+                var migrator = setupDb.GetService<IMigrator>();
+                await migrator.MigrateAsync("20261013000000_InitialStorefrontSchema");
+            }
+
+            // Hold the same OS-level exclusive lock used by another application process.
+            await using var heldLock = new FileStream(
+                lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            await using var db = new BusinessDbContext(options);
+
+            var initializationTask = DatabaseInitializer.InitializeAsync(db);
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+            Assert.False(initializationTask.IsCompleted,
+                "Initialization must wait while another process owns the migration lock.");
+
+            await heldLock.DisposeAsync();
+            await initializationTask.WaitAsync(TimeSpan.FromSeconds(15));
+
+            var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+            Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
+            Assert.Single(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 }
