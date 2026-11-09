@@ -384,4 +384,58 @@ public sealed class DatabaseMigrationTests
         }
     }
 
+
+    [Fact]
+    public async Task InitializeAsync_HonorsCancellationWhileWaitingForInitializationLock()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-initialization-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var lockPath = databasePath + ".migration.lock";
+        var options = new DbContextOptionsBuilder<BusinessDbContext>()
+            .UseSqlite(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString())
+            .Options;
+
+        try
+        {
+            await using (var setupDb = new BusinessDbContext(options))
+            {
+                var migrator = setupDb.GetService<IMigrator>();
+                await migrator.MigrateAsync("20261013000000_InitialStorefrontSchema");
+            }
+
+            // Simulate another process owning the migration lock. Cancellation must
+            // stop this initializer before it creates a backup or changes the schema.
+            await using var heldLock = new FileStream(
+                lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            await using var db = new BusinessDbContext(options);
+            using var cancellation = new CancellationTokenSource();
+
+            var initializationTask = DatabaseInitializer.InitializeAsync(db, cancellation.Token);
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+            Assert.False(initializationTask.IsCompleted,
+                "Initialization must remain pending while another process owns the migration lock.");
+
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => initializationTask);
+
+            var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+            Assert.Contains("20261013000000_InitialStorefrontSchema", appliedMigrations);
+            Assert.DoesNotContain("20261016030000_AddInvoiceDueDates", appliedMigrations);
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 }
