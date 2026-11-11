@@ -438,4 +438,86 @@ public sealed class DatabaseMigrationTests
         }
     }
 
+
+    [Fact]
+    public async Task InitializeAsync_RejectsDatabaseWithoutRecognizedMigrationHistoryWithoutChangingLegacyData()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-unknown-migration-history-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+
+        try
+        {
+            await using (var legacyConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString()))
+            {
+                await legacyConnection.OpenAsync();
+                await using var setup = legacyConnection.CreateCommand();
+                setup.CommandText = """
+                    CREATE TABLE StoreSettings (Id INTEGER PRIMARY KEY, StoreName TEXT NOT NULL);
+                    CREATE TABLE StoreProducts (Id TEXT PRIMARY KEY, Sku TEXT NOT NULL, Name TEXT NOT NULL);
+                    CREATE TABLE __EFMigrationsHistory (MigrationId TEXT NOT NULL PRIMARY KEY, ProductVersion TEXT NOT NULL);
+                    INSERT INTO StoreSettings (Id, StoreName) VALUES (1, 'Legacy store');
+                    INSERT INTO StoreProducts (Id, Sku, Name) VALUES ('legacy-1', 'LEGACY-1', 'Legacy product');
+                    """;
+                await setup.ExecuteNonQueryAsync();
+            }
+
+            var options = new DbContextOptionsBuilder<BusinessDbContext>()
+                .UseSqlite(new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath,
+                    Pooling = false
+                }.ToString())
+                .Options;
+            await using var db = new BusinessDbContext(options);
+
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(
+                () => DatabaseInitializer.InitializeAsync(db));
+            Assert.Contains("does not contain the MG Business Platform migration history", exception.Message);
+
+            await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString());
+            await verify.OpenAsync();
+
+            await using var command = verify.CreateCommand();
+            command.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+            Assert.Equal("Legacy store", Convert.ToString(
+                await command.ExecuteScalarAsync(),
+                System.Globalization.CultureInfo.InvariantCulture));
+
+            command.CommandText = "SELECT Name FROM StoreProducts WHERE Sku = 'LEGACY-1';";
+            Assert.Equal("Legacy product", Convert.ToString(
+                await command.ExecuteScalarAsync(),
+                System.Globalization.CultureInfo.InvariantCulture));
+
+            command.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory;";
+            Assert.Equal(0, Convert.ToInt32(
+                await command.ExecuteScalarAsync(),
+                System.Globalization.CultureInfo.InvariantCulture));
+
+            command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('StoreProducts') WHERE name = 'UnitCost';";
+            Assert.Equal(0, Convert.ToInt32(
+                await command.ExecuteScalarAsync(),
+                System.Globalization.CultureInfo.InvariantCulture));
+
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak.tmp-*"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 }
