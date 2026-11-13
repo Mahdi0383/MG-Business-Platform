@@ -510,7 +510,7 @@ public sealed class DatabaseMigrationTests
 
             Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
             var remainingFiles = Directory.GetFiles(directory)
-                .Select(Path.GetFileName)
+                .Select(file => Path.GetFileName(file) ?? string.Empty)
                 .ToArray();
             Console.WriteLine($"Files remaining after failed migration: {string.Join(", ", remainingFiles)}");
 
@@ -657,7 +657,7 @@ public sealed class DatabaseMigrationTests
             }
 
             var temporaryFiles = Directory.GetFiles(directory)
-                .Where(file => Path.GetFileName(file).Contains(".tmp-", StringComparison.Ordinal));
+                .Where(file => (Path.GetFileName(file) ?? string.Empty).Contains(".tmp-", StringComparison.Ordinal));
             Assert.Empty(temporaryFiles);
         }
         finally
