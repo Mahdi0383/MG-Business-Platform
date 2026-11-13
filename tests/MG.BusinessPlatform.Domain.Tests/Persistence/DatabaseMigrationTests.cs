@@ -520,4 +520,141 @@ public sealed class DatabaseMigrationTests
         }
     }
 
+
+    [Fact]
+    public async Task InitializeAsync_PreservesPreMigrationBackupAndRollsBackPartialSchemaWhenMigrationFails()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-failed-migration-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+
+        try
+        {
+            var options = new DbContextOptionsBuilder<BusinessDbContext>()
+                .UseSqlite(new SqliteConnectionStringBuilder
+                {
+                    DataSource = databasePath,
+                    Pooling = false
+                }.ToString())
+                .Options;
+            await using (var db = new BusinessDbContext(options))
+            {
+                var migrator = db.GetService<IMigrator>();
+                await migrator.MigrateAsync("20261013000000_InitialStorefrontSchema");
+
+                await db.Database.OpenConnectionAsync();
+                await using (var setup = db.Database.GetDbConnection().CreateCommand())
+                {
+                    setup.CommandText = """
+                        INSERT INTO StoreSettings
+                            (Id, StoreName, CurrencyCode, OnlineOrderingEnabled, PublicPublicationEnabled, PublicHostname, UpdatedAt)
+                        VALUES
+                            (1, 'Before failed upgrade', 'IRR', 0, 0, '', '2026-01-01T00:00:00+00:00');
+
+                        INSERT INTO StoreProducts
+                            (Id, Sku, Name, Description, UnitPrice, CurrencyCode, IsAvailable, StockQuantity, UpdatedAt)
+                        VALUES
+                            ('00000000-0000-0000-0000-000000000456', 'ROLLBACK-1', 'Rollback product',
+                             'Must survive a failed migration', '250.00', 'IRR', 1, 4, '2026-01-01T00:00:00+00:00');
+
+                        -- Force the second operation in AddCustomerSupplierTables to fail.
+                        -- The preceding Customers table creation must be rolled back.
+                        CREATE TABLE Suppliers (Id TEXT NOT NULL PRIMARY KEY);
+                        """;
+                    await setup.ExecuteNonQueryAsync();
+                }
+                await db.Database.CloseConnectionAsync();
+
+                await Assert.ThrowsAsync<SqliteException>(
+                    () => DatabaseInitializer.InitializeAsync(db));
+            }
+
+            var backups = Directory.GetFiles(directory, "store.db.pre-migration-*.bak");
+            Assert.Single(backups);
+
+            var maintenance = new DatabaseMaintenanceService();
+            await maintenance.VerifyIntegrityAsync(backups[0]);
+
+            await using (var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = backups[0],
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString()))
+            {
+                await backup.OpenAsync();
+                await using var command = backup.CreateCommand();
+                command.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Before failed upgrade", Convert.ToString(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                command.CommandText = "SELECT Name FROM StoreProducts WHERE Sku = 'ROLLBACK-1';";
+                Assert.Equal("Rollback product", Convert.ToString(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                command.CommandText = """
+                    SELECT COUNT(*)
+                    FROM __EFMigrationsHistory
+                    WHERE MigrationId = '20261013010000_AddCustomerSupplierTables';
+                    """;
+                Assert.Equal(0, Convert.ToInt32(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            await using (var current = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString()))
+            {
+                await current.OpenAsync();
+                await using var command = current.CreateCommand();
+                command.CommandText = "SELECT StoreName FROM StoreSettings WHERE Id = 1;";
+                Assert.Equal("Before failed upgrade", Convert.ToString(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                command.CommandText = """
+                    SELECT COUNT(*)
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'Customers';
+                    """;
+                Assert.Equal(0, Convert.ToInt32(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                command.CommandText = """
+                    SELECT COUNT(*)
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'Suppliers';
+                    """;
+                Assert.Equal(1, Convert.ToInt32(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+                command.CommandText = """
+                    SELECT COUNT(*)
+                    FROM __EFMigrationsHistory
+                    WHERE MigrationId = '20261013010000_AddCustomerSupplierTables';
+                    """;
+                Assert.Equal(0, Convert.ToInt32(
+                    await command.ExecuteScalarAsync(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak.tmp-*"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 }
