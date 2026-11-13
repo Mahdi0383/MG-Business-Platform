@@ -648,7 +648,9 @@ public sealed class DatabaseMigrationTests
                     System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak.tmp-*"));
+            var temporaryFiles = Directory.GetFiles(directory)
+                .Where(file => Path.GetFileName(file).Contains(".tmp-", StringComparison.Ordinal));
+            Assert.Empty(temporaryFiles);
         }
         finally
         {
