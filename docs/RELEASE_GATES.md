@@ -22,6 +22,7 @@ A release may not be described as complete until all applicable gates have evide
 - Before applying pending migrations to an existing file-backed SQLite database with the supported initial EF migration history, startup creates and verifies a pre-migration backup; if backup validation fails, startup stops before applying schema changes.
 - Databases without the initial MG Business Platform EF migration history are not automatically upgraded; a separately tested legacy import/migration path is required. Backup retention, restore instructions and an actual upgrade/restore drill remain release gates.
 - Backup and restore are tested against real generated databases.
+- A migration failure after an earlier DDL operation is covered by a rollback regression: partial schema changes are absent and the pre-migration backup remains integrity-verified.
 - A failed update or restore cannot silently destroy the last known-good data.
 - Export/import validation reports rejected records without partial corruption.
 
