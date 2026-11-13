@@ -509,17 +509,9 @@ public sealed class DatabaseMigrationTests
                 System.Globalization.CultureInfo.InvariantCulture));
 
             Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
-            var remainingFiles = Directory.GetFiles(directory)
-                .Select(file => Path.GetFileName(file) ?? string.Empty)
-                .ToArray();
-            Console.WriteLine($"Files remaining after failed migration: {string.Join(", ", remainingFiles)}");
-
-            var temporaryFiles = remainingFiles
-                .Where(file => file.Contains(".tmp-", StringComparison.Ordinal))
-                .ToArray();
-            Assert.True(
-                temporaryFiles.Length == 0,
-                $"Unexpected temporary files after failed migration: {string.Join(", ", temporaryFiles)}");
+            var temporaryFiles = Directory.GetFiles(directory)
+                .Where(file => (Path.GetFileName(file) ?? string.Empty).Contains(".tmp-", StringComparison.Ordinal));
+            Assert.Empty(temporaryFiles);
         }
         finally
         {
@@ -584,6 +576,9 @@ public sealed class DatabaseMigrationTests
 
             var maintenance = new DatabaseMaintenanceService();
             await maintenance.VerifyIntegrityAsync(backups[0]);
+            Assert.False(File.Exists(backups[0] + "-wal"));
+            Assert.False(File.Exists(backups[0] + "-shm"));
+            Assert.False(File.Exists(backups[0] + "-journal"));
 
             await using (var backup = new SqliteConnection(new SqliteConnectionStringBuilder
             {
@@ -656,17 +651,9 @@ public sealed class DatabaseMigrationTests
                     System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            var remainingFiles = Directory.GetFiles(directory)
-                .Select(file => Path.GetFileName(file) ?? string.Empty)
-                .ToArray();
-            Console.WriteLine($"Rollback-test files after failed migration: {string.Join(", ", remainingFiles)}");
-
-            var temporaryFiles = remainingFiles
-                .Where(file => file.Contains(".tmp-", StringComparison.Ordinal))
-                .ToArray();
-            Assert.True(
-                temporaryFiles.Length == 0,
-                $"Unexpected temporary files after failed migration: {string.Join(", ", temporaryFiles)}");
+            var temporaryFiles = Directory.GetFiles(directory)
+                .Where(file => (Path.GetFileName(file) ?? string.Empty).Contains(".tmp-", StringComparison.Ordinal));
+            Assert.Empty(temporaryFiles);
         }
         finally
         {
