@@ -31,6 +31,7 @@ public sealed class DatabaseMaintenanceService
             await VerifyIntegrityAsync(temporaryPath, cancellationToken);
             await VerifyBusinessSchemaAsync(temporaryPath, cancellationToken);
             File.Move(temporaryPath, destination, overwrite: true);
+            DeleteSqliteSidecars(destination);
             var info = new FileInfo(destination);
             return new DatabaseBackupResult(destination, info.Length, DateTimeOffset.UtcNow);
         }
