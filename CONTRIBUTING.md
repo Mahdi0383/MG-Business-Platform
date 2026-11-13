@@ -28,6 +28,22 @@
 - Never claim a build, installer, printer or UI test passed unless it was actually executed.
 - Windows-specific UI, printing and hardware tests must be verified on Windows with the relevant devices.
 
+### Incremental C# formatting
+
+- Pull requests run an incremental whitespace-formatting check for changed `.cs` files with `dotnet format whitespace MG.BusinessPlatform.sln --verify-no-changes`. This gate does not currently reformat the entire solution or replace analyzer/static-analysis checks.
+- To run the same changed-file check locally from a feature branch with `origin/main` available:
+
+```powershell
+$changedFiles = @(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- '*.cs')
+if ($LASTEXITCODE -ne 0) { throw "Could not determine changed C# files." }
+if ($changedFiles.Count -gt 0) {
+    dotnet format whitespace MG.BusinessPlatform.sln --verify-no-changes --include $changedFiles
+    if ($LASTEXITCODE -ne 0) { throw "Changed C# files do not meet whitespace formatting rules." }
+}
+```
+
+- The initial full-solution baseline reported 306 existing whitespace/line-ending diagnostics across 34 C# files. Keep that legacy debt visible and fix it in focused changes; do not mass-format unrelated files in a feature PR.
+
 ## Commits
 
 Use concise imperative commit messages. Prefer small, reviewable commits and update documentation when behavior or assumptions change.
