@@ -656,9 +656,17 @@ public sealed class DatabaseMigrationTests
                     System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            var temporaryFiles = Directory.GetFiles(directory)
-                .Where(file => (Path.GetFileName(file) ?? string.Empty).Contains(".tmp-", StringComparison.Ordinal));
-            Assert.Empty(temporaryFiles);
+            var remainingFiles = Directory.GetFiles(directory)
+                .Select(file => Path.GetFileName(file) ?? string.Empty)
+                .ToArray();
+            Console.WriteLine($"Rollback-test files after failed migration: {string.Join(", ", remainingFiles)}");
+
+            var temporaryFiles = remainingFiles
+                .Where(file => file.Contains(".tmp-", StringComparison.Ordinal))
+                .ToArray();
+            Assert.True(
+                temporaryFiles.Length == 0,
+                $"Unexpected temporary files after failed migration: {string.Join(", ", temporaryFiles)}");
         }
         finally
         {
