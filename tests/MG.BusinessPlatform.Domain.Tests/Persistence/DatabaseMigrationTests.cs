@@ -509,9 +509,17 @@ public sealed class DatabaseMigrationTests
                 System.Globalization.CultureInfo.InvariantCulture));
 
             Assert.Empty(Directory.GetFiles(directory, "store.db.pre-migration-*.bak"));
-            var temporaryFiles = Directory.GetFiles(directory)
-                .Where(file => Path.GetFileName(file).Contains(".tmp-", StringComparison.Ordinal));
-            Assert.Empty(temporaryFiles);
+            var remainingFiles = Directory.GetFiles(directory)
+                .Select(Path.GetFileName)
+                .ToArray();
+            Console.WriteLine($"Files remaining after failed migration: {string.Join(", ", remainingFiles)}");
+
+            var temporaryFiles = remainingFiles
+                .Where(file => file.Contains(".tmp-", StringComparison.Ordinal))
+                .ToArray();
+            Assert.True(
+                temporaryFiles.Length == 0,
+                $"Unexpected temporary files after failed migration: {string.Join(", ", temporaryFiles)}");
         }
         finally
         {
