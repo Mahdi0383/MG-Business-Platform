@@ -19,6 +19,7 @@ A release may not be described as complete until all applicable gates have evide
 ## Data safety
 - Schema migrations upgrade supported versions and fail safely.
 - File-backed SQLite initialization serializes backup, migration and seeding through an exclusive adjacent `.migration.lock` file handle with a bounded 60-second wait; validate this behavior on supported local Windows filesystems. Network/shared filesystem database paths require separate validation.
+- Backup restore acquires the same per-database maintenance lock before replacing the target, so it cannot race startup migration/backup; callers must still stop all database clients and active writes before restore. Validate lock behavior on supported local Windows filesystems; network/shared filesystem semantics remain unverified.
 - Before applying pending migrations to an existing file-backed SQLite database with the supported initial EF migration history, startup creates and verifies a pre-migration backup; if backup validation fails, startup stops before applying schema changes.
 - Databases without the initial MG Business Platform EF migration history are not automatically upgraded; a separately tested legacy import/migration path is required. Backup retention, restore instructions and an actual upgrade/restore drill remain release gates.
 - Backup and restore are tested against real generated databases.
