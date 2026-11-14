@@ -664,4 +664,70 @@ public sealed class DatabaseMigrationTests
         }
     }
 
+
+
+    [Fact]
+    public async Task RestoreBackup_WaitsForInitializationLockBeforeReplacingDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-restore-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var lockPath = databasePath + ".migration.lock";
+        var options = new DbContextOptionsBuilder<BusinessDbContext>()
+            .UseSqlite(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString())
+            .Options;
+
+        try
+        {
+            await using (var setupDb = new BusinessDbContext(options))
+            {
+                await DatabaseInitializer.InitializeAsync(setupDb);
+                var settings = await setupDb.StoreSettings.SingleAsync(x => x.Id == 1);
+                settings.StoreName = "Backup state";
+                await setupDb.SaveChangesAsync();
+            }
+
+            var service = new DatabaseMaintenanceService();
+            await service.CreateBackupAsync(databasePath, backupPath);
+
+            await using (var updateDb = new BusinessDbContext(options))
+            {
+                var settings = await updateDb.StoreSettings.SingleAsync(x => x.Id == 1);
+                settings.StoreName = "Current state";
+                await updateDb.SaveChangesAsync();
+            }
+
+            // A concurrent startup owns the same per-database maintenance lock.
+            await using var heldLock = new FileStream(
+                lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            using var cancellation = new CancellationTokenSource();
+
+            var restoreTask = service.RestoreBackupAsync(backupPath, databasePath, cancellation.Token);
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+            Assert.False(restoreTask.IsCompleted,
+                "Restore must wait while another process owns the database maintenance lock.");
+
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => restoreTask);
+
+            await using var verifyDb = new BusinessDbContext(options);
+            Assert.Equal("Current state",
+                (await verifyDb.StoreSettings.SingleAsync(x => x.Id == 1)).StoreName);
+            Assert.Empty(Directory.GetFiles(directory, "store.db.pre-restore-*.bak"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
 }
