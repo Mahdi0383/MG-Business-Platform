@@ -55,6 +55,9 @@ public sealed class DatabaseMaintenanceService
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
 
+        // Serialize restore against startup migrations/backup on every process using this database path.
+        await using var maintenanceLock = await SqliteDatabaseFileLock.AcquireAsync(target, cancellationToken);
+
         // EF Core's default SQLite pooling can keep a connection alive after its
         // DbContext is disposed. Release this process's idle pooled connections
         // before checking WAL/SHM files; otherwise a normal restore can be rejected
