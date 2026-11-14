@@ -31,13 +31,13 @@ public sealed class DatabaseMaintenanceService
             await VerifyIntegrityAsync(temporaryPath, cancellationToken);
             await VerifyBusinessSchemaAsync(temporaryPath, cancellationToken);
             File.Move(temporaryPath, destination, overwrite: true);
+            DeleteSqliteSidecars(destination);
             var info = new FileInfo(destination);
             return new DatabaseBackupResult(destination, info.Length, DateTimeOffset.UtcNow);
         }
         finally
         {
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
+            DeleteDatabaseFiles(temporaryPath);
         }
     }
 
@@ -54,6 +54,9 @@ public sealed class DatabaseMaintenanceService
             throw new FileNotFoundException("Backup file was not found.", backup);
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+
+        // Serialize restore against startup migrations/backup on every process using this database path.
+        await using var maintenanceLock = await SqliteDatabaseFileLock.AcquireAsync(target, cancellationToken);
 
         // EF Core's default SQLite pooling can keep a connection alive after its
         // DbContext is disposed. Release this process's idle pooled connections
@@ -85,8 +88,7 @@ public sealed class DatabaseMaintenanceService
         }
         finally
         {
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
+            DeleteDatabaseFiles(temporaryPath);
         }
     }
 
@@ -147,8 +149,10 @@ public sealed class DatabaseMaintenanceService
 
         await EnsureColumnsAsync(connection, "StoreSettings",
             ["Id", "StoreName", "CurrencyCode", "PublicHostname"], cancellationToken);
+        // Keep this check compatible with the initial supported schema so an older
+        // installation can be backed up before the next migration adds columns.
         await EnsureColumnsAsync(connection, "StoreProducts",
-            ["Id", "Sku", "Name", "UnitPrice", "UnitCost", "CurrencyCode", "IsAvailable", "StockQuantity"],
+            ["Id", "Sku", "Name", "Description", "UnitPrice", "CurrencyCode", "IsAvailable", "StockQuantity"],
             cancellationToken);
     }
 
@@ -174,22 +178,65 @@ public sealed class DatabaseMaintenanceService
 
     private static async Task CopyDatabaseAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
     {
-        if (File.Exists(destinationPath))
-            File.Delete(destinationPath);
-        await using var source = new SqliteConnection(new SqliteConnectionStringBuilder
+        DeleteDatabaseFiles(destinationPath);
+
+        try
         {
-            DataSource = sourcePath,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = false
-        }.ToString());
-        await using var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+            await using (var source = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = sourcePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString()))
+            await using (var destination = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = destinationPath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false
+            }.ToString()))
+            {
+                await source.OpenAsync(cancellationToken);
+                await destination.OpenAsync(cancellationToken);
+                source.BackupDatabase(destination);
+
+                // SQLite's online backup API can carry the source WAL journal mode
+                // into the destination. A backup/restore staging file must be
+                // self-contained before its main file is moved to another path.
+                await using var journalModeCommand = destination.CreateCommand();
+                journalModeCommand.CommandText = "PRAGMA journal_mode=DELETE;";
+                var journalMode = Convert.ToString(
+                    await journalModeCommand.ExecuteScalarAsync(cancellationToken),
+                    System.Globalization.CultureInfo.InvariantCulture);
+                if (!string.Equals(journalMode, "delete", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"SQLite copy could not be checkpointed into a self-contained DELETE-journal database. Current journal mode: {journalMode ?? "unknown"}.");
+                }
+            }
+
+            DeleteSqliteSidecars(destinationPath);
+        }
+        catch
         {
-            DataSource = destinationPath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-            Pooling = false
-        }.ToString());
-        await source.OpenAsync(cancellationToken);
-        await destination.OpenAsync(cancellationToken);
-        source.BackupDatabase(destination);
+            DeleteDatabaseFiles(destinationPath);
+            throw;
+        }
+    }
+
+    private static void DeleteSqliteSidecars(string databasePath)
+    {
+        foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+        {
+            var sidecarPath = databasePath + suffix;
+            if (File.Exists(sidecarPath))
+                File.Delete(sidecarPath);
+        }
+    }
+
+    private static void DeleteDatabaseFiles(string databasePath)
+    {
+        DeleteSqliteSidecars(databasePath);
+        if (File.Exists(databasePath))
+            File.Delete(databasePath);
     }
 }

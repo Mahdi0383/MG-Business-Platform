@@ -1,4 +1,6 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
@@ -21,6 +23,12 @@ public static class DatabaseInitializer
     public static async Task InitializeAsync(BusinessDbContext db, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(db);
+
+        // Serialize backup, migrations and seeding across desktop/storefront processes
+        // that point at the same file-backed SQLite database.
+        await using var initializationLock = await AcquireInitializationLockAsync(db, cancellationToken);
+
+        await BackupBeforePendingMigrationsAsync(db, cancellationToken);
         await db.Database.MigrateAsync(cancellationToken);
 
         if (!await db.StoreSettings.AnyAsync(cancellationToken))
@@ -37,9 +45,14 @@ public static class DatabaseInitializer
             });
         }
 
-        if (!await db.LedgerAccounts.AnyAsync(cancellationToken))
-        {
-            db.LedgerAccounts.AddRange(DefaultAccounts.Select(account => new LedgerAccountRecord
+        // Seed by account code rather than table emptiness. A partially populated chart
+        // must still receive every required system account without overwriting custom data.
+        var existingCodes = await db.LedgerAccounts
+            .Select(account => account.Code)
+            .ToHashSetAsync(cancellationToken);
+        var missingAccounts = DefaultAccounts
+            .Where(account => !existingCodes.Contains(account.Code))
+            .Select(account => new LedgerAccountRecord
             {
                 Id = Guid.NewGuid(),
                 Code = account.Code,
@@ -47,9 +60,55 @@ public static class DatabaseInitializer
                 AccountType = account.Type,
                 IsPostingAllowed = true,
                 IsActive = true
-            }));
-        }
+            })
+            .ToArray();
+
+        if (missingAccounts.Length > 0)
+            db.LedgerAccounts.AddRange(missingAccounts);
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task<FileStream?> AcquireInitializationLockAsync(
+        BusinessDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.GetDbConnection() is not SqliteConnection connection)
+            return null;
+
+        var dataSource = connection.DataSource;
+        if (string.IsNullOrWhiteSpace(dataSource)
+            || string.Equals(dataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+            || dataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+            || new SqliteConnectionStringBuilder(connection.ConnectionString).Mode == SqliteOpenMode.Memory)
+            return null;
+
+        return await SqliteDatabaseFileLock.AcquireAsync(dataSource, cancellationToken);
+    }
+
+    private static async Task BackupBeforePendingMigrationsAsync(
+        BusinessDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.GetDbConnection() is not SqliteConnection connection)
+            return;
+
+        var dataSource = connection.DataSource;
+        if (string.IsNullOrWhiteSpace(dataSource)
+            || string.Equals(dataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+            || dataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var databasePath = Path.GetFullPath(dataSource);
+        if (!File.Exists(databasePath) || new FileInfo(databasePath).Length == 0)
+            return;
+
+        var pendingMigrations = await db.Database.GetPendingMigrationsAsync(cancellationToken);
+        if (!pendingMigrations.Any())
+            return;
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
+        var backupPath = $"{databasePath}.pre-migration-{timestamp}-{Guid.NewGuid():N}.bak";
+        await new DatabaseMaintenanceService().CreateBackupAsync(databasePath, backupPath, cancellationToken);
     }
 }
