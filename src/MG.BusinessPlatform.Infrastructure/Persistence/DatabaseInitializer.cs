@@ -28,7 +28,7 @@ public static class DatabaseInitializer
         // that point at the same file-backed SQLite database.
         await using var initializationLock = await AcquireInitializationLockAsync(db, cancellationToken);
 
-        await BackupBeforePendingMigrationsAsync(db, cancellationToken);
+        await BackupBeforePendingMigrationsAsync(db, initializationLock, cancellationToken);
         await db.Database.MigrateAsync(cancellationToken);
 
         if (!await db.StoreSettings.AnyAsync(cancellationToken))
@@ -88,6 +88,7 @@ public static class DatabaseInitializer
 
     private static async Task BackupBeforePendingMigrationsAsync(
         BusinessDbContext db,
+        FileStream? initializationLock,
         CancellationToken cancellationToken)
     {
         if (db.Database.GetDbConnection() is not SqliteConnection connection)
@@ -109,6 +110,9 @@ public static class DatabaseInitializer
 
         var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
         var backupPath = $"{databasePath}.pre-migration-{timestamp}-{Guid.NewGuid():N}.bak";
-        await new DatabaseMaintenanceService().CreateBackupAsync(databasePath, backupPath, cancellationToken);
+        var heldLock = initializationLock
+            ?? throw new InvalidOperationException("A file-backed database migration backup requires the initialization lock.");
+        await new DatabaseMaintenanceService().CreateBackupUnderLockAsync(
+            databasePath, backupPath, heldLock, cancellationToken);
     }
 }
