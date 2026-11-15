@@ -18,8 +18,39 @@ public sealed class DatabaseMaintenanceService
     {
         var source = Path.GetFullPath(sourceDatabasePath);
         var destination = Path.GetFullPath(destinationPath);
+        EnsureBackupPathsDiffer(source, destination, destinationPath);
+
+        // Manual backups must serialize with startup migration and restore operations
+        // that target the same file-backed SQLite database.
+        await using var maintenanceLock = await SqliteDatabaseFileLock.AcquireAsync(source, cancellationToken);
+        return await CreateBackupCoreAsync(source, destination, cancellationToken);
+    }
+
+    internal async Task<DatabaseBackupResult> CreateBackupUnderLockAsync(
+        string sourceDatabasePath,
+        string destinationPath,
+        FileStream maintenanceLock,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(maintenanceLock);
+
+        var source = Path.GetFullPath(sourceDatabasePath);
+        var destination = Path.GetFullPath(destinationPath);
+        EnsureBackupPathsDiffer(source, destination, destinationPath);
+        return await CreateBackupCoreAsync(source, destination, cancellationToken);
+    }
+
+    private static void EnsureBackupPathsDiffer(string source, string destination, string destinationPath)
+    {
         if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Backup destination must differ from the source database.", nameof(destinationPath));
+    }
+
+    private async Task<DatabaseBackupResult> CreateBackupCoreAsync(
+        string source,
+        string destination,
+        CancellationToken cancellationToken)
+    {
         if (!File.Exists(source))
             throw new FileNotFoundException("Source database was not found.", source);
 
