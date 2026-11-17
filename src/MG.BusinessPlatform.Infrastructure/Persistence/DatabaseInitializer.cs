@@ -59,6 +59,7 @@ public static class DatabaseInitializer
             .SingleAsync(cancellationToken)
             ?? throw new InvalidDataException("The local business identity was not persisted.");
         await BackfillBusinessOwnedRecordsAsync(db, businessId, cancellationToken);
+        await BackfillStockMovementOwnershipAsync(db, businessId, cancellationToken);
 
         // Seed by account code rather than table emptiness. A partially populated chart
         // must still receive every required system account without overwriting custom data.
@@ -124,6 +125,84 @@ public static class DatabaseInitializer
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(supplier => supplier.BusinessId, (Guid?)businessId),
                 cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task BackfillStockMovementOwnershipAsync(
+        BusinessDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var settings = await db.StoreSettings.AsNoTracking()
+            .Where(x => x.Id == 1)
+            .Select(x => new { x.BusinessId, x.DefaultBranchId })
+            .SingleAsync(cancellationToken);
+
+        if (settings.BusinessId != businessId
+            || settings.DefaultBranchId is not Guid defaultBranchId
+            || defaultBranchId == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                "Stock movement ownership cannot be backfilled without a valid configured business and default branch.");
+        }
+
+        var defaultBranch = await db.Branches.AsNoTracking()
+            .SingleOrDefaultAsync(
+                x => x.Id == defaultBranchId && x.BusinessId == businessId && x.IsActive,
+                cancellationToken);
+        if (defaultBranch is null)
+            throw new InvalidDataException(
+                "The configured default branch is missing, inactive, or owned by another business. Stock movement backfill was stopped.");
+
+        var foreignMovementOwnership = await db.StockMovements.AsNoTracking()
+            .AnyAsync(x => (x.BusinessId != null && x.BusinessId != businessId)
+                || (x.BranchId != null && !db.Branches.Any(branch =>
+                    branch.Id == x.BranchId && branch.BusinessId == businessId)),
+                cancellationToken);
+        if (foreignMovementOwnership)
+            throw new InvalidDataException(
+                "Stock movement history contains business or branch ownership that conflicts with this installation. Backfill was stopped.");
+
+        var unassignedMovementExists = await db.StockMovements.AsNoTracking()
+            .AnyAsync(x => x.BusinessId == null || x.BranchId == null, cancellationToken);
+        if (unassignedMovementExists)
+        {
+            var branchCount = await db.Branches.CountAsync(
+                x => x.BusinessId == businessId && x.IsActive, cancellationToken);
+            if (branchCount != 1 || defaultBranchId != await db.Branches
+                    .Where(x => x.BusinessId == businessId && x.IsActive)
+                    .Select(x => x.Id)
+                    .SingleAsync(cancellationToken))
+            {
+                throw new InvalidDataException(
+                    "Legacy stock movements have no branch history and this business has multiple active branches. An explicit stock-to-branch migration mapping is required; no stock history was reassigned.");
+            }
+        }
+
+        var orphanedOrForeignProducts = await db.StockMovements.AsNoTracking()
+            .AnyAsync(movement => !db.StoreProducts.Any(product =>
+                product.Id == movement.ProductId && product.BusinessId == businessId),
+                cancellationToken);
+        if (orphanedOrForeignProducts)
+            throw new InvalidDataException(
+                "Stock movement history references a missing product or a product owned by another business. Backfill was stopped.");
+
+        await db.StockMovements
+            .Where(x => x.BusinessId == null || x.BranchId == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(x => x.BusinessId, (Guid?)businessId)
+                    .SetProperty(x => x.BranchId, (Guid?)defaultBranchId),
+                cancellationToken);
+
+        var remainingUnassigned = await db.StockMovements.AsNoTracking()
+            .AnyAsync(x => x.BusinessId != businessId || x.BranchId == null, cancellationToken);
+        if (remainingUnassigned)
+            throw new InvalidDataException(
+                "Stock movement ownership backfill did not produce complete business and branch attribution.");
 
         await transaction.CommitAsync(cancellationToken);
     }
