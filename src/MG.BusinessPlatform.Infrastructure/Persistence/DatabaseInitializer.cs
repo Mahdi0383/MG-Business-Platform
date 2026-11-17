@@ -86,6 +86,10 @@ public static class DatabaseInitializer
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1, cancellationToken);
 
+        var storeName = string.IsNullOrWhiteSpace(settings.StoreName)
+            ? "فروشگاه شما"
+            : settings.StoreName.Trim();
+
         BusinessRecord business;
         if (settings.BusinessId is Guid existingBusinessId)
         {
@@ -103,9 +107,6 @@ public static class DatabaseInitializer
                     "Organization records exist but the legacy store settings have no business owner. An explicit ownership mapping is required.");
             }
 
-            var storeName = string.IsNullOrWhiteSpace(settings.StoreName)
-                ? "فروشگاه شما"
-                : settings.StoreName.Trim();
             if (string.IsNullOrWhiteSpace(settings.CurrencyCode))
                 throw new InvalidDataException("The store currency is missing and must be corrected before organization bootstrap.");
 
@@ -195,7 +196,7 @@ public static class DatabaseInitializer
                 BusinessId = business.Id,
                 Code = isDefault ? "MAIN" : $"LEGACY-{branchId:N}",
                 Name = isDefault
-                    ? (settings.StoreName.Length <= 160 ? settings.StoreName : settings.StoreName[..160])
+                    ? (storeName.Length <= 160 ? storeName : storeName[..160])
                     : $"شعبه قدیمی {branchId.ToString("N")[..8]}",
                 IsActive = true
             });
