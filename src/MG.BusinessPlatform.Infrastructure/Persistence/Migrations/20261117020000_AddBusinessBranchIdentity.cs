@@ -79,6 +79,22 @@ public sealed class AddBusinessBranchIdentity : Migration
             name: "IX_StoreSettings_BusinessId",
             table: "StoreSettings",
             column: "BusinessId");
+
+        migrationBuilder.AddForeignKey(
+            name: "FK_StoreSettings_Businesses_BusinessId",
+            table: "StoreSettings",
+            column: "BusinessId",
+            principalTable: "Businesses",
+            principalColumn: "Id",
+            onDelete: ReferentialAction.Restrict);
+
+        migrationBuilder.AddForeignKey(
+            name: "FK_StoreSettings_Branches_BusinessId_DefaultBranchId",
+            table: "StoreSettings",
+            columns: new[] { "BusinessId", "DefaultBranchId" },
+            principalTable: "Branches",
+            principalColumns: new[] { "BusinessId", "Id" },
+            onDelete: ReferentialAction.Restrict);
     }
 
     protected override void BuildTargetModel(ModelBuilder modelBuilder) =>
