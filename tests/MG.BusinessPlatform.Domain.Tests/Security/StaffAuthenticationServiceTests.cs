@@ -94,8 +94,8 @@ public sealed class StaffAuthenticationServiceTests
         Assert.NotNull(first);
         Assert.NotNull(second);
 
-        var firstSession = await store.Db.StaffSessions.SingleAsync(x => x.TokenHash != string.Empty
-            && x.Id != Guid.Empty && x.TokenHash == HashToken(first.Token));
+        var firstSession = await store.Db.StaffSessions.SingleAsync(
+            x => x.TokenHash == HashToken(first.Token));
         firstSession.ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1);
         await store.Db.SaveChangesAsync();
         Assert.Null(await service.ValidateSessionAsync(store.BusinessId, first.Token));
