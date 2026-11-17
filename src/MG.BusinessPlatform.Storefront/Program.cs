@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.HttpOverrides;
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Infrastructure.Security;
 using MG.BusinessPlatform.Licensing;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -653,7 +654,8 @@ app.MapPost("/api/storefront/orders", async (
                     expectedUnitPrice: product.UnitPrice,
                     expectedUnitCost: product.UnitCost,
                     expectedCurrencyCode: product.CurrencyCode,
-                    requireAvailable: true);
+                    requireAvailable: true,
+                    requiredPermission: StaffPermission.SalesCreate);
             }
             catch (InvalidOperationException)
             {
