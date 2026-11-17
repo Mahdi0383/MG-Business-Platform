@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using MG.BusinessPlatform.Domain.Organizations;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -115,14 +116,16 @@ public static class DatabaseInitializer
             if (currency.Length != 3 || currency.Any(character => character is < 'A' or > 'Z'))
                 throw new InvalidDataException("The store currency must be a valid three-letter ISO-style code before organization bootstrap.");
 
+            var organization = new Business(
+                Guid.NewGuid(), storeName, storeName, currency, TimeZoneInfo.Local.Id);
             business = new BusinessRecord
             {
-                Id = Guid.NewGuid(),
-                LegalName = storeName,
-                DisplayName = storeName,
-                DefaultCurrencyCode = currency,
-                TimeZoneId = TimeZoneInfo.Local.Id,
-                IsActive = true
+                Id = organization.Id,
+                LegalName = organization.LegalName,
+                DisplayName = organization.DisplayName,
+                DefaultCurrencyCode = organization.DefaultCurrencyCode,
+                TimeZoneId = organization.TimeZoneId,
+                IsActive = organization.IsActive
             };
             db.Businesses.Add(business);
             settings.BusinessId = business.Id;
@@ -191,15 +194,20 @@ public static class DatabaseInitializer
                 continue;
 
             var isDefault = branchId == defaultId;
+            var branchName = isDefault
+                ? (storeName.Length <= 160 ? storeName : storeName[..160])
+                : $"شعبه قدیمی {branchId.ToString("N")[..8]}";
+            var organizationBranch = new Branch(
+                branchId, business.Id, isDefault ? "MAIN" : $"LEGACY-{branchId:N}", branchName);
             db.Branches.Add(new BranchRecord
             {
-                Id = branchId,
-                BusinessId = business.Id,
-                Code = isDefault ? "MAIN" : $"LEGACY-{branchId:N}",
-                Name = isDefault
-                    ? (storeName.Length <= 160 ? storeName : storeName[..160])
-                    : $"شعبه قدیمی {branchId.ToString("N")[..8]}",
-                IsActive = true
+                Id = organizationBranch.Id,
+                BusinessId = organizationBranch.BusinessId,
+                Code = organizationBranch.Code,
+                Name = organizationBranch.Name,
+                Address = organizationBranch.Address,
+                Phone = organizationBranch.Phone,
+                IsActive = organizationBranch.IsActive
             });
         }
 
