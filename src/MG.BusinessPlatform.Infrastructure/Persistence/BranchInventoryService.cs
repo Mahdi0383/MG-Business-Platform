@@ -128,7 +128,8 @@ public sealed class BranchInventoryService(BusinessDbContext db)
                 productQuery = productQuery.Where(x => x.IsAvailable);
 
             var balanceAffected = signedQuantity > 0
-                ? await balanceQuery.ExecuteUpdateAsync(update => update
+                ? await balanceQuery.Where(x => x.OnHandQuantity <= int.MaxValue - amount)
+                    .ExecuteUpdateAsync(update => update
                     .SetProperty(x => x.OnHandQuantity, x => x.OnHandQuantity + amount)
                     .SetProperty(x => x.UpdatedAtUtc, now), cancellationToken)
                 : await balanceQuery.Where(x => x.OnHandQuantity >= amount)
@@ -137,6 +138,9 @@ public sealed class BranchInventoryService(BusinessDbContext db)
                         .SetProperty(x => x.UpdatedAtUtc, now), cancellationToken);
             if (balanceAffected != 1)
                 throw new InvalidOperationException("The selected branch has insufficient stock or its inventory balance changed. Refresh and retry.");
+
+            if (signedQuantity > 0)
+                productQuery = productQuery.Where(x => x.StockQuantity <= int.MaxValue - amount);
 
             var productAffected = signedQuantity > 0
                 ? await productQuery.ExecuteUpdateAsync(update => update
