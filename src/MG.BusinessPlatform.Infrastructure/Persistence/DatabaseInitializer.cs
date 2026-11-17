@@ -226,20 +226,11 @@ public static class DatabaseInitializer
             throw new InvalidDataException(
                 "Existing branch inventory balances contain cross-business ownership. Inventory initialization was stopped.");
 
-        var existingBalances = await db.BranchInventoryBalances.AsNoTracking()
+        var productsWithExistingBalances = await db.BranchInventoryBalances.AsNoTracking()
             .Where(x => x.BusinessId == businessId)
-            .ToArrayAsync(cancellationToken);
-        var existingBalanceTotals = existingBalances
-            .GroupBy(x => x.ProductId)
-            .ToDictionary(group => group.Key, group => group.Sum(x => x.OnHandQuantity));
-        var knownBranchIds = await db.Branches.AsNoTracking()
-            .Where(x => x.BusinessId == businessId)
-            .Select(x => x.Id)
+            .Select(x => x.ProductId)
+            .Distinct()
             .ToHashSetAsync(cancellationToken);
-        if (existingBalances.Any(balance => !knownBranchIds.Contains(balance.BranchId)))
-            throw new InvalidDataException(
-                "An existing inventory balance references a branch outside the configured business.");
-
 
         var settings = await db.StoreSettings.AsNoTracking()
             .Where(x => x.Id == 1)
@@ -272,14 +263,8 @@ public static class DatabaseInitializer
         {
             foreach (var product in products)
             {
-                if (existingBalanceTotals.TryGetValue(product.Id, out var existingTotal))
-                {
-                    if (product.StockQuantity < 0 || existingTotal != product.StockQuantity)
-                        throw new InvalidDataException(
-                            $"Existing branch balances for product {product.Id} do not match its legacy stock quantity. " +
-                            "Inventory initialization was stopped rather than accepting a partial or inconsistent balance set.");
+                if (productsWithExistingBalances.Contains(product.Id))
                     continue;
-                }
                 if (product.StockQuantity < 0)
                     throw new InvalidDataException("A product has a negative legacy stock quantity.");
 
@@ -308,14 +293,8 @@ public static class DatabaseInitializer
 
             foreach (var product in products)
             {
-                if (existingBalanceTotals.TryGetValue(product.Id, out var existingTotal))
-                {
-                    if (product.StockQuantity < 0 || existingTotal != product.StockQuantity)
-                        throw new InvalidDataException(
-                            $"Existing branch balances for product {product.Id} do not match its legacy stock quantity. " +
-                            "Inventory initialization was stopped rather than accepting a partial or inconsistent balance set.");
+                if (productsWithExistingBalances.Contains(product.Id))
                     continue;
-                }
 
                 var productMovements = movementTotals
                     .Where(x => x.ProductId == product.Id)
