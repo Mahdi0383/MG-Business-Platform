@@ -31,7 +31,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         string paymentReference,
         string paymentNotes,
         DateOnly saleDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? idempotencyKey = null)
     {
         if (productId == Guid.Empty) throw new ArgumentException("Product ID is required.", nameof(productId));
         if (quantity is < 1 or > 10000) throw new ArgumentOutOfRangeException(nameof(quantity));
@@ -45,7 +46,17 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         if (paymentReference.Length > 100) throw new ArgumentOutOfRangeException(nameof(paymentReference));
         if (paymentNotes.Length > 500) throw new ArgumentOutOfRangeException(nameof(paymentNotes));
 
+        var effectiveIdempotencyKey = NormalizePosIdempotencyKey(idempotencyKey);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var existingInvoice = await FindExistingPosSaleAsync(effectiveIdempotencyKey,
+            [new PosSaleLineRequest(productId, quantity)], customerName, customerPhone,
+            paymentMethod, paymentReference, paymentNotes, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return existingInvoice;
+        }
+
         var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == productId, cancellationToken)
             ?? throw new KeyNotFoundException("Product was not found.");
         if (!product.IsAvailable)
@@ -62,7 +73,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         {
             Id = orderId,
             OrderNumber = orderNumber,
-            IdempotencyKey = $"POS-{Guid.NewGuid():N}".ToUpperInvariant(),
+            IdempotencyKey = effectiveIdempotencyKey,
             CustomerName = customerName.Trim(),
             CustomerPhone = customerPhone.Trim(),
             DeliveryAddress = string.Empty,
@@ -137,7 +148,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         IReadOnlyCollection<PosSaleLineRequest> requestedLines,
         string customerName, string customerPhone, string paymentMethod,
         string paymentReference, string paymentNotes, DateOnly saleDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? idempotencyKey = null)
     {
         ArgumentNullException.ThrowIfNull(requestedLines);
         if (requestedLines.Count is < 1 or > 100)
@@ -151,6 +163,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         if (customerPhone.Length > 40 || paymentReference.Length > 100 || paymentNotes.Length > 500)
             throw new ArgumentException("Customer phone, payment reference or notes exceed the allowed length.");
 
+        var effectiveIdempotencyKey = NormalizePosIdempotencyKey(idempotencyKey);
         var quantities = new Dictionary<Guid, int>();
         foreach (var line in requestedLines)
         {
@@ -162,6 +175,14 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var existingInvoice = await FindExistingPosSaleAsync(effectiveIdempotencyKey,
+            requestedLines, customerName, customerPhone, paymentMethod, paymentReference, paymentNotes, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return existingInvoice;
+        }
+
         var ids = quantities.Keys.ToArray();
         var products = await db.StoreProducts.Where(x => ids.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
@@ -191,7 +212,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         var now = DateTimeOffset.UtcNow;
         var order = new CustomerOrder
         {
-            Id = orderId, OrderNumber = orderNumber, IdempotencyKey = $"POS-{Guid.NewGuid():N}".ToUpperInvariant(),
+            Id = orderId, OrderNumber = orderNumber, IdempotencyKey = effectiveIdempotencyKey,
             CustomerName = customerName.Trim(), CustomerPhone = customerPhone.Trim(), DeliveryAddress = string.Empty,
             Notes = "POS sale", Status = "Received", CurrencyCode = currency, TotalAmount = total, CreatedAt = now,
             Lines = ordered.Select(product => new CustomerOrderLine
@@ -574,6 +595,67 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         db.JournalEntries.Add(entry);
         db.Payments.Add(payment);
         return payment;
+    }
+
+    private static string NormalizePosIdempotencyKey(string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return "POS-" + Guid.NewGuid().ToString("N").ToUpperInvariant();
+        var normalized = idempotencyKey.Trim();
+        if (normalized.Length > 100)
+            throw new ArgumentOutOfRangeException(nameof(idempotencyKey), "Idempotency key cannot exceed 100 characters.");
+        return normalized;
+    }
+
+    private async Task<SalesInvoiceRecord?> FindExistingPosSaleAsync(
+        string idempotencyKey,
+        IReadOnlyCollection<PosSaleLineRequest> requestedLines,
+        string customerName,
+        string customerPhone,
+        string paymentMethod,
+        string paymentReference,
+        string paymentNotes,
+        CancellationToken cancellationToken)
+    {
+        var existingOrder = await db.CustomerOrders
+            .Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.IdempotencyKey == idempotencyKey, cancellationToken);
+        if (existingOrder is null)
+            return null;
+
+        var expected = requestedLines.GroupBy(line => line.ProductId)
+            .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+        var actual = existingOrder.Lines.GroupBy(line => line.ProductId)
+            .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+        var expectedPrices = requestedLines.Where(line => line.ExpectedUnitPrice.HasValue)
+            .GroupBy(line => line.ProductId)
+            .ToDictionary(group => group.Key, group => group.Select(line => line.ExpectedUnitPrice!.Value).Distinct().ToArray());
+
+        if (!existingOrder.OrderNumber.StartsWith("POS-", StringComparison.Ordinal)
+            || !string.Equals(existingOrder.CustomerName, customerName.Trim(), StringComparison.Ordinal)
+            || !string.Equals(existingOrder.CustomerPhone, customerPhone.Trim(), StringComparison.Ordinal)
+            || expected.Count != actual.Count
+            || expected.Any(pair => !actual.TryGetValue(pair.Key, out var quantity) || quantity != pair.Value)
+            || expectedPrices.Any(pair => pair.Value.Length != 1
+                || existingOrder.Lines.Where(line => line.ProductId == pair.Key).Any(line => line.UnitPrice != pair.Value[0])))
+            throw new InvalidOperationException("The idempotency key has already been used for a different POS sale.");
+
+        var invoice = await db.SalesInvoices.Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrderId == existingOrder.Id, cancellationToken)
+            ?? throw new InvalidOperationException("The prior POS request exists without its invoice; manual reconciliation is required.");
+
+        if (invoice.TotalAmount > 0m)
+        {
+            var payment = await db.Payments.SingleOrDefaultAsync(x => x.InvoiceId == invoice.Id, cancellationToken);
+            if (payment is null
+                || !string.Equals(payment.Method, paymentMethod.Trim(), StringComparison.Ordinal)
+                || !string.Equals(payment.Reference, paymentReference.Trim(), StringComparison.Ordinal)
+                || !string.Equals(payment.Notes, paymentNotes.Trim(), StringComparison.Ordinal)
+                || payment.Amount != invoice.TotalAmount)
+                throw new InvalidOperationException("The idempotency key has already been used with different payment details.");
+        }
+
+        return invoice;
     }
 
     private static void EnsurePostingAccount(IReadOnlyDictionary<string, LedgerAccountRecord> accounts, string code)
