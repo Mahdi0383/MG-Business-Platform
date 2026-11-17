@@ -100,6 +100,19 @@ public sealed class BranchInventoryServiceTests
         Assert.Single(await store.Db.StockMovements.AsNoTracking().ToListAsync());
         Assert.Contains(await store.Db.AuditEvents.AsNoTracking().ToListAsync(),
             audit => audit.StaffUserId == staffUserId && audit.BranchId == store.BranchId);
+
+        store.Db.StaffBranchAccesses.Add(new StaffBranchAccessRecord
+        {
+            BusinessId = store.BusinessId,
+            StaffUserId = staffUserId,
+            BranchId = otherBranchId,
+            GrantedAtUtc = DateTimeOffset.UtcNow
+        });
+        await store.Db.SaveChangesAsync();
+        var selectedBranchContext = await resolver.ResolveAsync(login.Token, otherBranchId);
+        Assert.NotNull(selectedBranchContext);
+        using (StaffRequestContextScope.Push(selectedBranchContext!))
+            Assert.Equal(otherBranchId, await service.GetDefaultBranchIdAsync());
     }
 
     [Fact]
