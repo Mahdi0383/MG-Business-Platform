@@ -71,8 +71,12 @@ public sealed class SalesAccountingServiceTests
             StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
+        // Seed an intentionally corrupted legacy row to verify the service fails closed
+        // even when historical data bypassed the database's non-negative-cost constraint.
+        await db.Database.ExecuteSqlRawAsync("PRAGMA ignore_check_constraints = ON;");
         db.StoreProducts.Add(product);
         await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlRawAsync("PRAGMA ignore_check_constraints = OFF;");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             new SalesAccountingService(db).CreatePosSaleAsync(

@@ -2,6 +2,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
+public interface IBusinessOwnedRecord
+{
+    Guid? BusinessId { get; set; }
+}
+
 public sealed class BusinessRecord
 {
     public Guid Id { get; set; }
@@ -73,9 +78,10 @@ public sealed class AuditEventRecord
     public string ChangedFields { get; set; } = string.Empty;
 }
 
-public sealed class LedgerAccountRecord
+public sealed class LedgerAccountRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string AccountType { get; set; } = string.Empty;
@@ -198,9 +204,10 @@ public sealed class SupplierPaymentRecord
     public string Notes { get; set; } = string.Empty;
 }
 
-public sealed class StoreProduct
+public sealed class StoreProduct : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
     public string Sku { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
@@ -212,9 +219,10 @@ public sealed class StoreProduct
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-public sealed class CustomerRecord
+public sealed class CustomerRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -223,9 +231,10 @@ public sealed class CustomerRecord
     public bool IsActive { get; set; } = true;
 }
 
-public sealed class SupplierRecord
+public sealed class SupplierRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
@@ -380,6 +389,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        ValidateStoreSettingsBusinessIdentity();
+        StampBusinessOwnership();
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -396,6 +407,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        ValidateStoreSettingsBusinessIdentity();
+        await StampBusinessOwnershipAsync(cancellationToken);
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -407,6 +420,93 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             DetachGeneratedAuditEvents(generatedAuditEvents);
             throw;
         }
+    }
+
+    private void ValidateStoreSettingsBusinessIdentity()
+    {
+        ChangeTracker.DetectChanges();
+        var changedBusinessOwner = ChangeTracker.Entries<StoreSettings>()
+            .FirstOrDefault(entry =>
+                entry.State == EntityState.Modified
+                && entry.Property(settings => settings.BusinessId).OriginalValue is Guid originalBusinessId
+                && entry.Entity.BusinessId != originalBusinessId);
+        if (changedBusinessOwner is not null)
+            throw new InvalidOperationException(
+                "A provisioned store cannot be reassigned to a different business.");
+    }
+
+    private void StampBusinessOwnership()
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<IBusinessOwnedRecord>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var businessId = ResolveBusinessId();
+        if (businessId is not Guid currentBusinessId)
+            return;
+
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+            {
+                entry.Entity.BusinessId = currentBusinessId;
+            }
+            else if (entry.Entity.BusinessId != currentBusinessId)
+            {
+                throw new InvalidOperationException(
+                    $"A {entry.Metadata.ClrType.Name} record cannot be written under a different business.");
+            }
+        }
+    }
+
+    private async Task StampBusinessOwnershipAsync(CancellationToken cancellationToken)
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<IBusinessOwnedRecord>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var businessId = await ResolveBusinessIdAsync(cancellationToken);
+        if (businessId is not Guid currentBusinessId)
+            return;
+
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+            {
+                entry.Entity.BusinessId = currentBusinessId;
+            }
+            else if (entry.Entity.BusinessId != currentBusinessId)
+            {
+                throw new InvalidOperationException(
+                    $"A {entry.Metadata.ClrType.Name} record cannot be written under a different business.");
+            }
+        }
+    }
+
+    private Guid? ResolveBusinessId()
+    {
+        var trackedSettings = StoreSettings.Local.SingleOrDefault(settings => settings.Id == 1);
+        return trackedSettings?.BusinessId
+            ?? StoreSettings.AsNoTracking()
+                .Where(settings => settings.Id == 1)
+                .Select(settings => settings.BusinessId)
+                .SingleOrDefault();
+    }
+
+    private async Task<Guid?> ResolveBusinessIdAsync(CancellationToken cancellationToken)
+    {
+        var trackedSettings = StoreSettings.Local.SingleOrDefault(settings => settings.Id == 1);
+        return trackedSettings?.BusinessId
+            ?? await StoreSettings.AsNoTracking()
+                .Where(settings => settings.Id == 1)
+                .Select(settings => settings.BusinessId)
+                .SingleOrDefaultAsync(cancellationToken);
     }
 
     private void ValidateInvoiceDueDates()
@@ -573,6 +673,10 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         {
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.Sku).IsUnique();
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasIndex(x => new { x.BusinessId, x.Sku }).IsUnique();
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(x => x.Sku).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(2000);
@@ -589,6 +693,10 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.AccountType).HasMaxLength(20).IsRequired();
             entity.HasIndex(x => x.Code).IsUnique();
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasIndex(x => new { x.BusinessId, x.Code }).IsUnique();
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SalesInvoiceRecord>(entity =>
@@ -707,6 +815,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Address).HasMaxLength(1000).IsRequired();
             entity.HasIndex(x => x.DisplayName);
             entity.HasIndex(x => x.Phone);
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SupplierRecord>(entity =>
@@ -720,6 +831,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.PaymentTerms).HasMaxLength(500).IsRequired();
             entity.HasIndex(x => x.DisplayName);
             entity.HasIndex(x => x.Phone);
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<StoreSettings>(entity =>
