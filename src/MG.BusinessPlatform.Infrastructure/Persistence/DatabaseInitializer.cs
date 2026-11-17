@@ -215,22 +215,22 @@ public static class DatabaseInitializer
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        if (await db.BranchInventoryBalances.AnyAsync(cancellationToken))
-        {
-            var inconsistentBalances = await db.BranchInventoryBalances.AsNoTracking()
-                .AnyAsync(balance => balance.BusinessId != businessId
-                    || !db.Branches.Any(branch => branch.Id == balance.BranchId
-                        && branch.BusinessId == businessId)
-                    || !db.StoreProducts.Any(product => product.Id == balance.ProductId
-                        && product.BusinessId == businessId),
-                    cancellationToken);
-            if (inconsistentBalances)
-                throw new InvalidDataException(
-                    "Existing branch inventory balances contain cross-business ownership. Inventory initialization was stopped.");
+        var inconsistentBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .AnyAsync(balance => balance.BusinessId != businessId
+                || !db.Branches.Any(branch => branch.Id == balance.BranchId
+                    && branch.BusinessId == businessId)
+                || !db.StoreProducts.Any(product => product.Id == balance.ProductId
+                    && product.BusinessId == businessId),
+                cancellationToken);
+        if (inconsistentBalances)
+            throw new InvalidDataException(
+                "Existing branch inventory balances contain cross-business ownership. Inventory initialization was stopped.");
 
-            await transaction.CommitAsync(cancellationToken);
-            return;
-        }
+        var productsWithExistingBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .Where(x => x.BusinessId == businessId)
+            .Select(x => x.ProductId)
+            .Distinct()
+            .ToHashSetAsync(cancellationToken);
 
         var settings = await db.StoreSettings.AsNoTracking()
             .Where(x => x.Id == 1)
@@ -263,6 +263,8 @@ public static class DatabaseInitializer
         {
             foreach (var product in products)
             {
+                if (productsWithExistingBalances.Contains(product.Id))
+                    continue;
                 if (product.StockQuantity < 0)
                     throw new InvalidDataException("A product has a negative legacy stock quantity.");
 
@@ -291,6 +293,9 @@ public static class DatabaseInitializer
 
             foreach (var product in products)
             {
+                if (productsWithExistingBalances.Contains(product.Id))
+                    continue;
+
                 var productMovements = movementTotals
                     .Where(x => x.ProductId == product.Id)
                     .ToArray();
@@ -302,6 +307,18 @@ public static class DatabaseInitializer
                         $"Legacy stock for product {product.Id} cannot be mapped safely to {branches.Length} branches. " +
                         "The branch movement totals must be non-negative and exactly equal the legacy product stock quantity. " +
                         "Provide an explicit stock-to-branch opening balance mapping before continuing.");
+                }
+
+                if (productMovements.Length == 0 && product.StockQuantity == 0)
+                {
+                    balances.Add(new BranchInventoryBalanceRecord
+                    {
+                        BusinessId = businessId,
+                        BranchId = defaultBranchId,
+                        ProductId = product.Id,
+                        OnHandQuantity = 0,
+                        UpdatedAtUtc = now
+                    });
                 }
 
                 foreach (var movement in productMovements.Where(x => x.Quantity > 0))
