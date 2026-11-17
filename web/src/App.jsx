@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { readJsonStorage, writeJsonStorage } from './storage.js';
+import { readValidatedJsonStorage, writeJsonStorage } from './storage.js';
 
 const initialProducts = [
   {id:1,name:'قهوه اسپرسو',category:'نوشیدنی گرم',price:85000,stock:42,sold:28},
@@ -8,6 +8,22 @@ const initialProducts = [
   {id:4,name:'آب معدنی',category:'نوشیدنی سرد',price:25000,stock:65,sold:14},
   {id:5,name:'مافیا - هر نفر',category:'گیم‌نت',price:90000,stock:999,sold:12},
 ];
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isText = value => typeof value === 'string';
+const isFiniteNonNegative = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const isValidProducts = value => Array.isArray(value) && value.every(p => isRecord(p)
+  && (typeof p.id === 'string' || (typeof p.id === 'number' && Number.isFinite(p.id)))
+  && isText(p.name) && p.name.trim().length > 0 && isText(p.category)
+  && isFiniteNonNegative(p.price) && isFiniteNonNegative(p.stock)
+  && isFiniteNonNegative(p.sold));
+const isValidCustomers = value => Array.isArray(value) && value.every(c => isRecord(c)
+  && (typeof c.id === 'string' || (typeof c.id === 'number' && Number.isFinite(c.id)))
+  && isText(c.name) && c.name.trim().length > 0 && isText(c.phone)
+  && isFiniteNonNegative(c.credit) && isFiniteNonNegative(c.visits));
+const isValidOrders = value => Array.isArray(value) && value.every(o => isRecord(o)
+  && (typeof o.id === 'string' || (typeof o.id === 'number' && Number.isFinite(o.id)))
+  && isText(o.customer) && isFiniteNonNegative(o.items) && isFiniteNonNegative(o.total)
+  && isText(o.status) && isText(o.time));
 const initialCustomers = [
   {id:1,name:'علی رضایی',phone:'09151234567',credit:1250000,visits:18},
   {id:2,name:'سارا محمدی',phone:'09159876543',credit:420000,visits:11},
@@ -26,13 +42,13 @@ function Icon({children}){return <span className="icon">{children}</span>}
 function Modal({title,onClose,children}){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="modal"><header><h3>{title}</h3><button className="icon-btn" onClick={onClose}>×</button></header>{children}</section></div>}
 function App(){
  const [page,setPage]=useState('dashboard');
- const [products,setProducts]=useState(()=>readJsonStorage('mg-products',initialProducts));
- const [customers,setCustomers]=useState(()=>readJsonStorage('mg-customers',initialCustomers));
- const [orders,setOrders]=useState(()=>readJsonStorage('mg-orders',[
+ const [products,setProducts]=useState(()=>readValidatedJsonStorage('mg-products',initialProducts,isValidProducts));
+ const [customers,setCustomers]=useState(()=>readValidatedJsonStorage('mg-customers',initialCustomers,isValidCustomers));
+ const [orders,setOrders]=useState(()=>readValidatedJsonStorage('mg-orders',[
   {id:1048,customer:'علی رضایی',items:3,total:455000,status:'تکمیل‌شده',time:'۱۰:۴۲'},
   {id:1047,customer:'مشتری حضوری',items:2,total:330000,status:'در حال آماده‌سازی',time:'۱۰:۳۶'},
   {id:1046,customer:'سارا محمدی',items:1,total:245000,status:'تکمیل‌شده',time:'۱۰:۲۸'},
- ]));
+ ],isValidOrders);
  const [cart,setCart]=useState([]),[query,setQuery]=useState(''),[modal,setModal]=useState(''),[toast,setToast]=useState('');
  const [form,setForm]=useState({}),[range,setRange]=useState('امروز');
  useEffect(()=>{if(!writeJsonStorage('mg-products',products))console.warn('MG Business Web: could not persist products to local storage')},[products]);
