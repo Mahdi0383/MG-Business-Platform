@@ -106,6 +106,9 @@ public static class DatabaseInitializer
             var storeName = string.IsNullOrWhiteSpace(settings.StoreName)
                 ? "فروشگاه شما"
                 : settings.StoreName.Trim();
+            if (string.IsNullOrWhiteSpace(settings.CurrencyCode))
+                throw new InvalidDataException("The store currency is missing and must be corrected before organization bootstrap.");
+
             var currency = settings.CurrencyCode.Trim().ToUpperInvariant();
             if (currency.Length != 3 || currency.Any(character => character is < 'A' or > 'Z'))
                 throw new InvalidDataException("The store currency must be a valid three-letter ISO-style code before organization bootstrap.");
@@ -191,7 +194,9 @@ public static class DatabaseInitializer
                 Id = branchId,
                 BusinessId = business.Id,
                 Code = isDefault ? "MAIN" : $"LEGACY-{branchId:N}",
-                Name = isDefault ? settings.StoreName : $"شعبه قدیمی {branchId.ToString("N")[..8]}",
+                Name = isDefault
+                    ? (settings.StoreName.Length <= 160 ? settings.StoreName : settings.StoreName[..160])
+                    : $"شعبه قدیمی {branchId.ToString("N")[..8]}",
                 IsActive = true
             });
         }
