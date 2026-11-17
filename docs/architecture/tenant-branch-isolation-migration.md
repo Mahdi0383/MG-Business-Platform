@@ -23,7 +23,8 @@ The database is also used by desktop/local workflows and the Storefront host. A 
 
 | Record family | Current state observed | Required target |
 | --- | --- | --- |
-| StoreProduct, stock movements | No ownership columns | BusinessId + BranchId; define product catalog vs per-branch stock explicitly |
+| StoreProduct catalog | No ownership columns; SKU is globally unique and StockQuantity is stored on the product | BusinessId; unique (BusinessId, SKU). Product identity and commercial fields are business-owned; remove StockQuantity as the authoritative multi-branch balance only after a verified migration. |
+| Branch inventory balances and stock movements | StockMovementRecord has ProductId but no BusinessId/BranchId; StoreProduct has one global StockQuantity | BusinessId + BranchId + ProductId. Use a branch-scoped balance/projection and branch-scoped movements; enforce same-business product/branch references with composite keys. Preserve legacy quantity as an opening balance for one explicitly approved branch. |
 | Ledger accounts | Global unique Code | BusinessId; unique (BusinessId, Code) |
 | Sales invoices/lines, payments | No ownership columns; globally unique invoice/payment numbers | BusinessId + BranchId on header/payment; unique tenant-scoped numbers; child ownership proven through composite FK |
 | Journal entries/lines | No ownership columns; global EntryNumber and (SourceType, SourceId) uniqueness | BusinessId + optional BranchId; tenant-scoped unique keys; account FK includes BusinessId |
