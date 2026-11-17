@@ -301,8 +301,9 @@ public sealed class SalesAccountingServiceTests
         Assert.Equal(4, (await db.StoreProducts.SingleAsync(x => x.Id == second.Id)).StockQuantity);
         Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == first.Id)).OnHandQuantity);
         Assert.Equal(4, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == second.Id)).OnHandQuantity);
-        Assert.All(await db.StockMovements.ToListAsync(), movement => Assert.Equal(
-            (await db.StoreSettings.SingleAsync()).DefaultBranchId, movement.BranchId));
+        var defaultBranchId = (await db.StoreSettings.SingleAsync()).DefaultBranchId;
+        Assert.All(await db.StockMovements.ToListAsync(),
+            movement => Assert.Equal(defaultBranchId, movement.BranchId));
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
