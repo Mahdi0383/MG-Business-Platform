@@ -50,6 +50,32 @@ public sealed class BranchInventoryServiceTests
     }
 
     [Fact]
+    public async Task FirstMovement_SeedsOnlyTheFirstBranchFromNewProductsOpeningStock()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var product = NewProduct("BRANCH-INVENTORY-OPENING");
+        product.StockQuantity = 8;
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        var resultingQuantity = await new BranchInventoryService(db).ApplyMovementAsync(
+            product.Id, -3, "Sale", "SALE-OPENING-001", "Issue from opening stock",
+            StaffPermission.SalesCreate);
+
+        Assert.Equal(5, resultingQuantity);
+        var balance = await db.BranchInventoryBalances.SingleAsync();
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+        Assert.Equal(settings.DefaultBranchId, balance.BranchId);
+        Assert.Equal(5, balance.OnHandQuantity);
+        Assert.Equal(-3, (await db.StockMovements.SingleAsync()).SignedQuantity);
+    }
+
+    [Fact]
     public async Task ApplyMovement_UsesCallerTransaction_AndRollsBackBalanceAndLedgerTogether()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
