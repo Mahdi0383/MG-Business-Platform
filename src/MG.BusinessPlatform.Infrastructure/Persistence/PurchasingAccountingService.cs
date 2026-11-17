@@ -131,7 +131,6 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             var previousQuantity = product.StockQuantity;
             var newQuantity = checked(previousQuantity + receivedQuantity);
             var previousValue = checked(previousQuantity * product.UnitCost);
-            product.StockQuantity = newQuantity;
             product.UnitCost = checked(previousValue + incomingValue) / newQuantity;
             product.UpdatedAt = now;
         }
@@ -152,21 +151,18 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
                 LineTotal = draft.NetTotal
             });
 
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                BusinessId = businessId,
-                BranchId = invoice.BranchId,
-                ProductId = product.Id,
-                OccurredAt = now,
-                MovementType = "PurchaseReceipt",
-                Quantity = draft.Request.Quantity,
-                SignedQuantity = draft.Request.Quantity,
-                UnitCost = draft.EffectiveUnitCost,
-                CurrencyCode = currency,
-                Reference = invoiceNumber,
-                Note = $"Supplier invoice {invoiceNumber}"
-            });
+            await BranchInventoryService.ApplyMovementWithinTransactionAsync(
+                db,
+                businessId,
+                invoice.BranchId,
+                product.Id,
+                draft.Request.Quantity,
+                "PurchaseReceipt",
+                invoiceNumber,
+                $"Supplier invoice {invoiceNumber}",
+                draft.EffectiveUnitCost,
+                currency,
+                cancellationToken);
         }
 
         db.PurchaseInvoices.Add(invoice);
