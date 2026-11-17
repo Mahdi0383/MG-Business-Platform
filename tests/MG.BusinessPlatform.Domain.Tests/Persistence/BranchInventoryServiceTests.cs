@@ -82,6 +82,21 @@ public sealed class BranchInventoryServiceTests
     }
 
     [Fact]
+    public async Task GetOnHandAsync_FailsClosedWhenBranchBalancesDoNotReconcileToAggregate()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var product = await store.Db.StoreProducts.SingleAsync();
+        product.StockQuantity = 9;
+        await store.Db.SaveChangesAsync();
+
+        var service = new BranchInventoryService(store.Db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetOnHandAsync(store.BusinessId, store.BranchId, store.ProductId));
+
+        Assert.Empty(await store.Db.StockMovements.ToListAsync());
+    }
+
+    [Fact]
     public async Task ApplyMovementAsync_RejectsBusinessBranchMismatch()
     {
         await using var store = await TestStore.CreateAsync();
