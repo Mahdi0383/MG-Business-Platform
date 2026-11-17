@@ -71,6 +71,8 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         var product = await db.StoreProducts.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == productId && x.BusinessId == scope.BusinessId, cancellationToken)
             ?? throw new KeyNotFoundException("Product was not found in the active business.");
+        if (product.StockQuantity < 0)
+            throw new InvalidOperationException("The product has a negative legacy stock quantity; inventory movement was rejected.");
 
         IDbContextTransaction? transaction = db.Database.CurrentTransaction;
         var ownsTransaction = transaction is null;
@@ -83,7 +85,12 @@ public sealed class BranchInventoryService(BusinessDbContext db)
                 INSERT INTO BranchInventoryBalances
                     (BusinessId, BranchId, ProductId, OnHandQuantity, UpdatedAtUtc)
                 VALUES
-                    ({scope.BusinessId}, {scope.BranchId}, {productId}, 0, {DateTimeOffset.UtcNow})
+                    ({scope.BusinessId}, {scope.BranchId}, {productId},
+                     CASE WHEN EXISTS (
+                         SELECT 1 FROM BranchInventoryBalances
+                         WHERE BusinessId = {scope.BusinessId} AND ProductId = {productId}
+                     ) THEN 0 ELSE {product.StockQuantity} END,
+                     {DateTimeOffset.UtcNow})
                 ON CONFLICT(BusinessId, BranchId, ProductId) DO NOTHING;
                 """, cancellationToken);
 
