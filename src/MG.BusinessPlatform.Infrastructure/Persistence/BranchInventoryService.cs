@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
+using MG.BusinessPlatform.Infrastructure.Security;
+
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
 /// <summary>
@@ -16,16 +18,21 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
             ?? throw new InvalidOperationException("The local business is not configured.");
         if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty
-            || settings.DefaultBranchId is not Guid branchId || branchId == Guid.Empty)
+            || settings.DefaultBranchId is not Guid configuredBranchId || configuredBranchId == Guid.Empty)
             throw new InvalidOperationException("The configured business or default branch identity is missing.");
 
+        var staffContext = StaffRequestContextScope.Current;
+        if (staffContext is not null && staffContext.BusinessId != businessId)
+            throw new UnauthorizedAccessException("The validated staff session belongs to a different business.");
+
+        var branchId = staffContext?.BranchId ?? configuredBranchId;
         var businessIsActive = await db.Businesses.AsNoTracking()
             .AnyAsync(x => x.Id == businessId && x.IsActive, cancellationToken);
         var valid = await db.Branches.AsNoTracking().AnyAsync(
             x => x.Id == branchId && x.BusinessId == businessId && x.IsActive,
             cancellationToken);
         if (!businessIsActive || !valid)
-            throw new InvalidOperationException("The configured business or default branch is missing or inactive.");
+            throw new InvalidOperationException("The configured business or selected branch is missing or inactive.");
         return branchId;
     }
 
@@ -33,9 +40,11 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         Guid businessId,
         Guid branchId,
         Guid productId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        StaffPermission requiredPermission = StaffPermission.InventoryRead)
     {
         ValidateIdentity(businessId, branchId, productId);
+        EnsureStaffScope(businessId, branchId, requiredPermission);
         var branchIsValid = await db.Branches.AsNoTracking().AnyAsync(
             x => x.Id == branchId && x.BusinessId == businessId && x.IsActive, cancellationToken);
         var businessIsActive = await db.Businesses.AsNoTracking()
@@ -72,9 +81,11 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         decimal? expectedUnitPrice = null,
         decimal? expectedUnitCost = null,
         string? expectedCurrencyCode = null,
-        bool requireAvailable = false)
+        bool requireAvailable = false,
+        StaffPermission requiredPermission = StaffPermission.InventoryAdjust)
     {
         ValidateIdentity(businessId, branchId, productId);
+        EnsureStaffScope(businessId, branchId, requiredPermission);
         if (signedQuantity == 0 || signedQuantity is < -10000 or > 10000)
             throw new ArgumentOutOfRangeException(nameof(signedQuantity), "A stock movement must be between -10000 and 10000 and cannot be zero.");
         if (unitCost < 0m)
@@ -267,6 +278,24 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             UpdatedAtUtc = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void EnsureStaffScope(
+        Guid businessId,
+        Guid branchId,
+        StaffPermission requiredPermission)
+    {
+        var staffContext = StaffRequestContextScope.Current;
+        if (staffContext is null)
+            return; // Existing desktop/public storefront entry points are unscoped; staff HTTP handlers must push a validated context.
+
+        if (staffContext.BusinessId != businessId || staffContext.BranchId != branchId)
+            throw new UnauthorizedAccessException(
+                "The requested inventory business or branch does not match the validated staff session.");
+
+        if (!StaffAuthorizationPolicy.IsAllowed(staffContext, requiredPermission))
+            throw new UnauthorizedAccessException(
+                $"The staff role is not authorized for inventory permission '{requiredPermission}'.");
     }
 
     private static void ValidateIdentity(Guid businessId, Guid branchId, Guid productId)

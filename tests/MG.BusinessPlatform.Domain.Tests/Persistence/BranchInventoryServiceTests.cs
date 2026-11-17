@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Infrastructure.Security;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
 
@@ -41,6 +42,77 @@ public sealed class BranchInventoryServiceTests
         Assert.Equal(10, remaining);
         Assert.Equal(10, (await store.Db.StoreProducts.SingleAsync()).StockQuantity);
         Assert.Equal(6, (await store.Db.StockMovements.SingleAsync()).SignedQuantity);
+    }
+
+    [Fact]
+    public async Task InventoryOperations_EnforceValidatedStaffRoleAndBranchScope()
+    {
+        await using var store = await TestStore.CreateAsync();
+        const string password = "Strong-Passphrase-2026!";
+        var authentication = new StaffAuthenticationService(store.Db, new StaffPasswordHasher());
+        var staffUserId = await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.BranchId], "cashier", "Test Cashier", password);
+        var login = await authentication.AuthenticateAsync(store.BusinessId, "cashier", password);
+        Assert.NotNull(login);
+
+        var staffUser = await store.Db.StaffUsers.SingleAsync(x => x.Id == staffUserId);
+        staffUser.Role = "Cashier";
+        await store.Db.SaveChangesAsync();
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var context = await resolver.ResolveAsync(login.Token);
+        Assert.NotNull(context);
+
+        var otherBranchId = Guid.NewGuid();
+        store.Db.Branches.Add(new BranchRecord
+        {
+            Id = otherBranchId,
+            BusinessId = store.BusinessId,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        await store.Db.SaveChangesAsync();
+
+        var service = new BranchInventoryService(store.Db);
+        using (StaffRequestContextScope.Push(context!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ApplyMovementAsync(
+                store.BusinessId, store.BranchId, store.ProductId, -1, 50m, "IRR",
+                "ManualNegativeAdjustment", "DENIED-ADJUST", "cashier cannot adjust stock",
+                requiredPermission: StaffPermission.InventoryAdjust));
+
+            var remaining = await service.ApplyMovementAsync(
+                store.BusinessId, store.BranchId, store.ProductId, -1, 50m, "IRR",
+                "PosSaleIssue", "AUTHORIZED-SALE", "cashier sale",
+                requiredPermission: StaffPermission.SalesCreate);
+            Assert.Equal(9, remaining);
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetOnHandAsync(
+                store.BusinessId, otherBranchId, store.ProductId));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ApplyMovementAsync(
+                store.BusinessId, otherBranchId, store.ProductId, 1, 50m, "IRR",
+                "PurchaseReceipt", "FOREIGN-BRANCH", "branch spoof",
+                requiredPermission: StaffPermission.SalesCreate));
+        }
+
+        Assert.Equal(9, (await store.Db.StoreProducts.AsNoTracking().SingleAsync()).StockQuantity);
+        Assert.Single(await store.Db.StockMovements.AsNoTracking().ToListAsync());
+        Assert.Contains(await store.Db.AuditEvents.AsNoTracking().ToListAsync(),
+            audit => audit.StaffUserId == staffUserId && audit.BranchId == store.BranchId);
+
+        store.Db.StaffBranchAccess.Add(new StaffBranchAccessRecord
+        {
+            BusinessId = store.BusinessId,
+            StaffUserId = staffUserId,
+            BranchId = otherBranchId,
+            GrantedAtUtc = DateTimeOffset.UtcNow
+        });
+        await store.Db.SaveChangesAsync();
+        var selectedBranchContext = await resolver.ResolveAsync(login.Token, otherBranchId);
+        Assert.NotNull(selectedBranchContext);
+        using (StaffRequestContextScope.Push(selectedBranchContext!))
+            Assert.Equal(otherBranchId, await service.GetDefaultBranchIdAsync());
     }
 
     [Fact]

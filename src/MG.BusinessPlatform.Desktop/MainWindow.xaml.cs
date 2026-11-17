@@ -17,6 +17,7 @@ using Microsoft.Win32;
 using Microsoft.EntityFrameworkCore;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Infrastructure.Services;
+using MG.BusinessPlatform.Infrastructure.Security;
 using MG.BusinessPlatform.Domain.Finance;
 using MG.BusinessPlatform.Domain.GameCafe;
 using MG.BusinessPlatform.Licensing;
@@ -1590,7 +1591,10 @@ public partial class MainWindow : Window
             await inventory.ApplyMovementAsync(
                 businessId, _sessionBranchId, product.Id, delta, product.UnitCost, product.CurrencyCode,
                 delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
-                "MANUAL", note);
+                "MANUAL", note,
+                expectedUnitCost: product.UnitCost,
+                expectedCurrencyCode: product.CurrencyCode,
+                requiredPermission: StaffPermission.InventoryAdjust);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
             StockAdjustmentInput.Clear();
@@ -2961,7 +2965,8 @@ public partial class MainWindow : Window
                 await inventory.ApplyMovementAsync(
                     businessId, _sessionBranchId, product.Id, line.Quantity, line.UnitCost,
                     order.CurrencyCode, "WebOrderCancellation", order.OrderNumber,
-                    "Stock restored after order cancellation");
+                    "Stock restored after order cancellation",
+                    requiredPermission: StaffPermission.SalesRefund);
             }
 
             order.Status = "Cancelled";

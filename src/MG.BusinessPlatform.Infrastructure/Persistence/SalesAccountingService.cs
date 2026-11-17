@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
+using MG.BusinessPlatform.Infrastructure.Security;
+
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
 public sealed record PosSaleLineRequest(Guid ProductId, int Quantity, decimal? ExpectedUnitPrice = null);
@@ -131,7 +133,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             expectedUnitPrice: product.UnitPrice,
             expectedUnitCost: product.UnitCost,
             expectedCurrencyCode: product.CurrencyCode,
-            requireAvailable: true);
+            requireAvailable: true,
+            requiredPermission: StaffPermission.SalesCreate);
 
         db.CustomerOrders.Add(order);
 
@@ -264,10 +267,11 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             await inventory.ApplyMovementAsync(
                 businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
                 "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken,
-            expectedUnitPrice: product.UnitPrice,
-            expectedUnitCost: product.UnitCost,
-            expectedCurrencyCode: product.CurrencyCode,
-            requireAvailable: true);
+                expectedUnitPrice: product.UnitPrice,
+                expectedUnitCost: product.UnitCost,
+                expectedCurrencyCode: product.CurrencyCode,
+                requireAvailable: true,
+                requiredPermission: StaffPermission.SalesCreate);
         }
 
         db.CustomerOrders.Add(order);
