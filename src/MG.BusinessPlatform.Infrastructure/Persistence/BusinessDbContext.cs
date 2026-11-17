@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
+using MG.BusinessPlatform.Infrastructure.Security;
+
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
 public interface IBusinessOwnedRecord
@@ -69,7 +71,12 @@ public sealed class StaffBranchAccessRecord
 public sealed class AuditEventRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
+    public Guid? BranchId { get; set; }
+    public Guid? StaffUserId { get; set; }
     public long OccurredAtUnixMilliseconds { get; set; }
+    public string ActorType { get; set; } = "LegacyProcess";
+    public string CorrelationId { get; set; } = string.Empty;
     public string Actor { get; set; } = string.Empty;
     public string MachineName { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
@@ -77,7 +84,6 @@ public sealed class AuditEventRecord
     public string EntityId { get; set; } = string.Empty;
     public string ChangedFields { get; set; } = string.Empty;
 }
-
 public sealed class LedgerAccountRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
@@ -538,6 +544,19 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     private AuditEventRecord[] AddAuditEvents()
     {
         ChangeTracker.DetectChanges();
+        var staffContext = StaffRequestContextScope.Current;
+        var settings = StoreSettings.Local.SingleOrDefault(x => x.Id == 1)
+            ?? StoreSettings.AsNoTracking().SingleOrDefault(x => x.Id == 1);
+        var persistedBusinessId = settings?.BusinessId;
+        if (staffContext is not null && persistedBusinessId != staffContext.BusinessId)
+            throw new InvalidOperationException("The staff request business does not match the database business.");
+
+        var businessId = staffContext?.BusinessId ?? persistedBusinessId;
+        var branchId = staffContext?.BranchId ?? settings?.DefaultBranchId;
+        var actorType = staffContext is null ? "LegacyProcess" : "Staff";
+        var actor = staffContext?.UserName ?? $"{Environment.UserDomainName}\\{Environment.UserName}";
+        var correlationId = staffContext?.CorrelationId ?? Guid.NewGuid().ToString("N");
+
         var changes = ChangeTracker.Entries()
             .Where(entry => entry.Entity is not AuditEventRecord
                 && entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
@@ -558,8 +577,13 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 return new AuditEventRecord
                 {
                     Id = Guid.NewGuid(),
+                    BusinessId = businessId,
+                    BranchId = branchId,
+                    StaffUserId = staffContext?.StaffUserId,
                     OccurredAtUnixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Actor = LimitAuditValue($"{Environment.UserDomainName}\\{Environment.UserName}", 300, "unknown"),
+                    ActorType = actorType,
+                    CorrelationId = LimitAuditValue(correlationId, 100, "unknown"),
+                    Actor = LimitAuditValue(actor, 300, "unknown"),
                     MachineName = LimitAuditValue(Environment.MachineName, 200, "unknown"),
                     Action = LimitAuditValue(entry.State.ToString(), 20, "Unknown"),
                     EntityType = LimitAuditValue(entry.Metadata.ClrType.Name, 200, "Unknown"),
@@ -659,8 +683,14 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         modelBuilder.Entity<AuditEventRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.ActorType).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(100).IsRequired();
             entity.Property(x => x.Actor).HasMaxLength(300).IsRequired();
             entity.Property(x => x.MachineName).HasMaxLength(200).IsRequired();
+            entity.HasIndex(x => new { x.BusinessId, x.BranchId, x.OccurredAtUnixMilliseconds });
+            entity.HasIndex(x => new { x.StaffUserId, x.OccurredAtUnixMilliseconds });
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_AuditEvent_ActorType", "ActorType IN ('Staff','LegacyProcess','System')"));
             entity.Property(x => x.Action).HasMaxLength(20).IsRequired();
             entity.Property(x => x.EntityType).HasMaxLength(200).IsRequired();
             entity.Property(x => x.EntityId).HasMaxLength(300).IsRequired();
