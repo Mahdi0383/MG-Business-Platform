@@ -64,12 +64,15 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.LedgerAccountRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("AccountType").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
             b.Property<string>("Code").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
             b.Property<bool>("IsActive").HasColumnType("INTEGER");
             b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<bool>("IsPostingAllowed").HasColumnType("INTEGER");
             b.HasKey("Id");
+            b.HasIndex("BusinessId");
+            b.HasIndex("BusinessId", "Code").IsUnique();
             b.HasIndex("Code").IsUnique();
             b.ToTable("LedgerAccounts");
         });
@@ -77,6 +80,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.SalesInvoiceRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<decimal>("CostTotal").HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
@@ -172,6 +176,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("Address").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
@@ -179,6 +184,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<bool>("IsActive").HasColumnType("INTEGER");
             b.Property<string>("Phone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
             b.HasKey("Id");
+            b.HasIndex("BusinessId");
             b.HasIndex("DisplayName");
             b.HasIndex("Phone");
             b.ToTable("Customers");
@@ -196,9 +202,42 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Phone").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
             b.Property<string>("TaxIdentifier").IsRequired().HasMaxLength(80).HasColumnType("TEXT");
             b.HasKey("Id");
+            b.HasIndex("BusinessId");
             b.HasIndex("DisplayName");
             b.HasIndex("Phone");
             b.ToTable("Suppliers");
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.LedgerAccountRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.SupplierRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreSettings", b =>
@@ -275,6 +314,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<decimal>("UnitPrice").HasColumnType("TEXT");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
             b.HasKey("Id");
+            b.HasIndex("BusinessId");
+            b.HasIndex("BusinessId", "Sku").IsUnique();
             b.HasIndex("Sku").IsUnique();
             b.ToTable("StoreProducts", t =>
             {
