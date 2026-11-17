@@ -122,9 +122,30 @@ public sealed class BranchInventoryServiceTests
     }
 
     [Fact]
-    public async Task ApplyMovementAsync_RejectsPositiveLegacyStockWithoutExplicitBranchMapping()
+    public async Task GetOnHandAsync_SafelyMapsLegacyStockWhenOnlyOneBranchExists()
     {
         await using var store = await TestStore.CreateAsync(initialQuantity: 5, createBalance: false);
+        var service = new BranchInventoryService(store.Db);
+
+        var quantity = await service.GetOnHandAsync(store.BusinessId, store.BranchId, store.ProductId);
+
+        Assert.Equal(5, quantity);
+        Assert.Equal(5, (await store.Db.BranchInventoryBalances.SingleAsync()).OnHandQuantity);
+    }
+
+    [Fact]
+    public async Task ApplyMovementAsync_RejectsPositiveLegacyStockWithoutExplicitMultiBranchMapping()
+    {
+        await using var store = await TestStore.CreateAsync(initialQuantity: 5, createBalance: false);
+        store.Db.Branches.Add(new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = store.BusinessId,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        await store.Db.SaveChangesAsync();
         var service = new BranchInventoryService(store.Db);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyMovementAsync(
