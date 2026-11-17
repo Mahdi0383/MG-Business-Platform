@@ -58,7 +58,11 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         string movementType,
         string reference,
         string note,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        decimal? expectedUnitPrice = null,
+        decimal? expectedUnitCost = null,
+        string? expectedCurrencyCode = null,
+        bool requireAvailable = false)
     {
         ValidateIdentity(businessId, branchId, productId);
         if (signedQuantity == 0 || signedQuantity is < -10000 or > 10000)
@@ -123,6 +127,14 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             var balanceQuery = db.BranchInventoryBalances.Where(
                 x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == productId);
             var productQuery = db.StoreProducts.Where(x => x.Id == productId && x.BusinessId == businessId);
+            if (expectedUnitPrice is decimal expectedPrice)
+                productQuery = productQuery.Where(x => x.UnitPrice == expectedPrice);
+            if (expectedUnitCost is decimal expectedCost)
+                productQuery = productQuery.Where(x => x.UnitCost == expectedCost);
+            if (!string.IsNullOrWhiteSpace(expectedCurrencyCode))
+                productQuery = productQuery.Where(x => x.CurrencyCode == expectedCurrencyCode);
+            if (requireAvailable)
+                productQuery = productQuery.Where(x => x.IsAvailable);
 
             var balanceAffected = signedQuantity > 0
                 ? await balanceQuery.ExecuteUpdateAsync(update => update
