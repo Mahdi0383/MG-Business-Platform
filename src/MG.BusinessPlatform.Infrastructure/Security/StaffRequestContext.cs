@@ -168,14 +168,13 @@ public static class StaffAuthorizationPolicy
                 StaffPermission.ReportsRead)
         };
 
-    public static bool IsAllowed(StaffRequestContext? context, StaffPermission permission)
-    {
-        if (context is null || string.IsNullOrWhiteSpace(context.Role))
-            return false;
+    public static bool IsAllowed(StaffRequestContext? context, StaffPermission permission) =>
+        context is not null && IsRoleAllowed(context.Role, permission);
 
-        return RolePermissions.TryGetValue(context.Role, out var permissions)
-            && permissions.Contains(permission);
-    }
+    public static bool IsRoleAllowed(string? role, StaffPermission permission) =>
+        !string.IsNullOrWhiteSpace(role)
+        && RolePermissions.TryGetValue(role, out var permissions)
+        && permissions.Contains(permission);
 
     private static IReadOnlySet<StaffPermission> AllPermissions() =>
         Enum.GetValues<StaffPermission>().ToHashSet();
