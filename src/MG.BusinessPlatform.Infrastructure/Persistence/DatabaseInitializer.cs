@@ -171,9 +171,9 @@ public static class DatabaseInitializer
         if (unassignedMovementExists)
         {
             var branchCount = await db.Branches.CountAsync(
-                x => x.BusinessId == businessId && x.IsActive, cancellationToken);
+                x => x.BusinessId == businessId, cancellationToken);
             if (branchCount != 1 || defaultBranchId != await db.Branches
-                    .Where(x => x.BusinessId == businessId && x.IsActive)
+                    .Where(x => x.BusinessId == businessId)
                     .Select(x => x.Id)
                     .SingleAsync(cancellationToken))
             {
