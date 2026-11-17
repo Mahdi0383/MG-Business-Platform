@@ -32,9 +32,9 @@ public sealed class BranchInventoryServiceTests
 
         var balance = await inventory.GetBalanceAsync(store.BusinessId, store.MainBranchId, product);
         Assert.Equal(12, balance.Quantity);
-        Assert.Equal(25m, balance.AverageUnitCost);
+        Assert.Equal(290m / 12m, balance.AverageUnitCost);
         Assert.Equal(12, product.StockQuantity);
-        Assert.Equal(25m, product.UnitCost);
+        Assert.Equal(290m / 12m, product.UnitCost);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class BranchInventoryServiceTests
         await store.Db.SaveChangesAsync();
 
         Assert.Equal(11, product.StockQuantity);
-        Assert.Equal(13m, product.UnitCost);
+        Assert.Equal(140m / 11m, product.UnitCost);
 
         var issuedCost = await inventory.IssueAsync(
             store.BusinessId, store.MainBranchId, product, 6, DateTimeOffset.UtcNow);
