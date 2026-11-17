@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -16,22 +17,65 @@ public sealed class PurchasingAccountingServiceTests
         await db.Database.MigrateAsync();
         var supplierId = Guid.NewGuid();
         var productId = Guid.NewGuid();
+        var businessId = Guid.NewGuid();
         var branchId = Guid.NewGuid();
+        db.Businesses.Add(new BusinessRecord
+        {
+            Id = businessId,
+            LegalName = "Purchase test business",
+            DisplayName = "Purchase test business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        });
+        db.Branches.Add(new BranchRecord
+        {
+            Id = branchId,
+            BusinessId = businessId,
+            Code = "MAIN",
+            Name = "Main branch",
+            IsActive = true
+        });
+        db.StoreSettings.Add(new StoreSettings
+        {
+            Id = 1,
+            BusinessId = businessId,
+            DefaultBranchId = branchId,
+            StoreName = "Purchase test business",
+            CurrencyCode = "IRR",
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
         db.LedgerAccounts.AddRange(
-            Account("1000", "Cash", "Asset"),
-            Account("1010", "Card clearing", "Asset"),
-            Account("1020", "Bank", "Asset"),
-            Account("1200", "Inventory", "Asset"),
-            Account("2000", "Accounts payable", "Liability"));
+            Account(businessId, "1000", "Cash", "Asset"),
+            Account(businessId, "1010", "Card clearing", "Asset"),
+            Account(businessId, "1020", "Bank", "Asset"),
+            Account(businessId, "1200", "Inventory", "Asset"),
+            Account(businessId, "2000", "Accounts payable", "Liability"));
         db.Suppliers.Add(new SupplierRecord
         {
-            Id = supplierId, DisplayName = "Supplier A", Phone = "", Email = "", Address = "",
-            TaxIdentifier = "", PaymentTerms = "", CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+            Id = supplierId,
+            BusinessId = businessId,
+            DisplayName = "Supplier A",
+            Phone = "",
+            Email = "",
+            Address = "",
+            TaxIdentifier = "",
+            PaymentTerms = "",
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsActive = true
         });
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = productId, Sku = "PURCHASE-1", Name = "Widget", UnitPrice = 30m, UnitCost = 10m,
-            CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            Id = productId,
+            BusinessId = businessId,
+            Sku = "PURCHASE-1",
+            Name = "Widget",
+            UnitPrice = 30m,
+            UnitCost = 10m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
 
@@ -131,6 +175,43 @@ public sealed class PurchasingAccountingServiceTests
     }
 
     [Fact]
+    public async Task PurchaseInvoice_RejectsBranchFromAnotherBusinessBeforeChangingInventory()
+    {
+        await using var fixture = await PurchasingFixture.CreateAsync();
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign",
+            DisplayName = "Foreign",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
+        };
+        fixture.Db.Businesses.Add(foreignBusiness);
+        fixture.Db.Branches.Add(foreignBranch);
+        await fixture.Db.SaveChangesAsync();
+
+        var service = new PurchasingAccountingService(fixture.Db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreatePurchaseInvoiceAsync(
+            fixture.SupplierId, foreignBranch.Id,
+            [new PurchaseInvoiceLineRequest(fixture.ProductId, 2, 15m)],
+            new DateOnly(2026, 10, 16)));
+
+        Assert.Equal(5, (await fixture.Db.StoreProducts.SingleAsync(x => x.Id == fixture.ProductId)).StockQuantity);
+        Assert.Empty(await fixture.Db.PurchaseInvoices.ToListAsync());
+        Assert.Empty(await fixture.Db.StockMovements.ToListAsync());
+        Assert.Empty(await fixture.Db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task PurchaseInvoice_RejectsInactiveSupplierBeforeChangingInventory()
     {
         await using var fixture = await PurchasingFixture.CreateAsync(activeSupplier: false);
@@ -148,10 +229,15 @@ public sealed class PurchasingAccountingServiceTests
         Assert.Empty(await fixture.Db.JournalEntries.ToListAsync());
     }
 
-    private static LedgerAccountRecord Account(string code, string name, string type) => new()
+    private static LedgerAccountRecord Account(Guid businessId, string code, string name, string type) => new()
     {
-        Id = Guid.NewGuid(), Code = code, Name = name, AccountType = type,
-        IsActive = true, IsPostingAllowed = true
+        Id = Guid.NewGuid(),
+        BusinessId = businessId,
+        Code = code,
+        Name = name,
+        AccountType = type,
+        IsActive = true,
+        IsPostingAllowed = true
     };
 
     private sealed class PurchasingFixture(SqliteConnection connection, BusinessDbContext db,
@@ -171,24 +257,68 @@ public sealed class PurchasingAccountingServiceTests
             await db.Database.MigrateAsync();
             var supplierId = Guid.NewGuid();
             var productId = Guid.NewGuid();
+            var businessId = Guid.NewGuid();
+            var branchId = Guid.NewGuid();
+            db.Businesses.Add(new BusinessRecord
+            {
+                Id = businessId,
+                LegalName = "Purchase test business",
+                DisplayName = "Purchase test business",
+                DefaultCurrencyCode = "IRR",
+                TimeZoneId = "UTC",
+                IsActive = true
+            });
+            db.Branches.Add(new BranchRecord
+            {
+                Id = branchId,
+                BusinessId = businessId,
+                Code = "MAIN",
+                Name = "Main branch",
+                IsActive = true
+            });
+            db.StoreSettings.Add(new StoreSettings
+            {
+                Id = 1,
+                BusinessId = businessId,
+                DefaultBranchId = branchId,
+                StoreName = "Purchase test business",
+                CurrencyCode = "IRR",
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
             db.LedgerAccounts.AddRange(
-                Account("1000", "Cash", "Asset"),
-                Account("1010", "Card clearing", "Asset"),
-                Account("1020", "Bank", "Asset"),
-                Account("1200", "Inventory", "Asset"),
-                Account("2000", "Accounts payable", "Liability"));
+                Account(businessId, "1000", "Cash", "Asset"),
+                Account(businessId, "1010", "Card clearing", "Asset"),
+                Account(businessId, "1020", "Bank", "Asset"),
+                Account(businessId, "1200", "Inventory", "Asset"),
+                Account(businessId, "2000", "Accounts payable", "Liability"));
             db.Suppliers.Add(new SupplierRecord
             {
-                Id = supplierId, DisplayName = "Supplier A", Phone = "", Email = "", Address = "",
-                TaxIdentifier = "", PaymentTerms = "", CreatedAt = DateTimeOffset.UtcNow, IsActive = activeSupplier
+                Id = supplierId,
+                BusinessId = businessId,
+                DisplayName = "Supplier A",
+                Phone = "",
+                Email = "",
+                Address = "",
+                TaxIdentifier = "",
+                PaymentTerms = "",
+                CreatedAt = DateTimeOffset.UtcNow,
+                IsActive = activeSupplier
             });
             db.StoreProducts.Add(new StoreProduct
             {
-                Id = productId, Sku = "PURCHASE-2", Name = "Widget", UnitPrice = 30m, UnitCost = 10m,
-                CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+                Id = productId,
+                BusinessId = businessId,
+                Sku = "PURCHASE-2",
+                Name = "Widget",
+                UnitPrice = 30m,
+                UnitCost = 10m,
+                CurrencyCode = "IRR",
+                IsAvailable = true,
+                StockQuantity = 5,
+                UpdatedAt = DateTimeOffset.UtcNow
             });
             await db.SaveChangesAsync();
-            return new PurchasingFixture(connection, db, supplierId, productId, Guid.NewGuid());
+            return new PurchasingFixture(connection, db, supplierId, productId, branchId);
         }
 
         public async ValueTask DisposeAsync()

@@ -1084,7 +1084,16 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Reference).HasMaxLength(100).IsRequired();
             entity.Property(x => x.Note).HasMaxLength(500).IsRequired();
             entity.HasIndex(x => new { x.ProductId, x.OccurredAt });
-            entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0"));
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.BranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_StockMovement_BusinessBranchPair",
+                    "(BusinessId IS NULL AND BranchId IS NULL) OR (BusinessId IS NOT NULL AND BranchId IS NOT NULL)");
+                t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0");
+            });
             entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_SignedQuantity", "SignedQuantity = Quantity OR SignedQuantity = -Quantity"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StockMovement_UnitCost", "CAST(UnitCost AS NUMERIC) >= 0"));
         });

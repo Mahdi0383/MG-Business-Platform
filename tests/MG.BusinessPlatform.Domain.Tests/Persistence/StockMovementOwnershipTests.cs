@@ -95,6 +95,57 @@ public sealed class StockMovementOwnershipTests
         Assert.Empty(await store.Db.StockMovements.ToListAsync());
     }
 
+    [Fact]
+    public async Task DatabaseCompositeForeignKey_RejectsMovementAssignedToForeignBranch()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign",
+            DisplayName = "Foreign",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
+        };
+        store.Db.Businesses.Add(foreignBusiness);
+        store.Db.Branches.Add(foreignBranch);
+        await store.Db.SaveChangesAsync();
+
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        await Assert.ThrowsAsync<SqliteException>(() => store.Db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO StockMovements
+                (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
+                 Quantity, SignedQuantity, UnitCost, CurrencyCode, Reference, Note)
+            VALUES
+                ({Guid.NewGuid()}, {store.BusinessId}, {foreignBranch.Id}, {store.ProductId},
+                 {occurredAt}, 'Adjustment', 1, 1, '10', 'IRR', 'FOREIGN-BRANCH', '');
+            """));
+    }
+
+    [Fact]
+    public async Task DatabaseCheckConstraint_RejectsPartiallyAssignedMovementOwnership()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        await Assert.ThrowsAsync<SqliteException>(() => store.Db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO StockMovements
+                (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
+                 Quantity, SignedQuantity, UnitCost, CurrencyCode, Reference, Note)
+            VALUES
+                ({Guid.NewGuid()}, {store.BusinessId}, NULL, {store.ProductId},
+                 {occurredAt}, 'Adjustment', 1, 1, '10', 'IRR', 'PARTIAL-OWNERSHIP', '');
+            """));
+    }
+
     private static StockMovementRecord NewMovement(Guid productId) => new()
     {
         Id = Guid.NewGuid(),
