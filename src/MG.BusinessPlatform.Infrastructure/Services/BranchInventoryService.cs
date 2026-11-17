@@ -55,6 +55,13 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         if (reference.Length > 160 || note.Length > 500)
             throw new ArgumentOutOfRangeException(nameof(reference), "Movement reference or note exceeds the allowed length.");
 
+        if (requiredPermission is not (StaffPermission.InventoryAdjust
+            or StaffPermission.SalesCreate
+            or StaffPermission.SalesRefund
+            or StaffPermission.AccountingManage))
+            throw new ArgumentOutOfRangeException(nameof(requiredPermission),
+                "Inventory movements must use an inventory, sales, refund or purchasing permission.");
+
         var staffContext = StaffRequestContextScope.Current;
         if (staffContext is not null
             && !StaffAuthorizationPolicy.IsAllowed(staffContext, requiredPermission))
