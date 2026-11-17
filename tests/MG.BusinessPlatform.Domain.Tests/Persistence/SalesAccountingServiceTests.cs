@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Domain.GameCafe;
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
