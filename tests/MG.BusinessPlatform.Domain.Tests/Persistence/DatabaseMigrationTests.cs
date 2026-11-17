@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -179,7 +178,7 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         var movementId = Guid.NewGuid();
-        var occurredAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO StockMovements
                 (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
@@ -231,7 +230,7 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         var movementId = Guid.NewGuid();
-        var occurredAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO StockMovements
                 (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
