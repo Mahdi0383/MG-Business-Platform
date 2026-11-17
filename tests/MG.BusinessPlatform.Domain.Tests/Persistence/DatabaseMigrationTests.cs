@@ -150,6 +150,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261117025000_AddBusinessOwnershipToCatalog", appliedMigrations);
         Assert.Contains("20261117050000_AddStockMovementOwnership", appliedMigrations);
         Assert.Contains("20261117060000_EnforceStockMovementBranchOwnership", appliedMigrations);
+        Assert.Contains("20261117070000_AddBranchInventoryBalances", appliedMigrations);
     }
 
     [Fact]
@@ -248,6 +249,81 @@ public sealed class DatabaseMigrationTests
         var movement = await db.StockMovements.AsNoTracking().SingleAsync(x => x.Id == movementId);
         Assert.Null(movement.BusinessId);
         Assert.Null(movement.BranchId);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_BackfillsLegacyStockIntoTheOnlyBranchBalance()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-BALANCE-LEGACY-01",
+            Name = "Legacy branch stock",
+            UnitPrice = 100m,
+            UnitCost = 42.5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var balance = await db.BranchInventoryBalances.AsNoTracking().SingleAsync();
+        Assert.Equal(settings.BusinessId, balance.BusinessId);
+        Assert.Equal(settings.DefaultBranchId, balance.BranchId);
+        Assert.Equal(product.Id, balance.ProductId);
+        Assert.Equal(7, balance.Quantity);
+        Assert.Equal(42.5m, balance.AverageUnitCost);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_RejectsGlobalLegacyStockWhenMultipleBranchesExist()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        db.Branches.Add(new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId!.Value,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        db.StoreProducts.Add(new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-BALANCE-AMBIGUOUS-01",
+            Name = "Ambiguous global stock",
+            UnitPrice = 100m,
+            UnitCost = 42.5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => DatabaseInitializer.InitializeAsync(db));
+        Assert.Contains("global", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await db.BranchInventoryBalances.ToListAsync());
     }
 
     [Fact]
