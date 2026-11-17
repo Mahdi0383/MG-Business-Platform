@@ -72,11 +72,12 @@ SELECT CurrencyCode, COUNT(*) AS payment_count,
        SUM(CAST(Amount AS NUMERIC)) AS payment_total
 FROM Payments GROUP BY CurrencyCode ORDER BY CurrencyCode;
 
-SELECT CurrencyCode, COUNT(*) AS journal_line_count,
-       SUM(CASE WHEN Side = 'Debit' THEN CAST(Amount AS NUMERIC) ELSE 0 END) AS debit_total,
-       SUM(CASE WHEN Side = 'Credit' THEN CAST(Amount AS NUMERIC) ELSE 0 END) AS credit_total
-FROM JournalLines
-GROUP BY CurrencyCode ORDER BY CurrencyCode;
+SELECT e.CurrencyCode, COUNT(*) AS journal_line_count,
+       SUM(CASE WHEN l.Side = 'Debit' THEN CAST(l.Amount AS NUMERIC) ELSE 0 END) AS debit_total,
+       SUM(CASE WHEN l.Side = 'Credit' THEN CAST(l.Amount AS NUMERIC) ELSE 0 END) AS credit_total
+FROM JournalLines AS l
+JOIN JournalEntries AS e ON e.Id = l.JournalEntryId
+GROUP BY e.CurrencyCode ORDER BY e.CurrencyCode;
 
 SELECT CurrencyCode, COUNT(*) AS product_count,
        SUM(StockQuantity) AS current_stock_units
