@@ -208,8 +208,17 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             .Where(x => x.BusinessId == businessId && x.ProductId == product.Id)
             .Select(x => new { x.BranchId, x.OnHandQuantity })
             .ToArrayAsync(cancellationToken);
-        var mappedQuantity = existingBalances.Aggregate(
-            0, (sum, balance) => checked(sum + balance.OnHandQuantity));
+        int mappedQuantity;
+        try
+        {
+            mappedQuantity = existingBalances.Aggregate(
+                0, (sum, balance) => checked(sum + balance.OnHandQuantity));
+        }
+        catch (OverflowException)
+        {
+            throw new InvalidOperationException(
+                "The branch inventory total exceeds the supported quantity range. Reconcile inventory before continuing.");
+        }
         if (existingBalances.Length > 0 && mappedQuantity != product.StockQuantity)
             throw new InvalidOperationException(
                 "Existing branch balances do not reconcile to the business-wide stock quantity. Reconcile inventory before continuing.");
