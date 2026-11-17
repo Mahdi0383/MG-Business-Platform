@@ -96,7 +96,8 @@ public sealed class StaffAuthenticationServiceTests
 
         var firstSession = await store.Db.StaffSessions.SingleAsync(
             x => x.TokenHash == HashToken(first.Token));
-        firstSession.ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1);
+        firstSession.CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-2);
+        firstSession.ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(-1);
         await store.Db.SaveChangesAsync();
         Assert.Null(await service.ValidateSessionAsync(store.BusinessId, first.Token));
 
