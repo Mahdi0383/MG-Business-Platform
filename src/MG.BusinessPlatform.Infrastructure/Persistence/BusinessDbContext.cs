@@ -643,6 +643,12 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
             entity.HasIndex(x => x.BusinessId);
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.DefaultBranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, (Guid?)x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
 
