@@ -16,6 +16,7 @@ trim_trailing_whitespace = false
 indent_size = 2
 
 [*.cs]
+end_of_line = unset
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = true
 csharp_style_namespace_declarations = file_scoped:suggestion

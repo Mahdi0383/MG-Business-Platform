@@ -1,0 +1,73 @@
+name: .NET Formatting Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mg-format-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Verify changed C# formatting
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore solution
+        run: dotnet restore MG.BusinessPlatform.sln
+
+      - name: Verify changed C# files
+        shell: pwsh
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          FORMAT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $base = $env:PR_BASE_SHA
+          if ([string]::IsNullOrWhiteSpace($base)) {
+            $base = $env:PUSH_BASE_SHA
+          }
+          if ([string]::IsNullOrWhiteSpace($base) -or $base -match '^0+$') {
+            $base = git rev-parse "$($env:FORMAT_HEAD_SHA)^"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not resolve the previous commit for the formatting diff."
+            }
+          }
+
+          $head = $env:FORMAT_HEAD_SHA
+          $changedFiles = @(git diff --name-only --diff-filter=ACMR "$base...$head" -- "*.cs")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not determine changed C# files for formatting verification."
+          }
+
+          $changedFiles = @($changedFiles | Where-Object { Test-Path -LiteralPath $_ })
+          if ($changedFiles.Count -eq 0) {
+            Write-Host "No changed C# files in this revision; formatting verification is not applicable."
+            exit 0
+          }
+
+          Write-Host "Formatting verification will inspect $($changedFiles.Count) changed C# file(s):"
+          $changedFiles | ForEach-Object { Write-Host " - $_" }
+
+          dotnet format whitespace MG.BusinessPlatform.sln --verify-no-changes --no-restore --include $changedFiles
+          if ($LASTEXITCODE -ne 0) {
+            throw "Changed C# files do not match the repository whitespace formatting rules."
+          }

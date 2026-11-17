@@ -199,7 +199,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             throw new InvalidOperationException("This supplier invoice is already fully paid.");
         if (amount > outstanding)
             throw new InvalidOperationException($"Payment exceeds the outstanding balance of {outstanding:N2} {invoice.CurrencyCode}.");
-        
+
         var accounts = await LoadPostingAccountsAsync(["2000", cashAccountCode], cancellationToken);
         var paymentId = Guid.NewGuid();
         var now = (occurredAt ?? DateTimeOffset.UtcNow).ToUniversalTime();
