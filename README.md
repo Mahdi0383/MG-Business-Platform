@@ -20,7 +20,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - CI workflow restores, builds, runs automated tests, publishes Windows binaries, bundles Caddy, validates archives/checksums and compiles both Inno Setup installers.
 - Versioned Windows prereleases are published by `release-windows.yml` on explicitly marked `[release]` commits or a manual workflow dispatch. Download installers, portable ZIPs, source archives and SHA-256 checksums from the latest verified [GitHub Release](https://github.com/Mahdi0383/MG-Business-Platform/releases).
 
-**Latest verification note (2026-11-17):** integrated main commit `18c466e36e79c0bdf6d85d54663a5d2936d6749c` passed Windows CI: 242 tests, 0 build warnings/errors, verified installers/packages and SHA-256 checksums. Main formatting and NuGet audit also passed; CodeQL was still running at the latest check. PR #105 remains a Draft static web prototype, not a production POS/accounting service. GitHub metadata reports this repository as public. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for commit-scoped evidence and remaining release gates.
+**Latest verification note (2026-11-17):** integrated main commit `18c466e36e79c0bdf6d85d54663a5d2936d6749c` passed Windows CI: 242 tests, 0 build warnings/errors, verified installers/packages and SHA-256 checksums. Main formatting, NuGet audit and CodeQL analysis also passed. PR #105 remains a Draft static web prototype, not a production POS/accounting service. GitHub metadata reports this repository as public. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for commit-scoped evidence and remaining release gates.
 
 ## Important current limitations
 
