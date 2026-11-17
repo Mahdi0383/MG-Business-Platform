@@ -243,7 +243,7 @@ public sealed class DatabaseMigrationTests
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => DatabaseInitializer.InitializeAsync(db));
-        Assert.Contains("multiple active branches", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("multiple branches", exception.Message, StringComparison.OrdinalIgnoreCase);
 
         var movement = await db.StockMovements.AsNoTracking().SingleAsync(x => x.Id == movementId);
         Assert.Null(movement.BusinessId);
