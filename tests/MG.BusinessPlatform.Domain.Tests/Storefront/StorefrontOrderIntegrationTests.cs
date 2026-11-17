@@ -753,6 +753,47 @@ public sealed class StorefrontOrderIntegrationTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task StorefrontHtml_UsesPerResponseNonceAndStrictInlineScriptPolicy()
+    {
+        await using var factory = new StorefrontTestFactory();
+        using var client = factory.CreateClient();
+
+        using var firstResponse = await client.GetAsync("/");
+        firstResponse.EnsureSuccessStatusCode();
+        var firstPolicy = firstResponse.Headers.GetValues("Content-Security-Policy").Single();
+        var firstHtml = await firstResponse.Content.ReadAsStringAsync();
+        var firstNonce = ExtractNonce(firstPolicy);
+
+        Assert.DoesNotContain("'unsafe-inline'", firstPolicy, StringComparison.Ordinal);
+        Assert.Contains($"script-src 'self' 'nonce-{firstNonce}'", firstPolicy, StringComparison.Ordinal);
+        Assert.Contains($"style-src 'self' 'nonce-{firstNonce}'", firstPolicy, StringComparison.Ordinal);
+        Assert.Contains($"<script nonce="{firstNonce}">", firstHtml, StringComparison.Ordinal);
+        Assert.Contains($"<style nonce="{firstNonce}">", firstHtml, StringComparison.Ordinal);
+
+        using var secondResponse = await client.GetAsync("/");
+        secondResponse.EnsureSuccessStatusCode();
+        var secondPolicy = secondResponse.Headers.GetValues("Content-Security-Policy").Single();
+        var secondHtml = await secondResponse.Content.ReadAsStringAsync();
+        var secondNonce = ExtractNonce(secondPolicy);
+
+        Assert.NotEqual(firstNonce, secondNonce);
+        Assert.Contains($"<script nonce="{secondNonce}">", secondHtml, StringComparison.Ordinal);
+        Assert.Contains($"<style nonce="{secondNonce}">", secondHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain(firstNonce, secondHtml, StringComparison.Ordinal);
+    }
+
+    private static string ExtractNonce(string contentSecurityPolicy)
+    {
+        const string marker = "script-src 'self' 'nonce-";
+        var start = contentSecurityPolicy.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, "The CSP must include a nonce-based script-src directive.");
+        start += marker.Length;
+        var end = contentSecurityPolicy.IndexOf('\'', start);
+        Assert.True(end > start, "The CSP nonce directive must be well formed.");
+        return contentSecurityPolicy[start..end];
+    }
+
     private sealed class StorefrontTestFactory : WebApplicationFactory<Program>
     {
         private readonly string[] _modules;
