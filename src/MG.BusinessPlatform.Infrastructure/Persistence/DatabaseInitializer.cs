@@ -60,6 +60,7 @@ public static class DatabaseInitializer
             ?? throw new InvalidDataException("The local business identity was not persisted.");
         await BackfillBusinessOwnedRecordsAsync(db, businessId, cancellationToken);
         await BackfillStockMovementOwnershipAsync(db, businessId, cancellationToken);
+        await BackfillBranchInventoryBalancesAsync(db, businessId, cancellationToken);
 
         // Seed by account code rather than table emptiness. A partially populated chart
         // must still receive every required system account without overwriting custom data.
@@ -203,6 +204,146 @@ public static class DatabaseInitializer
         if (remainingUnassigned)
             throw new InvalidDataException(
                 "Stock movement ownership backfill did not produce complete business and branch attribution.");
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task BackfillBranchInventoryBalancesAsync(
+        BusinessDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var inconsistentBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .AnyAsync(balance => balance.BusinessId != businessId
+                || !db.Branches.Any(branch => branch.Id == balance.BranchId
+                    && branch.BusinessId == businessId)
+                || !db.StoreProducts.Any(product => product.Id == balance.ProductId
+                    && product.BusinessId == businessId),
+                cancellationToken);
+        if (inconsistentBalances)
+            throw new InvalidDataException(
+                "Existing branch inventory balances contain cross-business ownership. Inventory initialization was stopped.");
+
+        var productsWithExistingBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .Where(x => x.BusinessId == businessId)
+            .Select(x => x.ProductId)
+            .Distinct()
+            .ToHashSetAsync(cancellationToken);
+
+        var settings = await db.StoreSettings.AsNoTracking()
+            .Where(x => x.Id == 1)
+            .Select(x => new { x.BusinessId, x.DefaultBranchId })
+            .SingleAsync(cancellationToken);
+        if (settings.BusinessId != businessId
+            || settings.DefaultBranchId is not Guid defaultBranchId
+            || defaultBranchId == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                "Branch inventory initialization requires a configured business and default branch.");
+        }
+
+        var branches = await db.Branches.AsNoTracking()
+            .Where(x => x.BusinessId == businessId)
+            .Select(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+        if (branches.Length == 0 || !branches.Contains(defaultBranchId))
+            throw new InvalidDataException(
+                "Branch inventory initialization could not resolve the configured default branch.");
+
+        var products = await db.StoreProducts.AsNoTracking()
+            .Where(x => x.BusinessId == businessId)
+            .Select(x => new { x.Id, x.StockQuantity })
+            .ToArrayAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var balances = new List<BranchInventoryBalanceRecord>();
+
+        if (branches.Length == 1)
+        {
+            foreach (var product in products)
+            {
+                if (productsWithExistingBalances.Contains(product.Id))
+                    continue;
+                if (product.StockQuantity < 0)
+                    throw new InvalidDataException("A product has a negative legacy stock quantity.");
+
+                balances.Add(new BranchInventoryBalanceRecord
+                {
+                    BusinessId = businessId,
+                    BranchId = defaultBranchId,
+                    ProductId = product.Id,
+                    OnHandQuantity = product.StockQuantity,
+                    UpdatedAtUtc = now
+                });
+            }
+        }
+        else
+        {
+            var movementTotals = await db.StockMovements.AsNoTracking()
+                .Where(x => x.BusinessId == businessId && x.BranchId != null)
+                .GroupBy(x => new { x.ProductId, BranchId = x.BranchId!.Value })
+                .Select(group => new
+                {
+                    group.Key.ProductId,
+                    group.Key.BranchId,
+                    Quantity = group.Sum(x => x.SignedQuantity)
+                })
+                .ToArrayAsync(cancellationToken);
+
+            foreach (var product in products)
+            {
+                if (productsWithExistingBalances.Contains(product.Id))
+                    continue;
+
+                var productMovements = movementTotals
+                    .Where(x => x.ProductId == product.Id)
+                    .ToArray();
+
+                if (productMovements.Any(x => x.Quantity < 0)
+                    || productMovements.Sum(x => x.Quantity) != product.StockQuantity)
+                {
+                    throw new InvalidDataException(
+                        $"Legacy stock for product {product.Id} cannot be mapped safely to {branches.Length} branches. " +
+                        "The branch movement totals must be non-negative and exactly equal the legacy product stock quantity. " +
+                        "Provide an explicit stock-to-branch opening balance mapping before continuing.");
+                }
+
+                if (productMovements.Length == 0 && product.StockQuantity == 0)
+                {
+                    balances.Add(new BranchInventoryBalanceRecord
+                    {
+                        BusinessId = businessId,
+                        BranchId = defaultBranchId,
+                        ProductId = product.Id,
+                        OnHandQuantity = 0,
+                        UpdatedAtUtc = now
+                    });
+                }
+
+                foreach (var movement in productMovements.Where(x => x.Quantity > 0))
+                {
+                    if (!branches.Contains(movement.BranchId))
+                        throw new InvalidDataException(
+                            "A stock movement references a branch outside the configured business.");
+
+                    balances.Add(new BranchInventoryBalanceRecord
+                    {
+                        BusinessId = businessId,
+                        BranchId = movement.BranchId,
+                        ProductId = product.Id,
+                        OnHandQuantity = movement.Quantity,
+                        UpdatedAtUtc = now
+                    });
+                }
+            }
+        }
+
+        if (balances.Count > 0)
+        {
+            db.BranchInventoryBalances.AddRange(balances);
+            await db.SaveChangesAsync(cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
     }
