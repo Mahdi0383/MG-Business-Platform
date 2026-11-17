@@ -94,6 +94,8 @@ public sealed class BranchInventoryService(BusinessDbContext db)
                 && x.ProductId == productId);
             if (signedQuantity < 0)
                 balanceQuery = balanceQuery.Where(x => x.OnHandQuantity >= -signedQuantity);
+            else
+                balanceQuery = balanceQuery.Where(x => x.OnHandQuantity <= int.MaxValue - signedQuantity);
 
             var affected = await balanceQuery.ExecuteUpdateAsync(setters => setters
                 .SetProperty(x => x.OnHandQuantity, x => x.OnHandQuantity + signedQuantity)
