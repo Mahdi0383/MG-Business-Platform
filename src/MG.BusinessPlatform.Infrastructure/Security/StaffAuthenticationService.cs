@@ -154,7 +154,7 @@ public sealed class StaffAuthenticationService(
         {
             if (user.LockedUntilUtc <= now)
             {
-                user.FailedLoginCount = Math.Min(user.FailedLoginCount + 1, MaximumFailedAttempts);
+                user.FailedLoginCount = Math.Min(user.FailedLoginCount, MaximumFailedAttempts - 1) + 1;
                 user.LockedUntilUtc = user.FailedLoginCount >= MaximumFailedAttempts
                     ? now.Add(LockoutDuration)
                     : null;
