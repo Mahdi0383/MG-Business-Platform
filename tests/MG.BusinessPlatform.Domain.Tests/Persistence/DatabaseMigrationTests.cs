@@ -121,6 +121,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261016010000_AddPurchasingAccounting", appliedMigrations);
         Assert.Contains("20261016020000_AddAuditEvents", appliedMigrations);
         Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
+        Assert.Contains("20261117020000_AddBusinessBranchIdentity", appliedMigrations);
     }
 
     [Fact]
@@ -164,6 +165,14 @@ public sealed class DatabaseMigrationTests
         Assert.False(settings.OnlineReservationsEnabled);
         Assert.False(settings.PublicPublicationEnabled);
         Assert.Equal(string.Empty, settings.PublicHostname);
+        Assert.NotEqual(Guid.Empty, settings.BusinessId);
+        Assert.NotEqual(Guid.Empty, settings.DefaultBranchId);
+        var business = await db.Businesses.AsNoTracking().SingleAsync();
+        var defaultBranch = await db.Branches.AsNoTracking().SingleAsync();
+        Assert.Equal(settings.BusinessId, business.Id);
+        Assert.Equal(settings.DefaultBranchId, defaultBranch.Id);
+        Assert.Equal(business.Id, defaultBranch.BusinessId);
+        Assert.Equal("MAIN", defaultBranch.Code);
 
         var accounts = await db.LedgerAccounts.AsNoTracking()
             .OrderBy(account => account.Code)
