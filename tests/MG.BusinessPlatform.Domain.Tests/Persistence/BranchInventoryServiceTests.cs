@@ -32,6 +32,26 @@ public sealed class BranchInventoryServiceTests
     }
 
     [Fact]
+    public async Task ApplyMovement_CreatesFirstBranchBalanceForNewPurchaseReceipt()
+    {
+        await using var fixture = await InventoryFixture.CreateAsync(stockQuantity: 0, createBalance: false);
+
+        await using (var transaction = await fixture.Db.Database.BeginTransactionAsync())
+        {
+            await BranchInventoryService.ApplyMovementWithinTransactionAsync(
+                fixture.Db, fixture.BusinessId, fixture.BranchId, fixture.ProductId,
+                4, "PurchaseReceipt", "PUR-FIRST-BALANCE", "First receipt", 10m, "IRR");
+            await fixture.Db.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+
+        Assert.Equal(4, await BranchInventoryService.GetOnHandQuantityAsync(
+            fixture.Db, fixture.BusinessId, fixture.BranchId, fixture.ProductId));
+        Assert.Equal(4, (await fixture.Db.StoreProducts.SingleAsync(x => x.Id == fixture.ProductId)).StockQuantity);
+        Assert.Equal(4, (await fixture.Db.StockMovements.SingleAsync()).SignedQuantity);
+    }
+
+    [Fact]
     public async Task ApplyMovement_RejectsBranchUnderflowWithoutChangingAnyStockData()
     {
         await using var fixture = await InventoryFixture.CreateAsync(stockQuantity: 5);
@@ -129,7 +149,7 @@ public sealed class BranchInventoryServiceTests
         public Guid BranchId { get; } = branchId;
         public Guid ProductId { get; } = productId;
 
-        public static async Task<InventoryFixture> CreateAsync(int stockQuantity)
+        public static async Task<InventoryFixture> CreateAsync(int stockQuantity, bool createBalance = true)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -154,14 +174,17 @@ public sealed class BranchInventoryServiceTests
                 StockQuantity = stockQuantity,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
-            db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+            if (createBalance)
             {
-                BusinessId = businessId,
-                BranchId = branchId,
-                ProductId = productId,
-                OnHandQuantity = stockQuantity,
-                UpdatedAtUtc = DateTimeOffset.UtcNow
-            });
+                db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+                {
+                    BusinessId = businessId,
+                    BranchId = branchId,
+                    ProductId = productId,
+                    OnHandQuantity = stockQuantity,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow
+                });
+            }
             await db.SaveChangesAsync();
             return new InventoryFixture(connection, db, businessId, branchId, productId);
         }
