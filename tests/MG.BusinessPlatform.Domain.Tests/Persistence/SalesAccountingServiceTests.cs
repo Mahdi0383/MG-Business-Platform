@@ -374,9 +374,11 @@ public sealed class SalesAccountingServiceTests
         var orderId = await SeedOrderAsync(db, total: 100m, unitCost: 0m, quantity: 1);
         var service = new SalesAccountingService(db);
 
-        await service.FulfillOrderAsync(orderId, new DateOnly(2026, 10, 13));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.FulfillOrderAsync(orderId, new DateOnly(2026, 10, 13)));
+        var firstInvoice = await service.FulfillOrderAsync(orderId, new DateOnly(2026, 10, 13));
+        var retryInvoice = await service.FulfillOrderAsync(orderId, new DateOnly(2026, 10, 14));
 
+        Assert.Equal(firstInvoice.Id, retryInvoice.Id);
+        Assert.Equal(firstInvoice.InvoiceNumber, retryInvoice.InvoiceNumber);
         Assert.Single(await db.SalesInvoices.ToListAsync());
         Assert.Single(await db.JournalEntries.ToListAsync());
     }
