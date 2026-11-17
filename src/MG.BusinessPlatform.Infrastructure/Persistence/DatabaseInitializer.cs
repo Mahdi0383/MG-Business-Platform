@@ -60,6 +60,7 @@ public static class DatabaseInitializer
             ?? throw new InvalidDataException("The local business identity was not persisted.");
         await BackfillBusinessOwnedRecordsAsync(db, businessId, cancellationToken);
         await BackfillStockMovementOwnershipAsync(db, businessId, cancellationToken);
+        await BackfillBranchInventoryBalancesAsync(db, businessId, cancellationToken);
 
         // Seed by account code rather than table emptiness. A partially populated chart
         // must still receive every required system account without overwriting custom data.
@@ -204,6 +205,100 @@ public static class DatabaseInitializer
             throw new InvalidDataException(
                 "Stock movement ownership backfill did not produce complete business and branch attribution.");
 
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task BackfillBranchInventoryBalancesAsync(
+        BusinessDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var settings = await db.StoreSettings.AsNoTracking()
+            .Where(x => x.Id == 1)
+            .Select(x => new { x.BusinessId, x.DefaultBranchId })
+            .SingleAsync(cancellationToken);
+        if (settings.BusinessId != businessId
+            || settings.DefaultBranchId is not Guid defaultBranchId
+            || defaultBranchId == Guid.Empty)
+            throw new InvalidDataException(
+                "Branch inventory cannot be initialized without a valid configured business and default branch.");
+
+        var branchIds = await db.Branches.AsNoTracking()
+            .Where(x => x.BusinessId == businessId)
+            .OrderBy(x => x.Id)
+            .Select(x => x.Id)
+            .ToArrayAsync(cancellationToken);
+        if (branchIds.Length == 0 || !branchIds.Contains(defaultBranchId))
+            throw new InvalidDataException("The configured default branch is missing from the local business.");
+
+        var products = await db.StoreProducts
+            .Where(x => x.BusinessId == businessId)
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var balances = await db.BranchInventoryBalances.AsNoTracking()
+            .OrderBy(x => x.ProductId)
+            .ThenBy(x => x.BranchId)
+            .ToListAsync(cancellationToken);
+
+        if (balances.Any(x => x.BusinessId != businessId
+            || !branchIds.Contains(x.BranchId)
+            || products.All(product => product.Id != x.ProductId)))
+            throw new InvalidDataException(
+                "Branch inventory contains a balance assigned to a foreign business, branch, or product.");
+
+        if (balances.Count == 0 && branchIds.Length > 1
+            && products.Any(product => product.StockQuantity > 0))
+        {
+            throw new InvalidDataException(
+                "Legacy product stock is global and cannot be split across multiple branches automatically. An explicit opening-balance mapping for each product and branch is required.");
+        }
+
+        foreach (var product in products)
+        {
+            var productBalances = balances.Where(x => x.ProductId == product.Id).ToArray();
+            if (productBalances.Length == 0)
+            {
+                if (product.StockQuantity > 0 && branchIds.Length != 1)
+                    throw new InvalidDataException(
+                        $"Product '{product.Sku}' has legacy stock but no branch balance and multiple branches exist. Explicit branch mapping is required.");
+
+                var targetBranches = branchIds.Length == 1
+                    ? [defaultBranchId]
+                    : branchIds;
+                foreach (var branchId in targetBranches)
+                {
+                    db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+                    {
+                        BusinessId = businessId,
+                        BranchId = branchId,
+                        ProductId = product.Id,
+                        Quantity = branchId == defaultBranchId ? product.StockQuantity : 0,
+                        AverageUnitCost = product.UnitCost,
+                        UpdatedAtUtc = DateTimeOffset.UtcNow
+                    });
+                }
+                continue;
+            }
+
+            var totalQuantity = productBalances.Aggregate(0, (sum, balance) => checked(sum + balance.Quantity));
+            if (totalQuantity != product.StockQuantity)
+                throw new InvalidDataException(
+                    $"Branch inventory quantity for product '{product.Sku}' does not match the legacy product total. Startup was stopped without changing stock.");
+
+            if (totalQuantity > 0)
+            {
+                var totalValue = productBalances.Aggregate(0m,
+                    (sum, balance) => checked(sum + balance.Quantity * balance.AverageUnitCost));
+                var weightedAverageCost = totalValue / totalQuantity;
+                if (decimal.Abs(weightedAverageCost - product.UnitCost) > 0.0001m)
+                    throw new InvalidDataException(
+                        $"Branch weighted-average cost for product '{product.Sku}' does not match the legacy catalog cost.");
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
