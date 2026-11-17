@@ -52,19 +52,34 @@ public sealed class DatabaseMaintenanceServiceTests
             await SetStoreNameAsync(databasePath, "Backup state");
             await service.CreateBackupAsync(databasePath, backupPath);
 
-            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            // Keep one pooled connection idle so the pool owns a live SQLite handle.
+            // A second non-pooled connection performs the WAL write; closing only that
+            // writer leaves the sidecar available for RestoreBackupAsync to clear the pool.
+            await using (var pooledConnection = new SqliteConnection(new SqliteConnectionStringBuilder
             {
                 DataSource = databasePath,
                 Pooling = true,
                 Cache = SqliteCacheMode.Shared
             }.ToString()))
             {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText = """
-                    PRAGMA journal_mode=WAL;
-                    UPDATE StoreSettings SET StoreName = 'Changed in WAL' WHERE Id = 1;
-                    """;
+                await pooledConnection.OpenAsync();
+                await using var journalMode = pooledConnection.CreateCommand();
+                journalMode.CommandText = "PRAGMA journal_mode=WAL;";
+                Assert.Equal("wal", Convert.ToString(
+                    await journalMode.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture),
+                    ignoreCase: true);
+            }
+
+            await using (var writerConnection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false,
+                Cache = SqliteCacheMode.Shared
+            }.ToString()))
+            {
+                await writerConnection.OpenAsync();
+                await using var command = writerConnection.CreateCommand();
+                command.CommandText = "UPDATE StoreSettings SET StoreName = 'Changed in WAL' WHERE Id = 1;";
                 await command.ExecuteNonQueryAsync();
             }
 
