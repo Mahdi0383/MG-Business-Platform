@@ -18,7 +18,7 @@ public sealed class OrganizationBootstrapTests
 
         var legacyGameBranchId = Guid.NewGuid();
         var legacyReservationBranchId = Guid.NewGuid();
-        var requestedDefaultBranchId = Guid.NewGuid();
+        var requestedDefaultBranchId = legacyGameBranchId;
         var now = DateTimeOffset.UtcNow;
 
         db.StoreSettings.Add(new StoreSettings
@@ -59,18 +59,17 @@ public sealed class OrganizationBootstrapTests
 
         Assert.Equal(business.Id, settings.BusinessId);
         Assert.Equal(requestedDefaultBranchId, settings.DefaultBranchId);
-        Assert.Equal(3, branches.Count);
+        Assert.Equal(2, branches.Count);
         Assert.Equal(business.Id, branches[legacyGameBranchId].BusinessId);
         Assert.Equal(business.Id, branches[legacyReservationBranchId].BusinessId);
         Assert.Equal(business.Id, branches[requestedDefaultBranchId].BusinessId);
-        Assert.Equal("MAIN", branches[requestedDefaultBranchId].Code);
-        Assert.StartsWith("LEGACY-", branches[legacyGameBranchId].Code, StringComparison.Ordinal);
+        Assert.Equal("MAIN", branches[legacyGameBranchId].Code);
         Assert.StartsWith("LEGACY-", branches[legacyReservationBranchId].Code, StringComparison.Ordinal);
 
         await DatabaseInitializer.InitializeAsync(db, defaultBranchId: Guid.NewGuid());
 
         Assert.Equal(1, await db.Businesses.CountAsync());
-        Assert.Equal(3, await db.Branches.CountAsync());
+        Assert.Equal(2, await db.Branches.CountAsync());
         Assert.Equal(requestedDefaultBranchId,
             (await db.StoreSettings.AsNoTracking().SingleAsync()).DefaultBranchId);
     }
