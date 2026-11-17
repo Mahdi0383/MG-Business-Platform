@@ -768,8 +768,8 @@ public sealed class StorefrontOrderIntegrationTests
         Assert.DoesNotContain("'unsafe-inline'", firstPolicy, StringComparison.Ordinal);
         Assert.Contains($"script-src 'self' 'nonce-{firstNonce}'", firstPolicy, StringComparison.Ordinal);
         Assert.Contains($"style-src 'self' 'nonce-{firstNonce}'", firstPolicy, StringComparison.Ordinal);
-        Assert.Contains($"<script nonce="{firstNonce}">", firstHtml, StringComparison.Ordinal);
-        Assert.Contains($"<style nonce="{firstNonce}">", firstHtml, StringComparison.Ordinal);
+        Assert.Contains("<script nonce=\"" + firstNonce + "\">", firstHtml, StringComparison.Ordinal);
+        Assert.Contains("<style nonce=\"" + firstNonce + "\">", firstHtml, StringComparison.Ordinal);
 
         using var secondResponse = await client.GetAsync("/");
         secondResponse.EnsureSuccessStatusCode();
@@ -778,8 +778,8 @@ public sealed class StorefrontOrderIntegrationTests
         var secondNonce = ExtractNonce(secondPolicy);
 
         Assert.NotEqual(firstNonce, secondNonce);
-        Assert.Contains($"<script nonce="{secondNonce}">", secondHtml, StringComparison.Ordinal);
-        Assert.Contains($"<style nonce="{secondNonce}">", secondHtml, StringComparison.Ordinal);
+        Assert.Contains("<script nonce=\"" + secondNonce + "\">", secondHtml, StringComparison.Ordinal);
+        Assert.Contains("<style nonce=\"" + secondNonce + "\">", secondHtml, StringComparison.Ordinal);
         Assert.DoesNotContain(firstNonce, secondHtml, StringComparison.Ordinal);
     }
 
