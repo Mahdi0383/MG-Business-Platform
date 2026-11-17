@@ -34,12 +34,14 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         CancellationToken cancellationToken = default)
     {
         ValidateIdentity(businessId, branchId, productId);
-        var balance = await db.BranchInventoryBalances.AsNoTracking()
+        var product = await db.StoreProducts.SingleOrDefaultAsync(
+            x => x.Id == productId && x.BusinessId == businessId, cancellationToken)
+            ?? throw new KeyNotFoundException("The product was not found in the selected business.");
+        await EnsureBalanceRowAsync(businessId, branchId, product, cancellationToken);
+        return await db.BranchInventoryBalances.AsNoTracking()
             .Where(x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == productId)
-            .Select(x => (int?)x.OnHandQuantity)
-            .SingleOrDefaultAsync(cancellationToken);
-        return balance ?? throw new InvalidOperationException(
-            "The product has no initialized inventory balance for this branch. Reconcile inventory before continuing.");
+            .Select(x => x.OnHandQuantity)
+            .SingleAsync(cancellationToken);
     }
 
     /// <summary>
@@ -99,28 +101,7 @@ public sealed class BranchInventoryService(BusinessDbContext db)
                 cancellationToken)
                 ?? throw new KeyNotFoundException("The product was not found in the selected business.");
 
-            var balanceExists = await db.BranchInventoryBalances.AnyAsync(
-                x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == productId,
-                cancellationToken);
-            if (!balanceExists)
-            {
-                // A zero-stock product created after the initial migration can safely receive
-                // its first branch row. Positive legacy stock must be explicitly mapped instead
-                // of silently assigning it to whichever branch happens to receive the next sale.
-                if (product.StockQuantity != 0)
-                    throw new InvalidOperationException(
-                        "The product has no branch inventory balance. Map its opening stock to a branch before recording movements.");
-
-                db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
-                {
-                    BusinessId = businessId,
-                    BranchId = branchId,
-                    ProductId = productId,
-                    OnHandQuantity = 0,
-                    UpdatedAtUtc = DateTimeOffset.UtcNow
-                });
-                await db.SaveChangesAsync(cancellationToken);
-            }
+            await EnsureBalanceRowAsync(businessId, branchId, product, cancellationToken);
 
             var now = DateTimeOffset.UtcNow;
             var amount = Math.Abs(signedQuantity);
@@ -198,6 +179,40 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             if (ownedTransaction is not null)
                 await ownedTransaction.DisposeAsync();
         }
+    }
+
+    private async Task EnsureBalanceRowAsync(
+        Guid businessId,
+        Guid branchId,
+        StoreProduct product,
+        CancellationToken cancellationToken)
+    {
+        var exists = await db.BranchInventoryBalances.AnyAsync(
+            x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == product.Id,
+            cancellationToken);
+        if (exists)
+            return;
+
+        var branchCount = await db.Branches.CountAsync(
+            x => x.BusinessId == businessId, cancellationToken);
+        if (branchCount == 0)
+            throw new InvalidOperationException("The business has no branches.");
+
+        // A legacy aggregate can be mapped automatically only when there is exactly one
+        // branch. With multiple branches, positive stock must have an explicit mapping.
+        if (product.StockQuantity > 0 && branchCount != 1)
+            throw new InvalidOperationException(
+                "The product has positive stock but no balance for this branch. Map its opening stock to branches before continuing.");
+
+        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+        {
+            BusinessId = businessId,
+            BranchId = branchId,
+            ProductId = product.Id,
+            OnHandQuantity = product.StockQuantity,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static void ValidateIdentity(Guid businessId, Guid branchId, Guid productId)
