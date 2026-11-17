@@ -425,7 +425,7 @@ public sealed class DatabaseMigrationTests
     }
 
     [Fact]
-    public async Task InitializeAsync_RejectsPartialExistingBranchBalanceSet()
+    public async Task InitializeAsync_DoesNotBlockLegacyStockWritesAfterBalanceFoundationMigration()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -434,23 +434,12 @@ public sealed class DatabaseMigrationTests
 
         await DatabaseInitializer.InitializeAsync(db);
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
-        var businessId = settings.BusinessId!.Value;
-        var defaultBranchId = settings.DefaultBranchId!.Value;
-        var secondBranchId = Guid.NewGuid();
-        db.Branches.Add(new BranchRecord
-        {
-            Id = secondBranchId,
-            BusinessId = businessId,
-            Code = "SECOND",
-            Name = "Second branch",
-            IsActive = true
-        });
         var product = new StoreProduct
         {
             Id = Guid.NewGuid(),
-            BusinessId = businessId,
-            Sku = "BRANCH-STOCK-PARTIAL",
-            Name = "Partially mapped inventory",
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-LEGACY-WRITE",
+            Name = "Legacy stock write compatibility",
             UnitPrice = 100m,
             UnitCost = 50m,
             CurrencyCode = "IRR",
@@ -459,21 +448,17 @@ public sealed class DatabaseMigrationTests
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
-        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
-        {
-            BusinessId = businessId,
-            BranchId = defaultBranchId,
-            ProductId = product.Id,
-            OnHandQuantity = 5,
-            UpdatedAtUtc = DateTimeOffset.UtcNow
-        });
+        await db.SaveChangesAsync();
+        await DatabaseInitializer.InitializeAsync(db);
+
+        product.StockQuantity = 5;
         await db.SaveChangesAsync();
 
-        var exception = await Assert.ThrowsAsync<InvalidDataException>(
-            () => DatabaseInitializer.InitializeAsync(db));
+        await DatabaseInitializer.InitializeAsync(db);
 
-        Assert.Contains("do not match", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Single(await db.BranchInventoryBalances.Where(x => x.ProductId == product.Id).ToListAsync());
+        var balance = await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == product.Id);
+        Assert.Equal(7, balance.OnHandQuantity);
+        Assert.Equal(5, (await db.StoreProducts.SingleAsync(x => x.Id == product.Id)).StockQuantity);
     }
 
     [Fact]
