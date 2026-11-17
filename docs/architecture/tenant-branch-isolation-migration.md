@@ -105,3 +105,34 @@ The current public-order integration coverage does not establish staff authentic
 - preflight failure on ambiguous legacy ownership, duplicate keys and orphan references, with the original database remaining unchanged.
 
 Keep disposable SQLite databases and real HTTP host execution in the acceptance suite. A dedicated test project is optional; coverage and isolation guarantees are mandatory.
+
+## Decisions that must be settled before schema implementation
+
+The following target decisions are recommended to avoid mixing business ownership with branch-level operations. They are design constraints for the next implementation phase, not claims about the current schema.
+
+### Deployment boundary
+
+- A normal locally hosted installation represents one Business and one or more Branch records. The local operator is not allowed to select an arbitrary BusinessId to gain access to another tenant.
+- A shared-host deployment may contain multiple businesses in one database only after the full ownership constraints, authenticated execution scope, tenant-aware uniqueness and cross-tenant integration tests are implemented.
+- Both deployment modes use the same persisted ownership model. Local/single-business mode is not a bypass around ownership validation; it is a trusted installation bootstrap that binds the local operator to its provisioned business.
+- Storefront public host resolution must map an allow-listed hostname to exactly one active Business and its explicitly published storefront settings. A singleton StoreSettings lookup is not valid for a multi-business host.
+
+### Catalog versus branch inventory
+
+- Treat product identity and commercial description as business-owned catalog data: SKU, name, description, base selling price, currency and availability policy belong to Business.
+- Treat on-hand quantity and stock movements as branch-owned operational data. Introduce a branch inventory balance (or equivalent branch-scoped stock ledger projection) keyed by (BusinessId, BranchId, ProductId); do not use one shared StoreProduct.StockQuantity value as the authoritative quantity for multiple branches.
+- Purchase receiving, web-order reservation/issue, POS sale, adjustment and transfer must update the branch stock ledger/balance in the same transaction as their source document. Branch transfers require paired outbound/inbound movements and an idempotent transfer identity.
+- If the product's purchase cost differs by receipt, preserve cost layers or a documented costing method (for example weighted average) at the branch level. Do not silently overwrite one global UnitCost when branches have different receipt costs.
+- A business may deliberately choose a branch-specific assortment or price override, but that is an explicit branch-product policy/override, not duplicated product identities by default.
+
+### Operational ownership
+
+- Devices, game stations and reservation resources belong to exactly one Branch; their parent Branch must belong to the same Business.
+- Game sessions, reservations, orders, invoices, payments, stock movements and operational audit events carry BusinessId and, where activity occurs at a branch, BranchId.
+- Customers and suppliers are Business-owned by default and may be visible to authorized branches of that business. Cross-business sharing is prohibited unless a separate, explicit data-sharing feature is designed and audited.
+- Ledger accounts and chart-of-account configuration are Business-owned. Journal entries carry BusinessId and optional BranchId; every journal line must reference an account in the same Business.
+- Store settings are Business-owned. Branch-specific settings (receipt header, terminal configuration, opening hours and branch contact details) must be stored separately from business-wide legal identity and accounting defaults.
+
+### Migration consequence
+
+Before generating EF migrations, update the inventory table above to distinguish business-owned catalog from branch-owned stock, and enumerate every write path that currently mutates StoreProduct.StockQuantity. The migration must preserve legacy quantities as opening balances for the explicitly mapped legacy branch, reconcile quantity totals against stock movements, and reject ambiguous or inconsistent legacy state rather than fabricate a distribution across branches. Tests must prove same-business branches cannot read each other's stock and cross-business products cannot be referenced by orders, purchase lines or stock movements.
