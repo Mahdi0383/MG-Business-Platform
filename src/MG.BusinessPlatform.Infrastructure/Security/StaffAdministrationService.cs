@@ -153,18 +153,15 @@ public sealed class StaffAdministrationService(
 
         await ValidateBranchesAsync(context.BusinessId, requestedBranches, cancellationToken);
 
-        if (user.IsActive && IsAdministrator(user.Role)
-            && (!isActive || !IsAdministrator(normalizedRole)))
-        {
-            var otherAdministrators = await db.StaffUsers.CountAsync(
-                x => x.BusinessId == context.BusinessId
-                    && x.Id != user.Id
-                    && x.IsActive
-                    && (x.Role == "Owner" || x.Role == "Administrator"),
-                cancellationToken);
-            if (otherAdministrators == 0)
-                throw new InvalidOperationException("The business must retain at least one active Owner or Administrator.");
-        }
+        var otherAdministrators = await db.StaffUsers.CountAsync(
+            x => x.BusinessId == context.BusinessId
+                && x.Id != user.Id
+                && x.IsActive
+                && (x.Role == "Owner" || x.Role == "Administrator"),
+            cancellationToken);
+        var targetRemainsAdministrator = isActive && IsAdministrator(normalizedRole);
+        if (otherAdministrators + (targetRemainsAdministrator ? 1 : 0) == 0)
+            throw new InvalidOperationException("The business must retain at least one active Owner or Administrator.");
 
         var existingAccess = await db.StaffBranchAccess
             .Where(x => x.BusinessId == context.BusinessId && x.StaffUserId == user.Id)
