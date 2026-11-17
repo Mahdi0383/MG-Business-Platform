@@ -65,7 +65,13 @@ public partial class App : System.Windows.Application
             .Options;
 
         await using var db = new BusinessDbContext(options);
-        await DatabaseInitializer.InitializeAsync(db);
+        var branchIdPath = Path.Combine(dataDirectory, "branch-id.txt");
+        Guid? defaultBranchId = Guid.TryParse(
+            File.Exists(branchIdPath) ? await File.ReadAllTextAsync(branchIdPath) : null,
+            out var parsedBranchId) && parsedBranchId != Guid.Empty
+                ? parsedBranchId
+                : null;
+        await DatabaseInitializer.InitializeAsync(db, defaultBranchId: defaultBranchId);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
         var licensedModules = payload.Modules.ToHashSet(StringComparer.Ordinal);
