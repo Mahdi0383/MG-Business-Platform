@@ -172,6 +172,58 @@ public sealed class StaffAdministrationServiceTests
     }
 
     [Fact]
+    public async Task UpdateStaffAccess_CannotRemoveLastActiveAdministratorFromStaleRequestScope()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(ownerContext);
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        Guid secondOwnerId;
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            secondOwnerId = await administration.CreateStaffAsync(
+                "second-owner", "Second Owner", "Second-Owner-Passphrase-2026!",
+                "Owner", [store.MainBranchId]);
+        }
+
+        var secondOwnerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "second-owner", "Second-Owner-Passphrase-2026!");
+        Assert.NotNull(secondOwnerLogin);
+        var secondOwnerContext = await resolver.ResolveAsync(secondOwnerLogin.Token);
+        Assert.NotNull(secondOwnerContext);
+
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            await administration.UpdateStaffAccessAsync(
+                secondOwnerId, "Cashier", true, [store.MainBranchId]);
+        }
+
+        // Simulate a request that resolved its Owner context just before its session/role was revoked.
+        using (StaffRequestContextScope.Push(secondOwnerContext!))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.UpdateStaffAccessAsync(
+                    ownerLogin.Identity.StaffUserId, "Cashier", true, [store.MainBranchId]));
+        }
+
+        var remainingOwner = await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == ownerLogin.Identity.StaffUserId);
+        Assert.Equal("Owner", remainingOwner.Role);
+        Assert.True(remainingOwner.IsActive);
+        Assert.Equal("Cashier", (await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == secondOwnerId)).Role);
+    }
+
+    [Fact]
     public async Task ChangeOwnPassword_RequiresCurrentCredentialAndRevokesAllSessions()
     {
         await using var store = await TestStore.CreateAsync();
