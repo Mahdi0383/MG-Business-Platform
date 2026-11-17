@@ -147,9 +147,12 @@ public sealed class StaffAuthenticationService(
 
         var passwordValid = passwordHasher.Verify(password, user.PasswordHash);
         var now = DateTimeOffset.UtcNow;
-        if (!passwordValid || !user.IsActive || !await IsBusinessActiveAsync(businessId, cancellationToken))
+        if (!user.IsActive || !await IsBusinessActiveAsync(businessId, cancellationToken))
+            return null;
+
+        if (!passwordValid)
         {
-            if (user.IsActive && user.LockedUntilUtc <= now)
+            if (user.LockedUntilUtc <= now)
             {
                 user.FailedLoginCount = Math.Min(user.FailedLoginCount + 1, MaximumFailedAttempts);
                 user.LockedUntilUtc = user.FailedLoginCount >= MaximumFailedAttempts
@@ -157,6 +160,8 @@ public sealed class StaffAuthenticationService(
                     : null;
                 user.UpdatedAtUtc = now;
                 await db.SaveChangesAsync(cancellationToken);
+                if (user.LockedUntilUtc is not null)
+                    await RevokeAllSessionsAsync(businessId, user.Id, cancellationToken);
             }
             return null;
         }
