@@ -56,3 +56,45 @@ test('writeJsonStorage reports serialization failures', () => {
   cyclic.self = cyclic;
   assert.equal(writeJsonStorage('items', cyclic, createStorage()), false);
 });
+
+test('readValidatedJsonStorage accepts data that satisfies its schema', async () => {
+  const { readValidatedJsonStorage } = await import('../src/storage.js');
+  const expected = [{ id: 1, name: 'Coffee', price: 120 }];
+  const storage = createStorage({ products: JSON.stringify(expected) });
+  assert.deepEqual(readValidatedJsonStorage('products', [], value =>
+    Array.isArray(value) && value.every(item => Number.isInteger(item.id)
+      && typeof item.name === 'string' && Number.isFinite(item.price) && item.price >= 0), storage), expected);
+});
+
+test('readValidatedJsonStorage preserves valid JSON with an invalid shape for recovery', async () => {
+  const { readValidatedJsonStorage } = await import('../src/storage.js');
+  const raw = JSON.stringify({ products: 'not-an-array' });
+  const storage = createStorage({ products: raw });
+  const fallback = [{ id: 0, name: 'safe fallback' }];
+  assert.equal(readValidatedJsonStorage('products', fallback, Array.isArray, storage), fallback);
+  assert.equal(storage.getItem('products:corrupt-backup'), raw);
+  assert.equal(storage.getItem('products'), raw);
+});
+
+test('readValidatedJsonStorage preserves invalid array entries instead of rendering them', async () => {
+  const { readValidatedJsonStorage } = await import('../src/storage.js');
+  const raw = JSON.stringify([{ id: 1, name: 'valid' }, null]);
+  const storage = createStorage({ products: raw });
+  const fallback = [];
+  assert.equal(readValidatedJsonStorage('products', fallback,
+    value => Array.isArray(value) && value.every(item => item && typeof item.name === 'string'), storage), fallback);
+  assert.equal(storage.getItem('products:corrupt-backup'), raw);
+});
+
+test('readValidatedJsonStorage safely rejects a throwing validator', async () => {
+  const { readValidatedJsonStorage } = await import('../src/storage.js');
+  const raw = '[1]';
+  const storage = createStorage({ items: raw });
+  const fallback = [];
+  assert.equal(readValidatedJsonStorage('items', fallback, () => { throw new Error('invalid'); }, storage), fallback);
+  assert.equal(storage.getItem('items:corrupt-backup'), raw);
+});
+
+test('writeJsonStorage reports values that JSON cannot serialize', () => {
+  assert.equal(writeJsonStorage('items', undefined, createStorage()), false);
+});
