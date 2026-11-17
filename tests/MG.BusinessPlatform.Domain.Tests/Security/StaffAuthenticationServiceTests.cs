@@ -83,6 +83,41 @@ public sealed class StaffAuthenticationServiceTests
     }
 
     [Fact]
+    public async Task ExpiredAndBulkRevokedSessionsCannotBeValidated()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var service = new StaffAuthenticationService(store.Db, new StaffPasswordHasher());
+        var userId = await service.CreateInitialOwnerAsync(
+            store.BusinessId, [store.BranchId], "owner", "Store Owner", InitialPassword);
+        var first = await service.AuthenticateAsync(store.BusinessId, "owner", InitialPassword);
+        var second = await service.AuthenticateAsync(store.BusinessId, "owner", InitialPassword);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        var firstSession = await store.Db.StaffSessions.SingleAsync(x => x.TokenHash != string.Empty
+            && x.Id != Guid.Empty && x.TokenHash == HashToken(first.Token));
+        firstSession.ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await store.Db.SaveChangesAsync();
+        Assert.Null(await service.ValidateSessionAsync(store.BusinessId, first.Token));
+
+        Assert.Equal(1, await service.RevokeAllSessionsAsync(store.BusinessId, userId));
+        Assert.Null(await service.ValidateSessionAsync(store.BusinessId, second.Token));
+    }
+
+    private static string HashToken(string token)
+    {
+        var bytes = Convert.FromBase64String(token.Replace('-', '+').Replace('_', '/') + "=");
+        try
+        {
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes);
+        }
+    }
+
+    [Fact]
     public async Task InitialOwner_CannotBeCreatedTwice()
     {
         await using var store = await TestStore.CreateAsync();
