@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
+using MG.BusinessPlatform.Infrastructure.Security;
+
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
 public sealed record PurchaseInvoiceLineRequest(
@@ -157,7 +159,8 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
                 draft.EffectiveUnitCost, currency, "PurchaseReceipt", invoiceNumber,
                 $"Supplier invoice {invoiceNumber}", cancellationToken,
                 expectedUnitCost: product.UnitCost,
-                expectedCurrencyCode: product.CurrencyCode);
+                expectedCurrencyCode: product.CurrencyCode,
+                requiredPermission: StaffPermission.AccountingManage);
         }
 
         foreach (var (productId, weightedAverageCost) in weightedAverageCosts)
