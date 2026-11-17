@@ -102,7 +102,7 @@ public sealed class AddBusinessBranchIdentity : Migration
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropIndex(name: "IX_StoreSettings_BusinessId", table: "StoreSettings");
+        migrationBuilder.DropIndex(name: "IX_StoreSettings_BusinessId_DefaultBranchId", table: "StoreSettings");
         migrationBuilder.DropColumn(name: "BusinessId", table: "StoreSettings");
         migrationBuilder.DropColumn(name: "DefaultBranchId", table: "StoreSettings");
         migrationBuilder.DropTable(name: "Branches");
