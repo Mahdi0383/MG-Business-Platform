@@ -110,7 +110,7 @@ public partial class MainWindow : Window
     private bool _isSalesPaymentInProgress;
     private bool _isSupplierPaymentInProgress;
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
-    private readonly Guid _sessionBranchId;
+    private Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
     private Process? _storefrontProcess;
@@ -176,6 +176,15 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             await DatabaseInitializer.InitializeAsync(db, defaultBranchId: _sessionBranchId);
+            var persistedDefaultBranchId = await db.StoreSettings.AsNoTracking()
+                .Select(settings => settings.DefaultBranchId)
+                .SingleAsync();
+            if (persistedDefaultBranchId is Guid branchId && branchId != Guid.Empty)
+            {
+                _sessionBranchId = branchId;
+                await File.WriteAllTextAsync(
+                    Path.Combine(_dataDirectory, "branch-id.txt"), branchId.ToString("D"));
+            }
 
             await LoadSettingsAsync();
             try
