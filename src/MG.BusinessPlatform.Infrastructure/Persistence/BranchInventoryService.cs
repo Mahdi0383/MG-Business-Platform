@@ -198,18 +198,37 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         if (branchCount == 0)
             throw new InvalidOperationException("The business has no branches.");
 
-        // A legacy aggregate can be mapped automatically only when there is exactly one
-        // branch. With multiple branches, positive stock must have an explicit mapping.
-        if (product.StockQuantity > 0 && branchCount != 1)
+        var existingBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .Where(x => x.BusinessId == businessId && x.ProductId == product.Id)
+            .Select(x => x.OnHandQuantity)
+            .ToArrayAsync(cancellationToken);
+        int openingQuantity;
+        if (existingBalances.Length > 0)
+        {
+            var mappedQuantity = existingBalances.Aggregate(0, (sum, value) => checked(sum + value));
+            if (mappedQuantity != product.StockQuantity)
+                throw new InvalidOperationException(
+                    "Existing branch balances do not reconcile to the business-wide stock quantity. Reconcile inventory before continuing.");
+            // A missing branch row is safely interpreted as zero only after every existing
+            // branch balance already accounts for the complete business-wide quantity.
+            openingQuantity = 0;
+        }
+        else if (branchCount == 1 || product.StockQuantity == 0)
+        {
+            openingQuantity = product.StockQuantity;
+        }
+        else
+        {
             throw new InvalidOperationException(
-                "The product has positive stock but no balance for this branch. Map its opening stock to branches before continuing.");
+                "The product has positive stock but no branch balances. Map its opening stock to branches before continuing.");
+        }
 
         db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
         {
             BusinessId = businessId,
             BranchId = branchId,
             ProductId = product.Id,
-            OnHandQuantity = product.StockQuantity,
+            OnHandQuantity = openingQuantity,
             UpdatedAtUtc = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);
