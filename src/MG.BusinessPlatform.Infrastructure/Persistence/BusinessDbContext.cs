@@ -337,9 +337,11 @@ public sealed class CustomerOrder
     public List<CustomerOrderLine> Lines { get; set; } = [];
 }
 
-public sealed class StockMovementRecord
+public sealed class StockMovementRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
+    public Guid? BranchId { get; set; }
     public Guid ProductId { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
     public string MovementType { get; set; } = string.Empty;
@@ -397,6 +399,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     {
         ValidateStoreSettingsBusinessIdentity();
         StampBusinessOwnership();
+        StampStockMovementBranchOwnership();
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -415,6 +418,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     {
         ValidateStoreSettingsBusinessIdentity();
         await StampBusinessOwnershipAsync(cancellationToken);
+        await StampStockMovementBranchOwnershipAsync(cancellationToken);
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -513,6 +517,106 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 .Where(settings => settings.Id == 1)
                 .Select(settings => settings.BusinessId)
                 .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private void StampStockMovementBranchOwnership()
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<StockMovementRecord>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var staffContext = StaffRequestContextScope.Current;
+        var settings = StoreSettings.Local.SingleOrDefault(x => x.Id == 1)
+            ?? StoreSettings.AsNoTracking().SingleOrDefault(x => x.Id == 1);
+        var businessId = staffContext?.BusinessId ?? settings?.BusinessId;
+        if (businessId is not Guid currentBusinessId)
+            return;
+        if (staffContext is not null && settings?.BusinessId != staffContext.BusinessId)
+            throw new InvalidOperationException("The staff request business does not match the stock database business.");
+
+        var defaultBranchId = staffContext?.BranchId ?? settings?.DefaultBranchId;
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+                entry.Entity.BusinessId = currentBusinessId;
+            else if (entry.Entity.BusinessId != currentBusinessId)
+                throw new InvalidOperationException("A stock movement cannot be written under a different business.");
+
+            if (entry.Entity.BranchId is null)
+                entry.Entity.BranchId = defaultBranchId;
+            else if (staffContext is not null && entry.Entity.BranchId != staffContext.BranchId)
+                throw new InvalidOperationException("A staff request cannot write stock movements for an unassigned branch.");
+        }
+
+        var branchIds = entries.Select(entry => entry.Entity.BranchId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToArray();
+        foreach (var branchId in branchIds)
+        {
+            var trackedBranch = Branches.Local.FirstOrDefault(branch => branch.Id == branchId);
+            var valid = trackedBranch is not null
+                ? trackedBranch.BusinessId == currentBusinessId && trackedBranch.IsActive
+                : Branches.AsNoTracking().Any(branch =>
+                    branch.Id == branchId && branch.BusinessId == currentBusinessId && branch.IsActive);
+            if (!valid)
+                throw new InvalidOperationException("A stock movement must belong to an active branch of the configured business.");
+        }
+    }
+
+    private async Task StampStockMovementBranchOwnershipAsync(CancellationToken cancellationToken)
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<StockMovementRecord>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var staffContext = StaffRequestContextScope.Current;
+        var trackedSettings = StoreSettings.Local.SingleOrDefault(x => x.Id == 1);
+        var settings = trackedSettings ?? await StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
+        var businessId = staffContext?.BusinessId ?? settings?.BusinessId;
+        if (businessId is not Guid currentBusinessId)
+            return;
+        if (staffContext is not null && settings?.BusinessId != staffContext.BusinessId)
+            throw new InvalidOperationException("The staff request business does not match the stock database business.");
+
+        var defaultBranchId = staffContext?.BranchId ?? settings?.DefaultBranchId;
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+                entry.Entity.BusinessId = currentBusinessId;
+            else if (entry.Entity.BusinessId != currentBusinessId)
+                throw new InvalidOperationException("A stock movement cannot be written under a different business.");
+
+            if (entry.Entity.BranchId is null)
+                entry.Entity.BranchId = defaultBranchId;
+            else if (staffContext is not null && entry.Entity.BranchId != staffContext.BranchId)
+                throw new InvalidOperationException("A staff request cannot write stock movements for an unassigned branch.");
+        }
+
+        var branchIds = entries.Select(entry => entry.Entity.BranchId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToArray();
+        foreach (var branchId in branchIds)
+        {
+            var trackedBranch = Branches.Local.FirstOrDefault(branch => branch.Id == branchId);
+            var valid = trackedBranch is not null
+                ? trackedBranch.BusinessId == currentBusinessId && trackedBranch.IsActive
+                : await Branches.AsNoTracking().AnyAsync(branch =>
+                    branch.Id == branchId && branch.BusinessId == currentBusinessId && branch.IsActive,
+                    cancellationToken);
+            if (!valid)
+                throw new InvalidOperationException("A stock movement must belong to an active branch of the configured business.");
+        }
     }
 
     private void ValidateInvoiceDueDates()
@@ -973,6 +1077,8 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         modelBuilder.Entity<StockMovementRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasIndex(x => new { x.BusinessId, x.BranchId, x.ProductId, x.OccurredAt });
             entity.Property(x => x.MovementType).HasMaxLength(40).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.Reference).HasMaxLength(100).IsRequired();
