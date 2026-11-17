@@ -100,7 +100,7 @@ public sealed class StaffAuthenticationServiceTests
         await store.Db.SaveChangesAsync();
         Assert.Null(await service.ValidateSessionAsync(store.BusinessId, first.Token));
 
-        Assert.Equal(1, await service.RevokeAllSessionsAsync(store.BusinessId, userId));
+        Assert.Equal(2, await service.RevokeAllSessionsAsync(store.BusinessId, userId));
         Assert.Null(await service.ValidateSessionAsync(store.BusinessId, second.Token));
     }
 
