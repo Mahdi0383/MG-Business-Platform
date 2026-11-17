@@ -52,13 +52,26 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var supplier = await db.Suppliers.SingleOrDefaultAsync(x => x.Id == supplierId, cancellationToken)
-            ?? throw new KeyNotFoundException("Supplier was not found.");
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            throw new InvalidOperationException("The local business identity is missing.");
+
+        var branchIsOwnedAndActive = await db.Branches.AsNoTracking()
+            .AnyAsync(x => x.Id == branchId && x.BusinessId == businessId && x.IsActive, cancellationToken);
+        if (!branchIsOwnedAndActive)
+            throw new InvalidOperationException("The selected branch is missing, inactive, or belongs to another business.");
+
+        var supplier = await db.Suppliers.SingleOrDefaultAsync(
+            x => x.Id == supplierId && x.BusinessId == businessId, cancellationToken)
+            ?? throw new KeyNotFoundException("Supplier was not found in the configured business.");
         if (!supplier.IsActive)
             throw new InvalidOperationException("An inactive supplier cannot be used for a new purchase invoice.");
 
         var productIds = requestedLines.Select(x => x.ProductId).Distinct().ToArray();
-        var products = await db.StoreProducts.Where(x => productIds.Contains(x.Id))
+        var products = await db.StoreProducts
+            .Where(x => productIds.Contains(x.Id) && x.BusinessId == businessId)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         if (products.Count != productIds.Length)
             throw new KeyNotFoundException("One or more purchase products were not found.");
@@ -139,7 +152,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             db.StockMovements.Add(new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
-                BusinessId = product.BusinessId,
+                BusinessId = businessId,
                 BranchId = invoice.BranchId,
                 ProductId = product.Id,
                 OccurredAt = now,
