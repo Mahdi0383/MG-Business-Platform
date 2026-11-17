@@ -244,10 +244,18 @@ app.MapGet("/api/storefront/products", async (
     if (!settings.OnlineOrderingEnabled || !canOrder)
         return Results.Ok(Array.Empty<ProductResponse>());
 
+    if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+        return Results.Ok(Array.Empty<ProductResponse>());
+    var inventory = new BranchInventoryService(db);
+    var branchId = await inventory.GetDefaultBranchIdAsync(ct);
     var products = await db.StoreProducts.AsNoTracking()
-        .Where(x => x.IsAvailable)
+        .Where(x => x.BusinessId == businessId && x.IsAvailable)
         .OrderBy(x => x.Name)
-        .Select(x => new ProductResponse(x.Id, x.Sku, x.Name, x.Description, x.UnitPrice, x.CurrencyCode, x.StockQuantity > 0))
+        .Select(x => new ProductResponse(
+            x.Id, x.Sku, x.Name, x.Description, x.UnitPrice, x.CurrencyCode,
+            db.BranchInventoryBalances.Any(balance =>
+                balance.BusinessId == businessId && balance.BranchId == branchId
+                && balance.ProductId == x.Id && balance.OnHandQuantity > 0)))
         .Take(500)
         .ToListAsync(ct);
     return Results.Ok(products);
