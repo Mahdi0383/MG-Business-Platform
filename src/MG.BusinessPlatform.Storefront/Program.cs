@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -61,12 +62,16 @@ app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.Use(async (context, next) =>
 {
+    // A fresh per-response nonce permits the storefront's required inline bootstrap
+    // script and styles without enabling arbitrary inline script execution.
+    var cspNonce = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
+    context.Items["MG.CspNonce"] = cspNonce;
     context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
     context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
     context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
     context.Response.Headers.TryAdd("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     context.Response.Headers.TryAdd("Content-Security-Policy",
-        "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'");
+        $"default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'nonce-{cspNonce}'; script-src 'self' 'nonce-{cspNonce}'; connect-src 'self'");
     await next();
 });
 
@@ -661,7 +666,15 @@ app.MapPost("/api/storefront/orders", async (
 })
     .RequireRateLimiting("public");
 
-app.MapGet("/", () => Results.Content(StorefrontHtml.Content, "text/html; charset=utf-8"))
+app.MapGet("/", (HttpContext context) =>
+{
+    var nonce = context.Items["MG.CspNonce"] as string;
+    if (string.IsNullOrWhiteSpace(nonce))
+        return Results.Problem("A response security nonce could not be generated.", statusCode: StatusCodes.Status500InternalServerError);
+
+    var html = StorefrontHtml.Content.Replace("__MG_CSP_NONCE__", nonce, StringComparison.Ordinal);
+    return Results.Content(html, "text/html; charset=utf-8");
+})
     .RequireRateLimiting("public");
 
 app.Run();
@@ -704,7 +717,7 @@ internal static class StorefrontHtml
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light"><title>فروشگاه آنلاین</title>
-<style>
+<style nonce="__MG_CSP_NONCE__">
 :root{font-family:Tahoma,Arial,sans-serif;color:#18212f;background:#f4f6fa}*{box-sizing:border-box}body{margin:0}.top{background:#17243b;color:#fff;padding:24px max(18px,calc((100% - 1080px)/2))}.top h1{margin:0 0 8px;font-size:24px}.top p{margin:0;color:#d5dbea}.wrap{max-width:1080px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:20px}.panel{background:white;border:1px solid #e0e6ef;border-radius:16px;padding:18px;box-shadow:0 8px 28px #17243b0a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.item{border:1px solid #e0e6ef;border-radius:12px;padding:14px}.item h3{margin:0 0 8px;font-size:16px}.muted{color:#64748b;font-size:13px}.price{font-weight:bold;margin:12px 0}.row{display:flex;gap:8px;align-items:center}.row input{min-width:0;flex:1}input,textarea,select,button{font:inherit;border-radius:8px;padding:10px;border:1px solid #cbd5e1;width:100%;margin:5px 0}button{background:#176b52;color:white;border:0;cursor:pointer;font-weight:bold}button:disabled{opacity:.45;cursor:not-allowed}.qty{width:70px;flex:0 0 70px}.status{padding:10px;border-radius:8px;background:#eef4ff;margin:10px 0;white-space:pre-wrap}.cartline{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #eef0f4;padding:8px 0;font-size:14px}@media(max-width:760px){.wrap{grid-template-columns:1fr}.top{padding:20px}}
 </style>
 </head>
@@ -713,7 +726,7 @@ internal static class StorefrontHtml
 <main class="wrap"><section class="panel"><h2>محصولات</h2><div id="products" class="grid"><p>در حال دریافت محصولات…</p></div></section>
 <section class="panel"><h2>سبد سفارش</h2><div id="cart"><p class="muted">هنوز محصولی انتخاب نکرده‌اید.</p></div><form id="order"><h3>اطلاعات مشتری</h3><input name="CustomerName" placeholder="نام و نام خانوادگی" maxlength="160" required><input name="CustomerPhone" placeholder="شماره تماس" maxlength="40" required><textarea name="DeliveryAddress" placeholder="نشانی تحویل" maxlength="1000" rows="2"></textarea><textarea name="Notes" placeholder="توضیحات (اختیاری)" maxlength="1000" rows="2"></textarea><button id="submit" type="submit" disabled>ثبت سفارش</button></form><div id="status" class="status" role="status" aria-live="polite">در حال بررسی فروشگاه…</div></section>
 <section class="panel" id="reservationPanel" hidden><h2>رزرو میز یا دستگاه</h2><p class="muted">زمان‌ها بر اساس ساعت محلی دستگاه شما انتخاب می‌شوند. ثبت رزرو ابتدا به‌صورت درخواست انجام می‌شود و فروشگاه آن را تأیید می‌کند.</p><form id="reservation"><label for="reservationResource">مورد رزرو</label><select id="reservationResource" name="ResourceId" required></select><input name="GuestName" placeholder="نام و نام خانوادگی" maxlength="200" required><input name="GuestPhone" placeholder="شماره تماس" maxlength="40" required><label for="reservationStart">شروع رزرو</label><input id="reservationStart" name="StartsAt" type="datetime-local" required><label for="reservationEnd">پایان رزرو</label><input id="reservationEnd" name="EndsAt" type="datetime-local" required><label for="reservationCount">تعداد نفرات</label><input id="reservationCount" name="GuestCount" type="number" min="1" max="1000" value="1" required><textarea name="Notes" placeholder="توضیحات (اختیاری)" maxlength="1000" rows="2"></textarea><button id="reservationSubmit" type="submit">ثبت درخواست رزرو</button></form><div id="reservationStatus" class="status" role="status" aria-live="polite">در حال دریافت منابع رزرو…</div></section></main>
-<script>
+<script nonce="__MG_CSP_NONCE__">
 const $=s=>document.querySelector(s);const cart=new Map();let products=[];let info={currencyCode:"IRR",onlineOrderingEnabled:false,onlineReservationsEnabled:false};let pendingKey=null;let pendingOrder=null;let pendingReservationKey=null;let pendingReservation=null;
 const fmt=(n,c)=>new Intl.NumberFormat("fa-IR",{maximumFractionDigits:2}).format(n)+" "+c;
 function renderCart(){const root=$("#cart");root.replaceChildren();let total=0;for(const [id,q] of cart){const p=products.find(x=>x.id===id);if(!p)continue;total+=p.price*q;const row=document.createElement("div");row.className="cartline";const label=document.createElement("span");label.textContent=p.name+" × "+q;const price=document.createElement("strong");price.textContent=fmt(p.price*q,p.currencyCode);row.append(label,price);root.append(row)}if(cart.size===0){const empty=document.createElement("p");empty.className="muted";empty.textContent="هنوز محصولی انتخاب نکرده‌اید.";root.append(empty)}const t=document.createElement("p");t.innerHTML="<strong>مجموع: </strong>";const v=document.createElement("span");v.textContent=fmt(total,info.currencyCode);t.append(v);root.append(t);$("#submit").disabled=cart.size===0||!info.onlineOrderingEnabled}
