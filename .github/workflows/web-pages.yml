@@ -39,6 +39,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+      - name: Run frontend unit tests
+        run: npm test
       - name: Build production bundle
         run: npm run build
       - name: Upload build artifact

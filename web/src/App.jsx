@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { readJsonStorage, writeJsonStorage } from './storage.js';
 
 const initialProducts = [
   {id:1,name:'قهوه اسپرسو',category:'نوشیدنی گرم',price:85000,stock:42,sold:28},
@@ -25,18 +26,18 @@ function Icon({children}){return <span className="icon">{children}</span>}
 function Modal({title,onClose,children}){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="modal"><header><h3>{title}</h3><button className="icon-btn" onClick={onClose}>×</button></header>{children}</section></div>}
 function App(){
  const [page,setPage]=useState('dashboard');
- const [products,setProducts]=useState(()=>JSON.parse(localStorage.getItem('mg-products')||'null')||initialProducts);
- const [customers,setCustomers]=useState(()=>JSON.parse(localStorage.getItem('mg-customers')||'null')||initialCustomers);
- const [orders,setOrders]=useState(()=>JSON.parse(localStorage.getItem('mg-orders')||'null')||[
+ const [products,setProducts]=useState(()=>readJsonStorage('mg-products',initialProducts));
+ const [customers,setCustomers]=useState(()=>readJsonStorage('mg-customers',initialCustomers));
+ const [orders,setOrders]=useState(()=>readJsonStorage('mg-orders',[
   {id:1048,customer:'علی رضایی',items:3,total:455000,status:'تکمیل‌شده',time:'۱۰:۴۲'},
   {id:1047,customer:'مشتری حضوری',items:2,total:330000,status:'در حال آماده‌سازی',time:'۱۰:۳۶'},
   {id:1046,customer:'سارا محمدی',items:1,total:245000,status:'تکمیل‌شده',time:'۱۰:۲۸'},
- ]);
+ ]));
  const [cart,setCart]=useState([]),[query,setQuery]=useState(''),[modal,setModal]=useState(''),[toast,setToast]=useState('');
  const [form,setForm]=useState({}),[range,setRange]=useState('امروز');
- useEffect(()=>localStorage.setItem('mg-products',JSON.stringify(products)),[products]);
- useEffect(()=>localStorage.setItem('mg-customers',JSON.stringify(customers)),[customers]);
- useEffect(()=>localStorage.setItem('mg-orders',JSON.stringify(orders)),[orders]);
+ useEffect(()=>{if(!writeJsonStorage('mg-products',products))console.warn('MG Business Web: could not persist products to local storage')},[products]);
+ useEffect(()=>{if(!writeJsonStorage('mg-customers',customers))console.warn('MG Business Web: could not persist customers to local storage')},[customers]);
+ useEffect(()=>{if(!writeJsonStorage('mg-orders',orders))console.warn('MG Business Web: could not persist orders to local storage')},[orders]);
  const total=orders.reduce((s,o)=>s+o.total,0);
  const notify=t=>{setToast(t);setTimeout(()=>setToast(''),2600)};
  const addToCart=p=>{setCart(old=>{const found=old.find(x=>x.id===p.id);return found?old.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...old,{...p,qty:1}]});notify(p.name+' به سبد اضافه شد')};
