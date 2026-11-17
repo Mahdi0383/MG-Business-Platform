@@ -462,15 +462,16 @@ public sealed class SalesAccountingServiceTests
         var service = new SalesAccountingService(db);
         var issueDate = new DateOnly(2026, 10, 13);
         var first = await service.CreatePosSaleAsync(product.Id, 2, "Walk-in customer", "",
-            "Cash", "POS-REF-1", "", issueDate, idempotencyKey: "terminal-01-sale-0001");
+            " Cash ", "POS-REF-1", "", issueDate, idempotencyKey: "terminal-01-sale-0001");
         var retry = await service.CreatePosSaleAsync(product.Id, 2, "Walk-in customer", "",
-            "Cash", "POS-REF-1", "", issueDate, idempotencyKey: "terminal-01-sale-0001");
+            " Cash ", "POS-REF-1", "", issueDate, idempotencyKey: "terminal-01-sale-0001");
 
         Assert.Equal(first.Id, retry.Id);
         Assert.Equal(3, (await db.StoreProducts.SingleAsync(x => x.Id == product.Id)).StockQuantity);
         Assert.Single(await db.CustomerOrders.ToListAsync());
         Assert.Single(await db.SalesInvoices.ToListAsync());
-        Assert.Single(await db.Payments.ToListAsync());
+        var payment = await db.Payments.SingleAsync();
+        Assert.Equal("Cash", payment.Method);
         Assert.Single(await db.StockMovements.ToListAsync());
         Assert.Equal(3, await db.JournalEntries.CountAsync());
         await AssertAllJournalEntriesBalancedAsync(db);
