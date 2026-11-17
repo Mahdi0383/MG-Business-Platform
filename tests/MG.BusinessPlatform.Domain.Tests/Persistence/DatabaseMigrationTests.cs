@@ -147,6 +147,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261016020000_AddAuditEvents", appliedMigrations);
         Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
         Assert.Contains("20261117020000_AddBusinessBranchIdentity", appliedMigrations);
+        Assert.Contains("20261117030000_AddBusinessOwnershipToCatalog", appliedMigrations);
     }
 
     [Fact]
