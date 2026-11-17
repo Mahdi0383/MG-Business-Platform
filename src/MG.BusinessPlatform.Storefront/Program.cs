@@ -672,6 +672,8 @@ app.MapGet("/", (HttpContext context) =>
     if (string.IsNullOrWhiteSpace(nonce))
         return Results.Problem("A response security nonce could not be generated.", statusCode: StatusCodes.Status500InternalServerError);
 
+    // A nonce-bearing document must not be stored and replayed by shared caches.
+    context.Response.Headers["Cache-Control"] = "no-store";
     var html = StorefrontHtml.Content.Replace("__MG_CSP_NONCE__", nonce, StringComparison.Ordinal);
     return Results.Content(html, "text/html; charset=utf-8");
 })
