@@ -13,7 +13,8 @@ public sealed record StaffIdentity(
     string UserName,
     string DisplayName,
     string Role,
-    IReadOnlyList<Guid> BranchIds);
+    IReadOnlyList<Guid> BranchIds,
+    Guid SessionId);
 
 public sealed record StaffLoginSession(
     string Token,
@@ -213,7 +214,7 @@ public sealed class StaffAuthenticationService(
             token,
             session.ExpiresAtUtc,
             new StaffIdentity(user.Id, businessId, user.UserNameNormalized,
-                user.DisplayName, user.Role, branchIds));
+                user.DisplayName, user.Role, branchIds, session.Id));
     }
 
     public async Task<StaffIdentity?> ValidateSessionAsync(
@@ -255,7 +256,7 @@ public sealed class StaffAuthenticationService(
         return branchIds.Length == 0
             ? null
             : new StaffIdentity(user.Id, businessId, user.UserNameNormalized,
-                user.DisplayName, user.Role, branchIds);
+                user.DisplayName, user.Role, branchIds, session.Id);
     }
 
     public async Task<bool> RevokeSessionAsync(
