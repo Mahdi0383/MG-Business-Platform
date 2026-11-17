@@ -359,14 +359,8 @@ public sealed class StaffAuthenticationService(
 
     private static string HashSessionToken(string token)
     {
-        var bytes = Encoding.ASCII.GetBytes(token);
-        try
-        {
-            return Convert.ToHexString(SHA256.HashData(bytes));
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(bytes);
-        }
+        if (!TryHashSessionToken(token, out var tokenHash))
+            throw new ArgumentException("Session token format is invalid.", nameof(token));
+        return tokenHash;
     }
 }
