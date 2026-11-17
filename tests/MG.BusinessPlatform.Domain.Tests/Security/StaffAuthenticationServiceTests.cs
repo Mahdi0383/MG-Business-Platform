@@ -61,7 +61,7 @@ public sealed class StaffAuthenticationServiceTests
         Assert.True(user.LockedUntilUtc > DateTimeOffset.UtcNow);
         Assert.Null(await service.AuthenticateAsync(store.BusinessId, "owner", InitialPassword));
         Assert.Null(await service.ValidateSessionAsync(store.BusinessId, existingLogin.Token));
-        Assert.NotNull((await store.Db.StaffSessions.SingleAsync()).RevokedAtUtc);
+        Assert.NotNull((await store.Db.StaffSessions.AsNoTracking().SingleAsync()).RevokedAtUtc);
     }
 
     [Fact]
