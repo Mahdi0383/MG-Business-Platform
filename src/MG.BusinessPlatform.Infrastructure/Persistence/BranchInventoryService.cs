@@ -201,6 +201,9 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         StoreProduct product,
         CancellationToken cancellationToken)
     {
+        if (product.StockQuantity < 0)
+            throw new InvalidOperationException("The business-wide stock quantity is negative. Reconcile inventory before continuing.");
+
         var existingBalances = await db.BranchInventoryBalances.AsNoTracking()
             .Where(x => x.BusinessId == businessId && x.ProductId == product.Id)
             .Select(x => new { x.BranchId, x.OnHandQuantity })
