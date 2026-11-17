@@ -287,11 +287,17 @@ public sealed class StaffAuthenticationService(
             return 0;
 
         var now = DateTimeOffset.UtcNow;
-        return await db.StaffSessions
+        var sessions = await db.StaffSessions
             .Where(x => x.BusinessId == businessId
                 && x.StaffUserId == staffUserId
                 && x.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(update => update.SetProperty(x => x.RevokedAtUtc, now), cancellationToken);
+            .ToListAsync(cancellationToken);
+        foreach (var session in sessions)
+            session.RevokedAtUtc = now;
+
+        if (sessions.Count > 0)
+            await db.SaveChangesAsync(cancellationToken);
+        return sessions.Count;
     }
 
     private async Task<bool> IsBusinessActiveAsync(Guid businessId, CancellationToken cancellationToken) =>
