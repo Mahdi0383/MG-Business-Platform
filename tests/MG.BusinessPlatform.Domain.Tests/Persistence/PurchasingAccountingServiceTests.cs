@@ -146,6 +146,36 @@ public sealed class PurchasingAccountingServiceTests
     }
 
     [Fact]
+    public async Task PurchaseInvoice_RejectsBranchFromAnotherBusinessBeforeChangingInventory()
+    {
+        await using var fixture = await PurchasingFixture.CreateAsync();
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(), LegalName = "Foreign", DisplayName = "Foreign",
+            DefaultCurrencyCode = "IRR", TimeZoneId = "UTC", IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(), BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN", Name = "Foreign branch", IsActive = true
+        };
+        fixture.Db.Businesses.Add(foreignBusiness);
+        fixture.Db.Branches.Add(foreignBranch);
+        await fixture.Db.SaveChangesAsync();
+
+        var service = new PurchasingAccountingService(fixture.Db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreatePurchaseInvoiceAsync(
+            fixture.SupplierId, foreignBranch.Id,
+            [new PurchaseInvoiceLineRequest(fixture.ProductId, 2, 15m)],
+            new DateOnly(2026, 10, 16)));
+
+        Assert.Equal(5, (await fixture.Db.StoreProducts.SingleAsync(x => x.Id == fixture.ProductId)).StockQuantity);
+        Assert.Empty(await fixture.Db.PurchaseInvoices.ToListAsync());
+        Assert.Empty(await fixture.Db.StockMovements.ToListAsync());
+        Assert.Empty(await fixture.Db.JournalEntries.ToListAsync());
+    }
+
+    [Fact]
     public async Task PurchaseInvoice_RejectsInactiveSupplierBeforeChangingInventory()
     {
         await using var fixture = await PurchasingFixture.CreateAsync(activeSupplier: false);
