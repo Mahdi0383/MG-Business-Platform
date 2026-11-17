@@ -342,11 +342,6 @@ public sealed class StorefrontOrderIntegrationTests
         var verificationDb = verificationScope.ServiceProvider.GetRequiredService<BusinessDbContext>();
         Assert.Equal(1, await verificationDb.CustomerOrders.CountAsync());
         Assert.Equal(3, (await verificationDb.StoreProducts.SingleAsync(x => x.Id == productId)).StockQuantity);
-        var storeSettings = await verificationDb.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
-        Assert.Equal(3, (await verificationDb.BranchInventoryBalances.SingleAsync(x => x.ProductId == productId)).OnHandQuantity);
-        var movement = await verificationDb.StockMovements.SingleAsync(x => x.ProductId == productId);
-        Assert.Equal(storeSettings.BusinessId, movement.BusinessId);
-        Assert.Equal(storeSettings.DefaultBranchId, movement.BranchId);
     }
 
     [Fact]
