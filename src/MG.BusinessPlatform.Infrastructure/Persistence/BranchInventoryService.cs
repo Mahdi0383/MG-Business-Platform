@@ -139,6 +139,16 @@ public static class BranchInventoryService
         });
 
         var onHand = await GetOnHandQuantityAsync(db, businessId, branchId, productId, cancellationToken);
+        var trackedBalance = db.ChangeTracker.Entries<BranchInventoryBalanceRecord>()
+            .SingleOrDefault(entry => entry.Entity.BusinessId == businessId
+                && entry.Entity.BranchId == branchId
+                && entry.Entity.ProductId == productId);
+        if (trackedBalance is not null)
+        {
+            trackedBalance.Entity.OnHandQuantity = onHand;
+            trackedBalance.Entity.UpdatedAtUtc = now;
+        }
+
         return new BranchInventoryBalanceRecord
         {
             BusinessId = businessId,
