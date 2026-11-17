@@ -121,6 +121,7 @@ public static class DatabaseInitializer
             };
             db.Businesses.Add(business);
             settings.BusinessId = business.Id;
+            await db.SaveChangesAsync(cancellationToken);
         }
 
         if (await db.Businesses.CountAsync(cancellationToken) != 1)
