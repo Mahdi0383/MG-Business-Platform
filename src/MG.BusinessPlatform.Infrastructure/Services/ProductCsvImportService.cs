@@ -132,7 +132,15 @@ public sealed class ProductCsvImportService(BusinessDbContext db)
             throw new InvalidDataException("CSV contains no product rows.");
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            throw new InvalidOperationException("The local business identity is missing.");
+        var inventory = new BranchInventoryService(db);
+        var branchId = await inventory.GetDefaultBranchIdAsync(cancellationToken);
         var existingSkus = (await db.StoreProducts.AsNoTracking()
+                .Where(product => product.BusinessId == businessId)
                 .Select(product => product.Sku)
                 .ToListAsync(cancellationToken))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -146,11 +154,23 @@ public sealed class ProductCsvImportService(BusinessDbContext db)
         }
 
         var now = DateTimeOffset.UtcNow;
+        foreach (var product in toImport)
+            product.BusinessId = businessId;
         db.StoreProducts.AddRange(toImport);
+        db.BranchInventoryBalances.AddRange(toImport.Select(product => new BranchInventoryBalanceRecord
+        {
+            BusinessId = businessId,
+            BranchId = branchId,
+            ProductId = product.Id,
+            OnHandQuantity = product.StockQuantity,
+            UpdatedAtUtc = now
+        }));
         db.StockMovements.AddRange(toImport.Where(product => product.StockQuantity > 0).Select(product =>
             new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
+                BusinessId = businessId,
+                BranchId = branchId,
                 ProductId = product.Id,
                 OccurredAt = now,
                 MovementType = "OpeningBalance",
