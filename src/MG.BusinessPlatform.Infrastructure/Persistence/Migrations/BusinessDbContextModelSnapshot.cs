@@ -395,6 +395,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrder", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid?>("BranchId").HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("CustomerName").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
@@ -406,8 +408,9 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Status").IsRequired().HasMaxLength(30).HasColumnType("TEXT");
             b.Property<decimal>("TotalAmount").HasColumnType("TEXT");
             b.HasKey("Id");
-            b.HasIndex("IdempotencyKey").IsUnique();
-            b.HasIndex("OrderNumber").IsUnique();
+            b.HasIndex("BusinessId", "BranchId");
+            b.HasIndex("BusinessId", "IdempotencyKey").IsUnique();
+            b.HasIndex("BusinessId", "OrderNumber").IsUnique();
             b.ToTable("CustomerOrders", t => t.HasCheckConstraint("CK_CustomerOrder_Total", "CAST(TotalAmount AS NUMERIC) >= 0"));
         });
 
@@ -553,6 +556,15 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 .HasForeignKey("ProductId")
                 .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrder", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
