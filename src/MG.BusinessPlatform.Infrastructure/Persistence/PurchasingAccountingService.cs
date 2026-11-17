@@ -83,6 +83,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         if (currency.Length != 3 || products.Values.Any(x => !string.Equals(x.CurrencyCode, currency, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("All products on a supplier invoice must use the same three-letter currency.");
 
+        var inventory = new BranchInventoryService(db);
         var lineDrafts = new List<(PurchaseInvoiceLineRequest Request, StoreProduct Product, decimal NetTotal, decimal EffectiveUnitCost)>();
         decimal total = 0m;
         foreach (var request in requestedLines)
@@ -131,7 +132,6 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             var previousQuantity = product.StockQuantity;
             var newQuantity = checked(previousQuantity + receivedQuantity);
             var previousValue = checked(previousQuantity * product.UnitCost);
-            product.StockQuantity = newQuantity;
             product.UnitCost = checked(previousValue + incomingValue) / newQuantity;
             product.UpdatedAt = now;
         }
@@ -152,21 +152,10 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
                 LineTotal = draft.NetTotal
             });
 
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                BusinessId = businessId,
-                BranchId = invoice.BranchId,
-                ProductId = product.Id,
-                OccurredAt = now,
-                MovementType = "PurchaseReceipt",
-                Quantity = draft.Request.Quantity,
-                SignedQuantity = draft.Request.Quantity,
-                UnitCost = draft.EffectiveUnitCost,
-                CurrencyCode = currency,
-                Reference = invoiceNumber,
-                Note = $"Supplier invoice {invoiceNumber}"
-            });
+            await inventory.ApplyMovementAsync(
+                businessId, invoice.BranchId, product.Id, draft.Request.Quantity,
+                draft.EffectiveUnitCost, currency, "PurchaseReceipt", invoiceNumber,
+                $"Supplier invoice {invoiceNumber}", cancellationToken);
         }
 
         db.PurchaseInvoices.Add(invoice);
