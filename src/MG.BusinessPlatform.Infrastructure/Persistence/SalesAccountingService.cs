@@ -127,7 +127,11 @@ public sealed class SalesAccountingService(BusinessDbContext db)
 
         await inventory.ApplyMovementAsync(
             businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
-            "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken);
+            "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken,
+            expectedUnitPrice: product.UnitPrice,
+            expectedUnitCost: product.UnitCost,
+            expectedCurrencyCode: product.CurrencyCode,
+            requireAvailable: true);
 
         db.CustomerOrders.Add(order);
 
@@ -259,7 +263,11 @@ public sealed class SalesAccountingService(BusinessDbContext db)
                 throw new InvalidOperationException($"Product '{product.Name}' changed during checkout.");
             await inventory.ApplyMovementAsync(
                 businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
-                "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken);
+                "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken,
+            expectedUnitPrice: product.UnitPrice,
+            expectedUnitCost: product.UnitCost,
+            expectedCurrencyCode: product.CurrencyCode,
+            requireAvailable: true);
         }
 
         db.CustomerOrders.Add(order);
