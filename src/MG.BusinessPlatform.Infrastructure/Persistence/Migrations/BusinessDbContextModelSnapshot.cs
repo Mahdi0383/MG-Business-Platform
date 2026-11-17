@@ -45,6 +45,21 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.ToTable("Branches");
         });
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
+        {
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid>("BranchId").HasColumnType("TEXT");
+            b.Property<Guid>("ProductId").HasColumnType("TEXT");
+            b.Property<int>("Quantity").HasColumnType("INTEGER");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
+            b.HasKey("BusinessId", "BranchId", "ProductId");
+            b.HasIndex("BusinessId", "ProductId");
+            b.ToTable("BranchInventoryBalances", t =>
+            {
+                t.HasCheckConstraint("CK_BranchInventoryBalance_Quantity", "Quantity >= 0");
+            });
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -304,6 +319,21 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 .WithMany()
                 .HasForeignKey("BusinessId")
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreSettings", b =>
