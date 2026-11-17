@@ -5,7 +5,6 @@ namespace MG.BusinessPlatform.Infrastructure.Security;
 
 /// <summary>
 /// Creates versioned PBKDF2-SHA256 password hashes for staff credentials.
-/// The encoded value contains only algorithm parameters, a random salt, and the derived key.
 /// </summary>
 public sealed class StaffPasswordHasher
 {
@@ -25,17 +24,29 @@ public sealed class StaffPasswordHasher
         if (passwordBytes.Length is 0 or > PasswordMaximumBytes)
         {
             CryptographicOperations.ZeroMemory(passwordBytes);
-            throw new ArgumentException($"Password must contain between 1 and {PasswordMaximumBytes} UTF-8 bytes.", nameof(password));
+            throw new ArgumentException(
+                $"Password must contain between 1 and {PasswordMaximumBytes} UTF-8 bytes.",
+                nameof(password));
         }
 
-        var salt = RandomNumberGenerator.GetBytes(SaltSizeBytes);
         try
         {
+            var salt = RandomNumberGenerator.GetBytes(SaltSizeBytes);
             var derivedKey = Rfc2898DeriveBytes.Pbkdf2(
                 passwordBytes, salt, CurrentIterations, HashAlgorithmName.SHA256, HashSizeBytes);
             try
             {
-                return string.Join('
+                return string.Join('$',
+                    Algorithm,
+                    CurrentIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Convert.ToBase64String(salt),
+                    Convert.ToBase64String(derivedKey));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(derivedKey);
+                CryptographicOperations.ZeroMemory(salt);
+            }
         }
         finally
         {
@@ -59,9 +70,11 @@ public sealed class StaffPasswordHasher
             return false;
         }
 
+        byte[] salt = [];
+        byte[] expectedHash = [];
         try
         {
-            if (!TryParse(encodedHash, out var iterations, out var salt, out var expectedHash))
+            if (!TryParse(encodedHash, out var iterations, out salt, out expectedHash))
                 return false;
 
             var actualHash = Rfc2898DeriveBytes.Pbkdf2(
@@ -73,19 +86,21 @@ public sealed class StaffPasswordHasher
             finally
             {
                 CryptographicOperations.ZeroMemory(actualHash);
-                CryptographicOperations.ZeroMemory(expectedHash);
             }
         }
         finally
         {
             CryptographicOperations.ZeroMemory(passwordBytes);
+            CryptographicOperations.ZeroMemory(salt);
+            CryptographicOperations.ZeroMemory(expectedHash);
         }
     }
 
     /// <summary>Signals when a successfully verified credential should be re-hashed.</summary>
     public bool NeedsRehash(string? encodedHash)
     {
-        return !TryParse(encodedHash, out var iterations, out _, out _)
+        return encodedHash is null
+            || !TryParse(encodedHash, out var iterations, out _, out _)
             || iterations < CurrentIterations;
     }
 
@@ -117,92 +132,20 @@ public sealed class StaffPasswordHasher
         }
         catch (FormatException)
         {
+            CryptographicOperations.ZeroMemory(salt);
+            CryptographicOperations.ZeroMemory(expectedHash);
+            salt = [];
+            expectedHash = [];
             return false;
         }
 
-        return salt.Length == SaltSizeBytes && expectedHash.Length == HashSizeBytes;
-    }
-}
-,
-                    Algorithm,
-                    CurrentIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    Convert.ToBase64String(salt),
-                    Convert.ToBase64String(derivedKey));
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(derivedKey);
-            }
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(passwordBytes);
-        }
-    }
+        if (salt.Length == SaltSizeBytes && expectedHash.Length == HashSizeBytes)
+            return true;
 
-    /// <summary>
-    /// Returns false for malformed, unsupported, or out-of-policy hashes.
-    /// Iteration counts are bounded before running PBKDF2 to prevent attacker-controlled CPU exhaustion.
-    /// </summary>
-    public bool Verify(string password, string? encodedHash)
-    {
-        if (password is null || encodedHash is null)
-            return false;
-
-        var passwordBytes = Encoding.UTF8.GetBytes(password);
-        if (passwordBytes.Length is 0 or > PasswordMaximumBytes)
-            return false;
-
-        try
-        {
-            if (!TryParse(encodedHash, out var iterations, out var salt, out var expectedHash))
-                return false;
-
-            var actualHash = Rfc2898DeriveBytes.Pbkdf2(
-                passwordBytes, salt, iterations, HashAlgorithmName.SHA256, HashSizeBytes);
-            return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(passwordBytes);
-        }
-    }
-
-    /// <summary>Signals when a successfully verified credential should be re-hashed.</summary>
-    public bool NeedsRehash(string? encodedHash)
-    {
-        return !TryParse(encodedHash, out var iterations, out _, out _)
-            || iterations < CurrentIterations;
-    }
-
-    private static bool TryParse(
-        string encodedHash,
-        out int iterations,
-        out byte[] salt,
-        out byte[] expectedHash)
-    {
-        iterations = 0;
+        CryptographicOperations.ZeroMemory(salt);
+        CryptographicOperations.ZeroMemory(expectedHash);
         salt = [];
         expectedHash = [];
-
-        var parts = encodedHash.Split('$');
-        if (parts.Length != 4
-            || !string.Equals(parts[0], Algorithm, StringComparison.Ordinal)
-            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture, out iterations)
-            || iterations is < MinimumIterations or > MaximumIterations)
-            return false;
-
-        try
-        {
-            salt = Convert.FromBase64String(parts[2]);
-            expectedHash = Convert.FromBase64String(parts[3]);
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-
-        return salt.Length == SaltSizeBytes && expectedHash.Length == HashSizeBytes;
+        return false;
     }
 }
