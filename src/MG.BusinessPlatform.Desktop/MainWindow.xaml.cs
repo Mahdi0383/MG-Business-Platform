@@ -175,7 +175,7 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await DatabaseInitializer.InitializeAsync(db);
+            await DatabaseInitializer.InitializeAsync(db, defaultBranchId: _sessionBranchId);
 
             await LoadSettingsAsync();
             try
