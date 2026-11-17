@@ -50,7 +50,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var existingInvoice = await FindExistingPosSaleAsync(effectiveIdempotencyKey,
             [new PosSaleLineRequest(productId, quantity)], customerName, customerPhone,
-            paymentMethod, paymentReference, paymentNotes, cancellationToken);
+            paymentMethod, paymentReference, paymentNotes, saleDate, cancellationToken);
         if (existingInvoice is not null)
         {
             await transaction.CommitAsync(cancellationToken);
@@ -176,7 +176,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var existingInvoice = await FindExistingPosSaleAsync(effectiveIdempotencyKey,
-            requestedLines, customerName, customerPhone, paymentMethod, paymentReference, paymentNotes, cancellationToken);
+            requestedLines, customerName, customerPhone, paymentMethod, paymentReference, paymentNotes, saleDate, cancellationToken);
         if (existingInvoice is not null)
         {
             await transaction.CommitAsync(cancellationToken);
@@ -618,6 +618,7 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         string paymentMethod,
         string paymentReference,
         string paymentNotes,
+        DateOnly saleDate,
         CancellationToken cancellationToken)
     {
         var existingOrder = await db.CustomerOrders
@@ -646,6 +647,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         var invoice = await db.SalesInvoices.Include(x => x.Lines)
             .SingleOrDefaultAsync(x => x.OrderId == existingOrder.Id, cancellationToken)
             ?? throw new InvalidOperationException("The prior POS request exists without its invoice; manual reconciliation is required.");
+        if (invoice.IssueDate != saleDate)
+            throw new InvalidOperationException("The idempotency key has already been used with a different sale date.");
 
         if (invoice.TotalAmount > 0m)
         {
