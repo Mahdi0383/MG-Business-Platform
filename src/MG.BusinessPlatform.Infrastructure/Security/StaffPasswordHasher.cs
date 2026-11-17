@@ -23,18 +23,116 @@ public sealed class StaffPasswordHasher
         ArgumentNullException.ThrowIfNull(password);
         var passwordBytes = Encoding.UTF8.GetBytes(password);
         if (passwordBytes.Length is 0 or > PasswordMaximumBytes)
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
             throw new ArgumentException($"Password must contain between 1 and {PasswordMaximumBytes} UTF-8 bytes.", nameof(password));
+        }
 
         var salt = RandomNumberGenerator.GetBytes(SaltSizeBytes);
         try
         {
             var derivedKey = Rfc2898DeriveBytes.Pbkdf2(
                 passwordBytes, salt, CurrentIterations, HashAlgorithmName.SHA256, HashSizeBytes);
-            return string.Join('$',
-                Algorithm,
-                CurrentIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                Convert.ToBase64String(salt),
-                Convert.ToBase64String(derivedKey));
+            try
+            {
+                return string.Join('
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+        }
+    }
+
+    /// <summary>
+    /// Returns false for malformed, unsupported, or out-of-policy hashes.
+    /// Iteration counts are bounded before running PBKDF2 to prevent attacker-controlled CPU exhaustion.
+    /// </summary>
+    public bool Verify(string password, string? encodedHash)
+    {
+        if (password is null || encodedHash is null)
+            return false;
+
+        var passwordBytes = Encoding.UTF8.GetBytes(password);
+        if (passwordBytes.Length is 0 or > PasswordMaximumBytes)
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+            return false;
+        }
+
+        try
+        {
+            if (!TryParse(encodedHash, out var iterations, out var salt, out var expectedHash))
+                return false;
+
+            var actualHash = Rfc2898DeriveBytes.Pbkdf2(
+                passwordBytes, salt, iterations, HashAlgorithmName.SHA256, HashSizeBytes);
+            try
+            {
+                return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(actualHash);
+                CryptographicOperations.ZeroMemory(expectedHash);
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(passwordBytes);
+        }
+    }
+
+    /// <summary>Signals when a successfully verified credential should be re-hashed.</summary>
+    public bool NeedsRehash(string? encodedHash)
+    {
+        return !TryParse(encodedHash, out var iterations, out _, out _)
+            || iterations < CurrentIterations;
+    }
+
+    private static bool TryParse(
+        string encodedHash,
+        out int iterations,
+        out byte[] salt,
+        out byte[] expectedHash)
+    {
+        iterations = 0;
+        salt = [];
+        expectedHash = [];
+
+        if (encodedHash.Length > 256)
+            return false;
+
+        var parts = encodedHash.Split('$');
+        if (parts.Length != 4
+            || !string.Equals(parts[0], Algorithm, StringComparison.Ordinal)
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out iterations)
+            || iterations is < MinimumIterations or > MaximumIterations)
+            return false;
+
+        try
+        {
+            salt = Convert.FromBase64String(parts[2]);
+            expectedHash = Convert.FromBase64String(parts[3]);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        return salt.Length == SaltSizeBytes && expectedHash.Length == HashSizeBytes;
+    }
+}
+,
+                    Algorithm,
+                    CurrentIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Convert.ToBase64String(salt),
+                    Convert.ToBase64String(derivedKey));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(derivedKey);
+            }
         }
         finally
         {
