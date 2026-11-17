@@ -101,7 +101,7 @@ public sealed class BranchInventoryServiceTests
         Assert.Contains(await store.Db.AuditEvents.AsNoTracking().ToListAsync(),
             audit => audit.StaffUserId == staffUserId && audit.BranchId == store.BranchId);
 
-        store.Db.StaffBranchAccesses.Add(new StaffBranchAccessRecord
+        store.Db.StaffBranchAccess.Add(new StaffBranchAccessRecord
         {
             BusinessId = store.BusinessId,
             StaffUserId = staffUserId,
