@@ -19,11 +19,13 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             || settings.DefaultBranchId is not Guid branchId || branchId == Guid.Empty)
             throw new InvalidOperationException("The configured business or default branch identity is missing.");
 
+        var businessIsActive = await db.Businesses.AsNoTracking()
+            .AnyAsync(x => x.Id == businessId && x.IsActive, cancellationToken);
         var valid = await db.Branches.AsNoTracking().AnyAsync(
             x => x.Id == branchId && x.BusinessId == businessId && x.IsActive,
             cancellationToken);
-        if (!valid)
-            throw new InvalidOperationException("The configured default branch is missing, inactive, or belongs to another business.");
+        if (!businessIsActive || !valid)
+            throw new InvalidOperationException("The configured business or default branch is missing or inactive.");
         return branchId;
     }
 
@@ -34,6 +36,12 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         CancellationToken cancellationToken = default)
     {
         ValidateIdentity(businessId, branchId, productId);
+        var branchIsValid = await db.Branches.AsNoTracking().AnyAsync(
+            x => x.Id == branchId && x.BusinessId == businessId && x.IsActive, cancellationToken);
+        var businessIsActive = await db.Businesses.AsNoTracking()
+            .AnyAsync(x => x.Id == businessId && x.IsActive, cancellationToken);
+        if (!branchIsValid || !businessIsActive)
+            throw new InvalidOperationException("The selected business or branch is missing, inactive, or mismatched.");
         var product = await db.StoreProducts.SingleOrDefaultAsync(
             x => x.Id == productId && x.BusinessId == businessId, cancellationToken)
             ?? throw new KeyNotFoundException("The product was not found in the selected business.");
@@ -93,8 +101,10 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             var branchIsValid = await db.Branches.AsNoTracking().AnyAsync(
                 x => x.Id == branchId && x.BusinessId == businessId && x.IsActive,
                 cancellationToken);
-            if (!branchIsValid)
-                throw new InvalidOperationException("The selected branch is missing, inactive, or belongs to another business.");
+            var businessIsActive = await db.Businesses.AsNoTracking()
+                .AnyAsync(x => x.Id == businessId && x.IsActive, cancellationToken);
+            if (!branchIsValid || !businessIsActive)
+                throw new InvalidOperationException("The selected business or branch is missing, inactive, or mismatched.");
 
             var product = await db.StoreProducts.SingleOrDefaultAsync(
                 x => x.Id == productId && x.BusinessId == businessId,
