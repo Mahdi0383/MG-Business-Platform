@@ -2945,38 +2945,23 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var inventory = new BranchInventoryService(db);
             foreach (var line in order.Lines)
             {
-                var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == line.ProductId);
+                var product = await db.StoreProducts.SingleOrDefaultAsync(
+                    x => x.Id == line.ProductId && x.BusinessId == businessId);
                 if (product is null)
                 {
                     StatusText.Text = $"کالای سفارش «{line.ProductName}» پیدا نشد؛ برای جلوگیری از مغایرت، لغو انجام نشد.";
                     return;
                 }
-                var restoredAt = DateTimeOffset.UtcNow;
-                var affected = await db.StoreProducts
-                    .Where(x => x.Id == product.Id && x.StockQuantity <= int.MaxValue - line.Quantity)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(x => x.StockQuantity, x => x.StockQuantity + line.Quantity)
-                        .SetProperty(x => x.UpdatedAt, restoredAt));
-                if (affected != 1)
-                {
-                    StatusText.Text = $"موجودی کالای «{line.ProductName}» هم‌زمان تغییر کرده یا از محدوده مجاز خارج می‌شود؛ لغو انجام نشد.";
-                    return;
-                }
-                db.StockMovements.Add(new StockMovementRecord
-                {
-                    Id = Guid.NewGuid(),
-                    ProductId = product.Id,
-                    OccurredAt = DateTimeOffset.UtcNow,
-                    MovementType = "WebOrderCancellation",
-                    Quantity = line.Quantity,
-                    SignedQuantity = line.Quantity,
-                    UnitCost = line.UnitCost,
-                    CurrencyCode = order.CurrencyCode,
-                    Reference = order.OrderNumber,
-                    Note = "Stock restored after order cancellation"
-                });
+                await inventory.ApplyMovementAsync(
+                    businessId, _sessionBranchId, product.Id, line.Quantity, line.UnitCost,
+                    order.CurrencyCode, "WebOrderCancellation", order.OrderNumber,
+                    "Stock restored after order cancellation");
             }
 
             order.Status = "Cancelled";
