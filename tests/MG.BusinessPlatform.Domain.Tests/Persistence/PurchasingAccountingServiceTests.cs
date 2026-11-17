@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -20,17 +21,29 @@ public sealed class PurchasingAccountingServiceTests
         var branchId = Guid.NewGuid();
         db.Businesses.Add(new BusinessRecord
         {
-            Id = businessId, LegalName = "Purchase test business", DisplayName = "Purchase test business",
-            DefaultCurrencyCode = "IRR", TimeZoneId = "UTC", IsActive = true
+            Id = businessId,
+            LegalName = "Purchase test business",
+            DisplayName = "Purchase test business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
         });
         db.Branches.Add(new BranchRecord
         {
-            Id = branchId, BusinessId = businessId, Code = "MAIN", Name = "Main branch", IsActive = true
+            Id = branchId,
+            BusinessId = businessId,
+            Code = "MAIN",
+            Name = "Main branch",
+            IsActive = true
         });
         db.StoreSettings.Add(new StoreSettings
         {
-            Id = 1, BusinessId = businessId, DefaultBranchId = branchId,
-            StoreName = "Purchase test business", CurrencyCode = "IRR", UpdatedAt = DateTimeOffset.UtcNow
+            Id = 1,
+            BusinessId = businessId,
+            DefaultBranchId = branchId,
+            StoreName = "Purchase test business",
+            CurrencyCode = "IRR",
+            UpdatedAt = DateTimeOffset.UtcNow
         });
         db.LedgerAccounts.AddRange(
             Account(businessId, "1000", "Cash", "Asset"),
@@ -40,13 +53,29 @@ public sealed class PurchasingAccountingServiceTests
             Account(businessId, "2000", "Accounts payable", "Liability"));
         db.Suppliers.Add(new SupplierRecord
         {
-            Id = supplierId, BusinessId = businessId, DisplayName = "Supplier A", Phone = "", Email = "", Address = "",
-            TaxIdentifier = "", PaymentTerms = "", CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+            Id = supplierId,
+            BusinessId = businessId,
+            DisplayName = "Supplier A",
+            Phone = "",
+            Email = "",
+            Address = "",
+            TaxIdentifier = "",
+            PaymentTerms = "",
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsActive = true
         });
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = productId, BusinessId = businessId, Sku = "PURCHASE-1", Name = "Widget", UnitPrice = 30m, UnitCost = 10m,
-            CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            Id = productId,
+            BusinessId = businessId,
+            Sku = "PURCHASE-1",
+            Name = "Widget",
+            UnitPrice = 30m,
+            UnitCost = 10m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
 
