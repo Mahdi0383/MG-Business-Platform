@@ -60,6 +60,13 @@ public sealed class ReservationPersistenceTests
         Assert.Equal(19, overlappingInsert.SqliteErrorCode);
         Assert.Contains("reservation_overlap", overlappingInsert.Message, StringComparison.Ordinal);
 
+        // The same instant expressed with a non-UTC offset must still overlap.
+        var offsetOverlap = await Assert.ThrowsAsync<SqliteException>(() =>
+            InsertReservation(Guid.NewGuid(), "Requested",
+                "2026-11-17T12:30:00.0000000+02:00", "2026-11-17T13:30:00.0000000+02:00"));
+        Assert.Equal(19, offsetOverlap.SqliteErrorCode);
+        Assert.Contains("reservation_overlap", offsetOverlap.Message, StringComparison.Ordinal);
+
         var adjacentId = Guid.NewGuid();
         await InsertReservation(adjacentId, "Requested",
             day + "11:00:00.0000000+00:00", day + "12:00:00.0000000+00:00");
