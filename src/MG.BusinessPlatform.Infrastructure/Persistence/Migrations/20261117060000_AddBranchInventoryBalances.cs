@@ -68,6 +68,19 @@ public sealed class AddBranchInventoryBalances : Migration
             """);
 
         migrationBuilder.Sql("""
+            CREATE TRIGGER TR_StoreProducts_BusinessOwnership_Immutable_When_InventoryExists
+            BEFORE UPDATE OF BusinessId ON StoreProducts
+            FOR EACH ROW
+            WHEN EXISTS (
+                SELECT 1 FROM BranchInventoryBalances
+                WHERE ProductId = OLD.Id AND BusinessId != NEW.BusinessId
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'Product business ownership cannot change while branch inventory exists.');
+            END;
+            """);
+
+        migrationBuilder.Sql("""
             CREATE TRIGGER TR_BranchInventoryBalances_Update_Ownership
             BEFORE UPDATE OF BusinessId, BranchId, ProductId ON BranchInventoryBalances
             FOR EACH ROW
@@ -87,6 +100,7 @@ public sealed class AddBranchInventoryBalances : Migration
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.Sql("DROP TRIGGER IF EXISTS TR_BranchInventoryBalances_Update_Ownership;");
+        migrationBuilder.Sql("DROP TRIGGER IF EXISTS TR_StoreProducts_BusinessOwnership_Immutable_When_InventoryExists;");
         migrationBuilder.Sql("DROP TRIGGER IF EXISTS TR_BranchInventoryBalances_Insert_Ownership;");
         migrationBuilder.DropTable(name: "BranchInventoryBalances");
     }
