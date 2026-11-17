@@ -101,6 +101,58 @@ public sealed class OrganizationBootstrapTests
     }
 
     [Fact]
+    public async Task StoreSettings_CannotReferenceBranchOwnedByAnotherBusiness()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+
+        var firstBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "First",
+            DisplayName = "First",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var secondBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Second",
+            DisplayName = "Second",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = secondBusiness.Id,
+            Code = "MAIN",
+            Name = "Second main branch",
+            IsActive = true
+        };
+        db.Businesses.AddRange(firstBusiness, secondBusiness);
+        db.Branches.Add(foreignBranch);
+        await db.SaveChangesAsync();
+
+        db.StoreSettings.Add(new StoreSettings
+        {
+            Id = 1,
+            BusinessId = firstBusiness.Id,
+            DefaultBranchId = foreignBranch.Id,
+            StoreName = "First store",
+            CurrencyCode = "IRR",
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
     public async Task InitializeAsync_RejectsEmptyLegacyBranchIdentity()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
