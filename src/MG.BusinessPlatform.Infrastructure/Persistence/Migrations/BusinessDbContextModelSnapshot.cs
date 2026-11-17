@@ -127,6 +127,25 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             });
         });
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
+        {
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid>("BranchId").HasColumnType("TEXT");
+            b.Property<Guid>("ProductId").HasColumnType("TEXT");
+            b.Property<int>("Quantity").HasColumnType("INTEGER");
+            b.Property<decimal>("AverageUnitCost").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("TEXT");
+            b.HasKey("BusinessId", "BranchId", "ProductId");
+            b.HasIndex("BusinessId", "ProductId");
+            b.HasIndex("ProductId");
+            b.ToTable("BranchInventoryBalances", t =>
+            {
+                t.HasCheckConstraint("CK_BranchInventoryBalance_Quantity", "Quantity >= 0");
+                t.HasCheckConstraint("CK_BranchInventoryBalance_AverageUnitCost",
+                    "CAST(AverageUnitCost AS NUMERIC) >= 0");
+            });
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.LedgerAccountRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -409,6 +428,21 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.HasIndex("IdempotencyKey").IsUnique();
             b.HasIndex("OrderNumber").IsUnique();
             b.ToTable("CustomerOrders", t => t.HasCheckConstraint("CK_CustomerOrder_Total", "CAST(TotalAmount AS NUMERIC) >= 0"));
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", null)
+                .WithMany()
+                .HasForeignKey("ProductId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StockMovementRecord", b =>
