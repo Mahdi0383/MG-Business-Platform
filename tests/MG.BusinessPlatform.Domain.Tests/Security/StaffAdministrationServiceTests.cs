@@ -201,6 +201,14 @@ public sealed class StaffAdministrationServiceTests
         var secondOwnerContext = await resolver.ResolveAsync(secondOwnerLogin.Token);
         Assert.NotNull(secondOwnerContext);
 
+        Guid thirdOwnerId;
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            thirdOwnerId = await administration.CreateStaffAsync(
+                "third-owner", "Third Owner", "Third-Owner-Passphrase-2026!",
+                "Owner", [store.MainBranchId]);
+        }
+
         using (StaffRequestContextScope.Push(ownerContext!))
         {
             await administration.UpdateStaffAccessAsync(
@@ -221,6 +229,8 @@ public sealed class StaffAdministrationServiceTests
         Assert.True(remainingOwner.IsActive);
         Assert.Equal("Cashier", (await store.Db.StaffUsers.AsNoTracking()
             .SingleAsync(x => x.Id == secondOwnerId)).Role);
+        Assert.Equal("Owner", (await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == thirdOwnerId)).Role);
     }
 
     [Fact]
