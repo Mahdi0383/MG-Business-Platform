@@ -57,6 +57,9 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             ?? throw new InvalidOperationException("The local business is not configured.");
         if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
             throw new InvalidOperationException("The local business identity is missing.");
+        if (!await db.Businesses.AsNoTracking().AnyAsync(
+                x => x.Id == businessId && x.IsActive, cancellationToken))
+            throw new InvalidOperationException("The configured business is inactive or missing.");
 
         var branchIsOwnedAndActive = await db.Branches.AsNoTracking()
             .AnyAsync(x => x.Id == branchId && x.BusinessId == businessId && x.IsActive, cancellationToken);
@@ -98,7 +101,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         if (total <= 0m)
             throw new InvalidOperationException("A purchase invoice total must be greater than zero.");
 
-        var accounts = await LoadPostingAccountsAsync(["1200", "2000"], cancellationToken);
+        var accounts = await LoadPostingAccountsAsync(businessId, ["1200", "2000"], cancellationToken);
         var invoiceId = Guid.NewGuid();
         var invoiceNumber = $"PUR-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..29].ToUpperInvariant();
         var now = DateTimeOffset.UtcNow;
@@ -205,8 +208,19 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         };
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty
+            || !await db.Businesses.AsNoTracking().AnyAsync(
+                x => x.Id == businessId && x.IsActive, cancellationToken))
+            throw new InvalidOperationException("The configured business is inactive or missing.");
+
         var invoice = await db.PurchaseInvoices.SingleOrDefaultAsync(x => x.Id == purchaseInvoiceId, cancellationToken)
             ?? throw new KeyNotFoundException("Purchase invoice was not found.");
+        if (!await db.Branches.AsNoTracking().AnyAsync(
+                x => x.Id == invoice.BranchId && x.BusinessId == businessId, cancellationToken))
+            throw new InvalidOperationException("The purchase invoice belongs to another business or an unknown branch.");
         if (invoice.Status == "Voided")
             throw new InvalidOperationException("A voided purchase invoice cannot receive payments.");
         var outstanding = checked(invoice.TotalAmount - invoice.PaidAmount);
@@ -215,7 +229,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         if (amount > outstanding)
             throw new InvalidOperationException($"Payment exceeds the outstanding balance of {outstanding:N2} {invoice.CurrencyCode}.");
 
-        var accounts = await LoadPostingAccountsAsync(["2000", cashAccountCode], cancellationToken);
+        var accounts = await LoadPostingAccountsAsync(businessId, ["2000", cashAccountCode], cancellationToken);
         var paymentId = Guid.NewGuid();
         var now = (occurredAt ?? DateTimeOffset.UtcNow).ToUniversalTime();
         var entryDate = DateOnly.FromDateTime(now.UtcDateTime);
@@ -249,9 +263,10 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
     }
 
     private async Task<Dictionary<string, LedgerAccountRecord>> LoadPostingAccountsAsync(
-        string[] codes, CancellationToken cancellationToken)
+        Guid businessId, string[] codes, CancellationToken cancellationToken)
     {
-        var accounts = await db.LedgerAccounts.Where(x => codes.Contains(x.Code))
+        var accounts = await db.LedgerAccounts
+            .Where(x => x.BusinessId == businessId && codes.Contains(x.Code))
             .ToDictionaryAsync(x => x.Code, cancellationToken);
         foreach (var code in codes)
             if (!accounts.TryGetValue(code, out var account) || !account.IsActive || !account.IsPostingAllowed)
