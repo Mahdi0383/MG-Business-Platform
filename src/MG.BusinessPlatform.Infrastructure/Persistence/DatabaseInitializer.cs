@@ -161,15 +161,18 @@ public static class DatabaseInitializer
             .Select(x => x.Id)
             .OrderBy(x => x.ToString("N"), StringComparer.Ordinal)
             .ToArray();
-        var defaultId = settings.DefaultBranchId ?? requestedDefaultBranchId
+        var defaultId = settings.DefaultBranchId
             ?? (legacyBranchIds.Count > 0
-                ? legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
-                : existingBusinessBranchIds.Length == 1
-                    ? existingBusinessBranchIds[0]
-                    : existingBusinessBranchIds.Length > 1
-                        ? throw new InvalidDataException(
-                            "Multiple branches exist but no default branch is configured. An explicit default branch selection is required.")
-                        : Guid.NewGuid());
+                ? legacyBranchIds.Contains(requestedDefaultBranchId ?? Guid.Empty)
+                    ? requestedDefaultBranchId.Value
+                    : legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
+                : requestedDefaultBranchId
+                    ?? (existingBusinessBranchIds.Length == 1
+                        ? existingBusinessBranchIds[0]
+                        : existingBusinessBranchIds.Length > 1
+                            ? throw new InvalidDataException(
+                                "Multiple branches exist but no default branch is configured. An explicit default branch selection is required.")
+                            : Guid.NewGuid()));
 
         legacyBranchIds.Add(defaultId);
 
