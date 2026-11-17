@@ -30,6 +30,41 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.ToTable("Businesses");
         });
 
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffSessionRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "StaffUserId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffBranchAccessRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "StaffUserId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -43,6 +78,62 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.HasAlternateKey("BusinessId", "Id");
             b.HasIndex("BusinessId", "Code").IsUnique();
             b.ToTable("Branches");
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<string>("UserNameNormalized").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
+            b.Property<string>("DisplayName").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
+            b.Property<string>("PasswordHash").IsRequired().HasMaxLength(256).HasColumnType("TEXT");
+            b.Property<string>("Role").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<bool>("MustChangePassword").HasColumnType("INTEGER");
+            b.Property<int>("FailedLoginCount").HasColumnType("INTEGER");
+            b.Property<DateTimeOffset?>("LockedUntilUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset?>("LastLoginAtUtc").HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasAlternateKey("BusinessId", "Id");
+            b.HasIndex("BusinessId", "UserNameNormalized").IsUnique();
+            b.ToTable("StaffUsers", t =>
+            {
+                t.HasCheckConstraint("CK_StaffUser_FailedLoginCount", "FailedLoginCount >= 0");
+                t.HasCheckConstraint("CK_StaffUser_Role", "Role IN ('Owner','Administrator','Manager','Cashier','Accountant','ReservationOperator','ReadOnly')");
+            });
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffSessionRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid>("StaffUserId").HasColumnType("TEXT");
+            b.Property<string>("TokenHash").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("ExpiresAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset?>("RevokedAtUtc").HasColumnType("TEXT");
+            b.Property<DateTimeOffset?>("LastSeenAtUtc").HasColumnType("TEXT");
+            b.Property<string>("ClientLabel").IsRequired().HasMaxLength(120).HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("TokenHash").IsUnique();
+            b.HasIndex("BusinessId", "StaffUserId", "ExpiresAtUtc");
+            b.ToTable("StaffSessions", t =>
+            {
+                t.HasCheckConstraint("CK_StaffSession_Expiry", "ExpiresAtUtc > CreatedAtUtc");
+            });
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffBranchAccessRecord", b =>
+        {
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid>("StaffUserId").HasColumnType("TEXT");
+            b.Property<Guid>("BranchId").HasColumnType("TEXT");
+            b.Property<DateTimeOffset>("GrantedAtUtc").HasColumnType("TEXT");
+            b.HasKey("BusinessId", "StaffUserId", "BranchId");
+            b.HasIndex("BusinessId", "BranchId");
+            b.ToTable("StaffBranchAccess");
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.AuditEventRecord", b =>
