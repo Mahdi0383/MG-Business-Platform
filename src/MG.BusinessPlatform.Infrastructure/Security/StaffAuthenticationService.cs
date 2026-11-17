@@ -152,7 +152,7 @@ public sealed class StaffAuthenticationService(
 
         if (!passwordValid)
         {
-            if (user.LockedUntilUtc <= now)
+            if (user.LockedUntilUtc is null || user.LockedUntilUtc <= now)
             {
                 user.FailedLoginCount = Math.Min(user.FailedLoginCount, MaximumFailedAttempts - 1) + 1;
                 user.LockedUntilUtc = user.FailedLoginCount >= MaximumFailedAttempts
