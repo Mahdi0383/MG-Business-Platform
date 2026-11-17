@@ -173,6 +173,36 @@ public sealed class BusinessOwnedCatalogTests
     }
 
     [Fact]
+    public async Task SaveChanges_PreventsReassigningProvisionedStoreToAnotherBusiness()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db, defaultBranchId: Guid.NewGuid());
+
+        var originalBusinessId = (await db.StoreSettings.AsNoTracking().SingleAsync()).BusinessId;
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Other business",
+            DisplayName = "Other business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        db.Businesses.Add(foreignBusiness);
+        await db.SaveChangesAsync();
+
+        var settings = await db.StoreSettings.SingleAsync();
+        settings.BusinessId = foreignBusiness.Id;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+        Assert.Equal(originalBusinessId,
+            (await db.StoreSettings.AsNoTracking().SingleAsync()).BusinessId);
+    }
+
+    [Fact]
     public async Task SaveChanges_PreventsChangingExistingRecordBusinessId()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
