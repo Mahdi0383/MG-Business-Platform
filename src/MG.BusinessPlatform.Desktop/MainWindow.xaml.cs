@@ -453,7 +453,7 @@ public partial class MainWindow : Window
             var stockMovementRows = await (
                 from movement in db.StockMovements.AsNoTracking()
                 join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
-                where movement.BranchId == _sessionBranchId
+                where movement.BusinessId == businessId && movement.BranchId == _sessionBranchId
                 select new
                 {
                     movement.OccurredAt,
