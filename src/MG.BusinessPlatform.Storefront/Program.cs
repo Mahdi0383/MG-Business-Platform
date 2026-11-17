@@ -550,8 +550,13 @@ app.MapPost("/api/storefront/orders", async (
                 existingInTransaction.TotalAmount, existingInTransaction.CurrencyCode, existingInTransaction.Status));
         }
 
+        if (storeSettings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            return Results.Problem("The store business identity is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        var inventory = new BranchInventoryService(db);
+        var branchId = await inventory.GetDefaultBranchIdAsync(ct);
         var productIds = requested.Keys.ToArray();
-        var products = await db.StoreProducts.Where(x => productIds.Contains(x.Id) && x.IsAvailable)
+        var products = await db.StoreProducts
+            .Where(x => productIds.Contains(x.Id) && x.BusinessId == businessId && x.IsAvailable)
             .ToDictionaryAsync(x => x.Id, ct);
         if (products.Count != requested.Count)
             return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -566,8 +571,9 @@ app.MapPost("/api/storefront/orders", async (
         foreach (var (id, quantity) in requested)
         {
             var product = products[id];
-            if (product.StockQuantity < quantity)
-                return Results.Conflict(new { error = $"Insufficient stock for {product.Name}." });
+            var availableQuantity = await inventory.GetOnHandAsync(businessId, branchId, id, ct);
+            if (availableQuantity < quantity)
+                return Results.Conflict(new { error = $"Insufficient stock at the selected branch for {product.Name}." });
         }
 
         decimal total = 0m;
@@ -590,16 +596,20 @@ app.MapPost("/api/storefront/orders", async (
             var product = products[id];
             var lineTotal = checked(product.UnitPrice * quantity);
             total = checked(total + lineTotal);
-            var updatedAt = DateTimeOffset.UtcNow;
-            var affected = await db.StoreProducts
-                .Where(x => x.Id == id && x.IsAvailable && x.StockQuantity >= quantity
-                    && x.UnitPrice == product.UnitPrice && x.UnitCost == product.UnitCost
-                    && x.CurrencyCode == product.CurrencyCode)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
-                    .SetProperty(x => x.UpdatedAt, updatedAt), ct);
-            if (affected != 1)
+            try
+            {
+                await inventory.ApplyMovementAsync(
+                    businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
+                    "WebOrderIssue", order.OrderNumber, "Stock reserved for customer web order", ct,
+                    expectedUnitPrice: product.UnitPrice,
+                    expectedUnitCost: product.UnitCost,
+                    expectedCurrencyCode: product.CurrencyCode,
+                    requireAvailable: true);
+            }
+            catch (InvalidOperationException)
+            {
                 return Results.Conflict(new { error = $"Stock or price changed for {product.Name}. Refresh the catalog and retry." });
+            }
 
             order.Lines.Add(new CustomerOrderLine
             {
@@ -610,19 +620,6 @@ app.MapPost("/api/storefront/orders", async (
                 UnitCost = product.UnitCost,
                 Quantity = quantity,
                 LineTotal = lineTotal
-            });
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                ProductId = product.Id,
-                OccurredAt = DateTimeOffset.UtcNow,
-                MovementType = "WebOrderIssue",
-                Quantity = quantity,
-                SignedQuantity = -quantity,
-                UnitCost = product.UnitCost,
-                CurrencyCode = product.CurrencyCode,
-                Reference = order.OrderNumber,
-                Note = "Stock reserved for customer web order"
             });
         }
 
