@@ -178,7 +178,7 @@ public static class DatabaseInitializer
                     .SingleAsync(cancellationToken))
             {
                 throw new InvalidDataException(
-                    "Legacy stock movements have no branch history and this business has multiple active branches. An explicit stock-to-branch migration mapping is required; no stock history was reassigned.");
+                    "Legacy stock movements have no branch history and this business has multiple branches. An explicit stock-to-branch migration mapping is required; no stock history was reassigned.");
             }
         }
 
