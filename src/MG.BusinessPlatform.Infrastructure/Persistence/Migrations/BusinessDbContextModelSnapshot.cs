@@ -453,22 +453,6 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             });
         });
 
-        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
-        {
-            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
-            b.Property<Guid>("BranchId").HasColumnType("TEXT");
-            b.Property<Guid>("ProductId").HasColumnType("TEXT");
-            b.Property<int>("OnHandQuantity").HasColumnType("INTEGER");
-            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("TEXT");
-            b.HasKey("BusinessId", "BranchId", "ProductId");
-            b.HasIndex("BusinessId", "ProductId", "BranchId");
-            b.HasIndex("ProductId");
-            b.ToTable("BranchInventoryBalances", t =>
-            {
-                t.HasCheckConstraint("CK_BranchInventoryBalance_OnHand", "OnHandQuantity >= 0");
-            });
-        });
-
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -541,21 +525,6 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 .WithMany()
                 .HasForeignKey("BusinessId", "BranchId")
                 .HasPrincipalKey("BusinessId", "Id")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-        });
-
-        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchInventoryBalanceRecord", b =>
-        {
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
-                .WithMany()
-                .HasForeignKey("BusinessId", "BranchId")
-                .HasPrincipalKey("BusinessId", "Id")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", null)
-                .WithMany()
-                .HasForeignKey("ProductId")
                 .OnDelete(DeleteBehavior.Restrict)
                 .IsRequired();
         });
