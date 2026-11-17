@@ -336,14 +336,14 @@ public sealed class PurchasingAccountingServiceTests
                 StockQuantity = 5,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
-                    db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
-                    {
-                        BusinessId = businessId,
-                        BranchId = branchId,
-                        ProductId = productId,
-                        OnHandQuantity = 5,
-                        UpdatedAtUtc = DateTimeOffset.UtcNow
-                    });
+            db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+            {
+                BusinessId = businessId,
+                BranchId = branchId,
+                ProductId = productId,
+                OnHandQuantity = 5,
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            });
             await db.SaveChangesAsync();
             return new PurchasingFixture(connection, db, supplierId, productId, branchId);
         }
