@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
+using MG.BusinessPlatform.Infrastructure.Security;
+
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
 public sealed record PosSaleLineRequest(Guid ProductId, int Quantity, decimal? ExpectedUnitPrice = null);
@@ -131,7 +133,8 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             expectedUnitPrice: product.UnitPrice,
             expectedUnitCost: product.UnitCost,
             expectedCurrencyCode: product.CurrencyCode,
-            requireAvailable: true);
+            requireAvailable: true,
+            requiredPermission: StaffPermission.SalesCreate);
 
         db.CustomerOrders.Add(order);
 
