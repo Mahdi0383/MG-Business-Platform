@@ -210,7 +210,7 @@ public sealed class StaffAdministrationServiceTests
         // Simulate a request that resolved its Owner context just before its session/role was revoked.
         using (StaffRequestContextScope.Push(secondOwnerContext!))
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
                 administration.UpdateStaffAccessAsync(
                     ownerLogin.Identity.StaffUserId, "Cashier", true, [store.MainBranchId]));
         }
