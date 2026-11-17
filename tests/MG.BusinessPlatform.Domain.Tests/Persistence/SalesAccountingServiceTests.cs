@@ -60,11 +60,15 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid()
-            Sku = "POS-NEGATIVE"
+            Id = Guid.NewGuid(),
+            Sku = "POS-NEGATIVE",
             Name = "Invalid product",
-            UnitPrice = 10m, UnitCost = -1m, CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            UnitPrice = 10m,
+            UnitCost = -1m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
         await db.SaveChangesAsync();
@@ -209,8 +213,14 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-ITEM-1", Name = "POS item", UnitPrice = 100m,
-            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            Id = Guid.NewGuid(),
+            Sku = "POS-ITEM-1",
+            Name = "POS item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
@@ -244,14 +254,26 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var first = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-MULTI-1", Name = "First item", UnitPrice = 100m,
-            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            Id = Guid.NewGuid(),
+            Sku = "POS-MULTI-1",
+            Name = "First item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         var second = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-MULTI-2", Name = "Second item", UnitPrice = 50m,
-            UnitCost = 20m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 7,
+            Id = Guid.NewGuid(),
+            Sku = "POS-MULTI-2",
+            Name = "Second item",
+            UnitPrice = 50m,
+            UnitCost = 20m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.AddRange(first, second);
@@ -283,8 +305,14 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-STALE-PRICE", Name = "Changed item", UnitPrice = 120m,
-            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            Id = Guid.NewGuid(),
+            Sku = "POS-STALE-PRICE",
+            Name = "Changed item",
+            UnitPrice = 120m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
@@ -311,14 +339,26 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var first = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-ROLLBACK-1", Name = "Available item", UnitPrice = 100m,
-            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            Id = Guid.NewGuid(),
+            Sku = "POS-ROLLBACK-1",
+            Name = "Available item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         var second = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-ROLLBACK-2", Name = "Low stock item", UnitPrice = 50m,
-            UnitCost = 20m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 1,
+            Id = Guid.NewGuid(),
+            Sku = "POS-ROLLBACK-2",
+            Name = "Low stock item",
+            UnitPrice = 50m,
+            UnitCost = 20m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 1,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.AddRange(first, second);
@@ -346,8 +386,14 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-ITEM-2", Name = "POS item", UnitPrice = 100m,
-            UnitCost = 40m, CurrencyCode = "IRR", IsAvailable = true, StockQuantity = 5,
+            Id = Guid.NewGuid(),
+            Sku = "POS-ITEM-2",
+            Name = "POS item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
@@ -410,19 +456,29 @@ public sealed class SalesAccountingServiceTests
         var lineTotal = checked(100m * quantity);
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = productId
-            Sku = $"SKU-{Guid.NewGuid():N}"[..12]
+            Id = productId,
+            Sku = $"SKU-{Guid.NewGuid():N}"[..12],
             Name = "Test product",
-            UnitPrice = 100m, UnitCost = unitCost, CurrencyCode = "IRR", IsAvailable = true,
-            StockQuantity = 0
+            UnitPrice = 100m,
+            UnitCost = unitCost,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 0,
             UpdatedAt = DateTimeOffset.UtcNow
         });
         var order = new CustomerOrder
         {
-            Id = orderId, OrderNumber = $"WEB-{Guid.NewGuid():N}".ToUpperInvariant(),
-            IdempotencyKey = Guid.NewGuid().ToString("N"), CustomerName = "Test Customer",
-            CustomerPhone = "09120000000", DeliveryAddress = string.Empty, Notes = string.Empty,
-            Status = "Received", CurrencyCode = "IRR", TotalAmount = total, CreatedAt = DateTimeOffset.UtcNow,
+            Id = orderId,
+            OrderNumber = $"WEB-{Guid.NewGuid():N}".ToUpperInvariant(),
+            IdempotencyKey = Guid.NewGuid().ToString("N"),
+            CustomerName = "Test Customer",
+            CustomerPhone = "09120000000",
+            DeliveryAddress = string.Empty,
+            Notes = string.Empty,
+            Status = "Received",
+            CurrencyCode = "IRR",
+            TotalAmount = total,
+            CreatedAt = DateTimeOffset.UtcNow,
             Lines =
             [
                 new CustomerOrderLine
@@ -459,9 +515,15 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT", Name = "Retry-safe item",
-            UnitPrice = 100m, UnitCost = 40m, CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(),
+            Sku = "POS-IDEMPOTENT",
+            Name = "Retry-safe item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
         await db.SaveChangesAsync();
@@ -494,9 +556,15 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-MISMATCH", Name = "Retry-safe item",
-            UnitPrice = 100m, UnitCost = 40m, CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(),
+            Sku = "POS-IDEMPOTENT-MISMATCH",
+            Name = "Retry-safe item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
         await db.SaveChangesAsync();
@@ -527,17 +595,27 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var first = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-MULTI-1", Name = "First item",
-            UnitPrice = 100m
-            UnitCost = 40m
+            Id = Guid.NewGuid(),
+            Sku = "POS-IDEMPOTENT-MULTI-1",
+            Name = "First item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
             CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         var second = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-MULTI-2", Name = "Second item",
-            UnitPrice = 50m, UnitCost = 20m, CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 7, UpdatedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(),
+            Sku = "POS-IDEMPOTENT-MULTI-2",
+            Name = "Second item",
+            UnitPrice = 50m,
+            UnitCost = 20m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.AddRange(first, second);
         await db.SaveChangesAsync();
@@ -572,9 +650,15 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-DATE", Name = "Date-safe item",
-            UnitPrice = 100m, UnitCost = 40m, CurrencyCode = "IRR",
-            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(),
+            Sku = "POS-IDEMPOTENT-DATE",
+            Name = "Date-safe item",
+            UnitPrice = 100m,
+            UnitCost = 40m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 5,
+            UpdatedAt = DateTimeOffset.UtcNow
         };
         db.StoreProducts.Add(product);
         await db.SaveChangesAsync();
@@ -596,4 +680,3 @@ public sealed class SalesAccountingServiceTests
     }
 
 }
-
