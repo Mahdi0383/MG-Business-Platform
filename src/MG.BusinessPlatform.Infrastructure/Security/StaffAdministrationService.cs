@@ -77,6 +77,8 @@ public sealed class StaffAdministrationService(
         var normalizedDisplayName = NormalizeDisplayName(displayName);
         ValidatePassword(password);
         var normalizedRole = ValidateRole(role);
+        if (normalizedRole == "Owner" && context.Role != "Owner")
+            throw new UnauthorizedAccessException("Only an Owner can create another Owner account.");
         var requestedBranches = NormalizeBranchIds(branchIds);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -144,8 +146,12 @@ public sealed class StaffAdministrationService(
             cancellationToken)
             ?? throw new KeyNotFoundException("The staff account was not found in the active business.");
 
-        if (isActive)
-            await ValidateBranchesAsync(context.BusinessId, requestedBranches, cancellationToken);
+        if (user.Role == "Owner" && context.Role != "Owner")
+            throw new UnauthorizedAccessException("Only an Owner can modify another Owner account.");
+        if (normalizedRole == "Owner" && context.Role != "Owner")
+            throw new UnauthorizedAccessException("Only an Owner can promote a staff account to Owner.");
+
+        await ValidateBranchesAsync(context.BusinessId, requestedBranches, cancellationToken);
 
         if (user.IsActive && IsAdministrator(user.Role)
             && (!isActive || !IsAdministrator(normalizedRole)))
