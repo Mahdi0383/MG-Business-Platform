@@ -337,6 +337,15 @@ public sealed class CustomerOrder
     public List<CustomerOrderLine> Lines { get; set; } = [];
 }
 
+public sealed class BranchInventoryBalanceRecord
+{
+    public Guid BusinessId { get; set; }
+    public Guid BranchId { get; set; }
+    public Guid ProductId { get; set; }
+    public int Quantity { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class StockMovementRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
@@ -390,6 +399,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<CustomerOrder> CustomerOrders => Set<CustomerOrder>();
     public DbSet<CustomerOrderLine> CustomerOrderLines => Set<CustomerOrderLine>();
     public DbSet<StockMovementRecord> StockMovements => Set<StockMovementRecord>();
+    public DbSet<BranchInventoryBalanceRecord> BranchInventoryBalances => Set<BranchInventoryBalanceRecord>();
     public DbSet<GameSessionRecord> GameSessions => Set<GameSessionRecord>();
     public DbSet<GameSessionPlayerRecord> GameSessionPlayers => Set<GameSessionPlayerRecord>();
     public DbSet<ReservationResourceRecord> ReservationResources => Set<ReservationResourceRecord>();
@@ -1072,6 +1082,20 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 t.HasCheckConstraint("CK_GameSessionPlayer_Amounts",
                     "CAST(EntryAmount AS NUMERIC) >= 0 AND CAST(TimeCharge AS NUMERIC) >= 0 AND CAST(AdditionalAmount AS NUMERIC) >= 0");
             });
+        });
+
+        modelBuilder.Entity<BranchInventoryBalanceRecord>(entity =>
+        {
+            entity.HasKey(x => new { x.BusinessId, x.BranchId, x.ProductId });
+            entity.HasIndex(x => new { x.BusinessId, x.ProductId });
+            entity.HasOne<BusinessRecord>().WithMany()
+                .HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.BranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t => t.HasCheckConstraint("CK_BranchInventoryBalance_Quantity", "Quantity >= 0"));
         });
 
         modelBuilder.Entity<StockMovementRecord>(entity =>
