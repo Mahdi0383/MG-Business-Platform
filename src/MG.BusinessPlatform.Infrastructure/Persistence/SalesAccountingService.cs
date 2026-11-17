@@ -537,6 +537,9 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         ArgumentNullException.ThrowIfNull(method);
         ArgumentNullException.ThrowIfNull(reference);
         ArgumentNullException.ThrowIfNull(notes);
+        method = method.Trim();
+        if (method.Length == 0)
+            throw new ArgumentException("Payment method is required.", nameof(method));
         if (amount <= 0m) throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
         if (reference.Length > 100) throw new ArgumentOutOfRangeException(nameof(reference));
         if (notes.Length > 500) throw new ArgumentOutOfRangeException(nameof(notes));
