@@ -287,7 +287,7 @@ public sealed class BranchInventoryService(BusinessDbContext db)
     {
         var staffContext = StaffRequestContextScope.Current;
         if (staffContext is null)
-            return; // Local desktop and explicitly public storefront workflows remain supported.
+            return; // Existing desktop/public storefront entry points are unscoped; staff HTTP handlers must push a validated context.
 
         if (staffContext.BusinessId != businessId || staffContext.BranchId != branchId)
             throw new UnauthorizedAccessException(
