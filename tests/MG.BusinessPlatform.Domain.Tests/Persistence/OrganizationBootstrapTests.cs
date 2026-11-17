@@ -18,7 +18,7 @@ public sealed class OrganizationBootstrapTests
 
         var legacyGameBranchId = Guid.NewGuid();
         var legacyReservationBranchId = Guid.NewGuid();
-        var requestedDefaultBranchId = Guid.NewGuid();
+        var requestedDefaultBranchId = legacyGameBranchId;
         var now = DateTimeOffset.UtcNow;
 
         db.StoreSettings.Add(new StoreSettings
@@ -71,6 +71,56 @@ public sealed class OrganizationBootstrapTests
         Assert.Equal(2, await db.Branches.CountAsync());
         Assert.Equal(legacyGameBranchId,
             (await db.StoreSettings.AsNoTracking().SingleAsync()).DefaultBranchId);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_FailsClosedWhenLegacyBranchesAreAmbiguous()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+
+        var now = DateTimeOffset.UtcNow;
+        db.StoreSettings.Add(new StoreSettings
+        {
+            Id = 1,
+            StoreName = "Ambiguous legacy store",
+            CurrencyCode = "IRR",
+            UpdatedAt = now
+        });
+        db.GameSessions.Add(new GameSessionRecord
+        {
+            Id = Guid.NewGuid(),
+            BranchId = Guid.NewGuid(),
+            DeviceId = Guid.NewGuid(),
+            GameName = "Legacy session",
+            RatePerHour = 0,
+            CurrencyCode = "IRR",
+            StartedAtUtc = now,
+            LastTransitionAtUtc = now,
+            Status = "Completed"
+        });
+        db.ReservationResources.Add(new ReservationResourceRecord
+        {
+            Id = Guid.NewGuid(),
+            BranchId = Guid.NewGuid(),
+            Name = "Legacy resource",
+            ResourceType = "GameStation",
+            Capacity = 1,
+            IsAvailable = true
+        });
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => DatabaseInitializer.InitializeAsync(db, defaultBranchId: Guid.NewGuid()));
+
+        Assert.Empty(await db.Businesses.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.Branches.AsNoTracking().ToListAsync());
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        Assert.Null(settings.BusinessId);
+        Assert.Null(settings.DefaultBranchId);
     }
 
     [Fact]
