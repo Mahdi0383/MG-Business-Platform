@@ -161,21 +161,45 @@ public static class DatabaseInitializer
             .Select(x => x.Id)
             .OrderBy(x => x.ToString("N"), StringComparer.Ordinal)
             .ToArray();
-        var matchingLegacyDefaultId = requestedDefaultBranchId is Guid requestedId
-            && legacyBranchIds.Contains(requestedId)
-                ? requestedId
-                : (Guid?)null;
-        var defaultId = settings.DefaultBranchId
-            ?? (legacyBranchIds.Count > 0
-                ? matchingLegacyDefaultId
-                    ?? legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
-                : requestedDefaultBranchId
-                    ?? (existingBusinessBranchIds.Length == 1
-                        ? existingBusinessBranchIds[0]
-                        : existingBusinessBranchIds.Length > 1
-                            ? throw new InvalidDataException(
-                                "Multiple branches exist but no default branch is configured. An explicit default branch selection is required.")
-                            : Guid.NewGuid()));
+        Guid defaultId;
+        if (settings.DefaultBranchId is Guid configuredDefaultBranchId)
+        {
+            defaultId = configuredDefaultBranchId;
+        }
+        else if (legacyBranchIds.Count > 1)
+        {
+            if (requestedDefaultBranchId is Guid requestedLegacyBranchId
+                && legacyBranchIds.Contains(requestedLegacyBranchId))
+            {
+                defaultId = requestedLegacyBranchId;
+            }
+            else
+            {
+                throw new InvalidDataException(
+                    "Multiple legacy branches exist and the configured desktop branch identity does not identify one of them. An explicit branch mapping is required.");
+            }
+        }
+        else if (legacyBranchIds.Count == 1)
+        {
+            defaultId = legacyBranchIds.Single();
+        }
+        else if (requestedDefaultBranchId is Guid requestedBranchId)
+        {
+            defaultId = requestedBranchId;
+        }
+        else if (existingBusinessBranchIds.Length == 1)
+        {
+            defaultId = existingBusinessBranchIds[0];
+        }
+        else if (existingBusinessBranchIds.Length > 1)
+        {
+            throw new InvalidDataException(
+                "Multiple branches exist but no default branch is configured. An explicit default branch selection is required.");
+        }
+        else
+        {
+            defaultId = Guid.NewGuid();
+        }
 
         legacyBranchIds.Add(defaultId);
 
