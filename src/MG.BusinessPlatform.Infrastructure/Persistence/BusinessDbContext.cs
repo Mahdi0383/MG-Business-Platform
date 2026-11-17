@@ -225,6 +225,16 @@ public sealed class StoreProduct : IBusinessOwnedRecord
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+public sealed class BranchInventoryBalanceRecord
+{
+    public Guid BusinessId { get; set; }
+    public Guid BranchId { get; set; }
+    public Guid ProductId { get; set; }
+    public int Quantity { get; set; }
+    public decimal AverageUnitCost { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
 public sealed class CustomerRecord : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
@@ -374,6 +384,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public DbSet<StaffSessionRecord> StaffSessions => Set<StaffSessionRecord>();
     public DbSet<StaffBranchAccessRecord> StaffBranchAccess => Set<StaffBranchAccessRecord>();
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
+    public DbSet<BranchInventoryBalanceRecord> BranchInventoryBalances => Set<BranchInventoryBalanceRecord>();
     public DbSet<LedgerAccountRecord> LedgerAccounts => Set<LedgerAccountRecord>();
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
     public DbSet<SalesInvoiceRecord> SalesInvoices => Set<SalesInvoiceRecord>();
@@ -818,6 +829,25 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Price", "CAST(UnitPrice AS NUMERIC) >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Cost", "CAST(UnitCost AS NUMERIC) >= 0"));
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreProduct_Stock", "StockQuantity >= 0"));
+        });
+
+        modelBuilder.Entity<BranchInventoryBalanceRecord>(entity =>
+        {
+            entity.HasKey(x => new { x.BusinessId, x.BranchId, x.ProductId });
+            entity.HasIndex(x => new { x.BusinessId, x.ProductId });
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.BranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<StoreProduct>().WithMany()
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_BranchInventoryBalance_Quantity", "Quantity >= 0");
+                t.HasCheckConstraint("CK_BranchInventoryBalance_AverageUnitCost",
+                    "CAST(AverageUnitCost AS NUMERIC) >= 0");
+            });
         });
 
         modelBuilder.Entity<LedgerAccountRecord>(entity =>
