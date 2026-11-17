@@ -229,20 +229,22 @@ public sealed class StaffAuthenticationService(
             .SingleOrDefaultAsync(
                 x => x.BusinessId == businessId
                     && x.TokenHash == tokenHash
-                    && x.RevokedAtUtc == null
-                    && x.ExpiresAtUtc > now,
+                    && x.RevokedAtUtc == null,
                 cancellationToken);
-        if (session is null || !await IsBusinessActiveAsync(businessId, cancellationToken))
+        // SQLite cannot translate DateTimeOffset ordering consistently. Load only the
+        // single hash-matched session, then enforce expiry using UTC values in-process.
+        if (session is null || session.ExpiresAtUtc <= now
+            || !await IsBusinessActiveAsync(businessId, cancellationToken))
             return null;
 
         var user = await db.StaffUsers.AsNoTracking()
             .SingleOrDefaultAsync(
                 x => x.BusinessId == businessId
                     && x.Id == session.StaffUserId
-                    && x.IsActive
-                    && (x.LockedUntilUtc == null || x.LockedUntilUtc <= now),
+                    && x.IsActive,
                 cancellationToken);
-        if (user is null)
+        if (user is null
+            || user.LockedUntilUtc is DateTimeOffset lockedUntil && lockedUntil > now)
             return null;
 
         var branchIds = await db.StaffBranchAccess.AsNoTracking()
