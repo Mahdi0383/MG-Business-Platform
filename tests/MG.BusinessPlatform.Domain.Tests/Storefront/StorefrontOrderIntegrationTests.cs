@@ -762,6 +762,7 @@ public sealed class StorefrontOrderIntegrationTests
         using var firstResponse = await client.GetAsync("/");
         firstResponse.EnsureSuccessStatusCode();
         var firstPolicy = firstResponse.Headers.GetValues("Content-Security-Policy").Single();
+        Assert.Equal("no-store", firstResponse.Headers.CacheControl?.ToString());
         var firstHtml = await firstResponse.Content.ReadAsStringAsync();
         var firstNonce = ExtractNonce(firstPolicy);
 
