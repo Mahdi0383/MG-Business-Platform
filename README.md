@@ -20,7 +20,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - CI workflow restores, builds, runs automated tests, publishes Windows binaries, bundles Caddy, validates archives/checksums and compiles both Inno Setup installers.
 - Versioned Windows prereleases are published by `release-windows.yml` on explicitly marked `[release]` commits or a manual workflow dispatch. Download installers, portable ZIPs, source archives and SHA-256 checksums from the latest verified [GitHub Release](https://github.com/Mahdi0383/MG-Business-Platform/releases).
 
-**Latest verification note (2026-10-27):** the current main commit has not been build/test verified. GitHub Actions jobs are failing before a runner is assigned (`runner_id: 0`, no steps/logs); the last successful Windows CI evidence applies to an older commit. Do not treat current changes as a verified release until the runner issue is resolved and the full pipeline passes.
+**Latest verification note (2026-11-17):** main includes merged database-safety, POS idempotency, reservation/game-session concurrency, storefront CSP, NuGet audit, CodeQL, formatting and package-artifact changes. The individual PR heads passed their recorded CI runs; a fresh Windows build/test/package run on the combined post-integration main commit is still required before treating the integrated snapshot as verified. PR #105 remains a Draft static web prototype, not a production POS/accounting service. GitHub metadata reports this repository as public. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for commit-scoped evidence and remaining release gates.
 
 ## Important current limitations
 
@@ -28,7 +28,7 @@ MG Business Platform is a Windows-first, offline-first business management platf
 - A green local health check does not prove public internet reachability. Test from a phone on mobile data.
 - Customer club/membership authentication, verified phone OTP, loyalty points, customer-facing reservation history, automatic SMS notifications and self-service reservation cancellation are not implemented yet.
 - The current POS supports a multi-line walk-in cart with stock deduction, invoice issuance, COGS/sales journal entries, and full payment in one database transaction. Basic selected-invoice receipt printing is implemented for narrow thermal-printer content through the Windows print driver; the 58 mm layout and real printer hardware still need operator validation. Advanced discounts, barcode workflows, returns/refunds, cash-flow statements, tax policies, shift closing, multi-branch operation, and full cafe/game-center workflows remain unfinished.
-- Latest completed Windows CI verification before the current release-workflow correction passed with zero compiler errors, 186 automated tests, both Windows installers compiled, and package/source archive checks verified. The latest published GitHub Release must be checked for its source commit before treating its binaries as current. Successful CI does not prove public internet reachability, physical hardware compatibility, or operator acceptance.
+- The recent individual PR CI runs cover their exact branch snapshots, not a single combined post-integration main commit. A fresh main-branch Windows build/test/package run is required. Successful CI does not prove public internet reachability, physical hardware compatibility, interactive installation/upgrade, or operator acceptance.
 
 ## Build and test on Windows
 
@@ -75,4 +75,4 @@ The expected Windows artifacts are:
 - Least privilege, signed license entitlements, secure backups, and no direct public exposure of database files.
 - Small increments with tests and reviewable Git history.
 
-This repository is private. Keep all signing secrets and production credentials out of source control.
+GitHub repository metadata reports this repository as **public** as of 2026-11-05. Verify the intended visibility in Settings → General before sharing or distributing the source. Keep all signing secrets and production credentials out of source control.
