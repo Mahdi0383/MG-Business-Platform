@@ -16,16 +16,17 @@ public sealed class ReservationPersistenceTests
         await db.Database.MigrateAsync();
 
         var resourceId = Guid.NewGuid();
-        db.ReservationResources.Add(new ReservationResourceRecord
+        await using (var resourceCommand = connection.CreateCommand())
         {
-            Id = resourceId,
-            BranchId = Guid.NewGuid(),
-            Name = "Console Room 1",
-            ResourceType = "GameStation",
-            Capacity = 4,
-            IsAvailable = true
-        });
-        await db.SaveChangesAsync();
+            resourceCommand.CommandText = """
+                INSERT INTO ReservationResources
+                    (Id, BranchId, Name, ResourceType, Capacity, IsAvailable)
+                VALUES ($id, $branch, 'Console Room 1', 'GameStation', 4, 1);
+                """;
+            resourceCommand.Parameters.AddWithValue("$id", resourceId.ToString());
+            resourceCommand.Parameters.AddWithValue("$branch", Guid.NewGuid().ToString());
+            Assert.Equal(1, await resourceCommand.ExecuteNonQueryAsync());
+        }
 
         const string day = "2026-11-17T";
         async Task InsertReservation(Guid id, string status, string start, string end)
