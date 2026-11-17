@@ -1,8 +1,9 @@
 using System.Globalization;
 
-using MG.BusinessPlatform.Domain.Organizations;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
+using MG.BusinessPlatform.Domain.Organizations;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
