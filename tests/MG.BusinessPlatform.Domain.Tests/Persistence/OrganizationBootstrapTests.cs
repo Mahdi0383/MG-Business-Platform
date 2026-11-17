@@ -76,7 +76,7 @@ public sealed class OrganizationBootstrapTests
     }
 
     [Fact]
-    public async Task InitializeAsync_FailsClosedWhenSettingsReferenceMissingBusiness()
+    public async Task StoreSettings_ForeignKeyRejectsMissingBusinessOwner()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -84,18 +84,16 @@ public sealed class OrganizationBootstrapTests
         await using var db = new BusinessDbContext(options);
         await db.Database.MigrateAsync();
 
-        var missingBusinessId = Guid.NewGuid();
         db.StoreSettings.Add(new StoreSettings
         {
             Id = 1,
             StoreName = "Orphaned store",
             CurrencyCode = "IRR",
-            BusinessId = missingBusinessId,
+            BusinessId = Guid.NewGuid(),
             UpdatedAt = DateTimeOffset.UtcNow
         });
-        await db.SaveChangesAsync();
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => DatabaseInitializer.InitializeAsync(db));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         Assert.Empty(await db.Businesses.ToListAsync());
         Assert.Empty(await db.Branches.ToListAsync());
     }
