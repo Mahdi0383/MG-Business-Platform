@@ -246,6 +246,8 @@ public sealed class SalesAccountingServiceTests
         var movement = await db.StockMovements.SingleAsync();
         Assert.Equal(-2, movement.SignedQuantity);
         Assert.Equal("PosSaleIssue", movement.MovementType);
+        Assert.Equal((await db.StoreSettings.SingleAsync()).DefaultBranchId, movement.BranchId);
+        Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == product.Id)).OnHandQuantity);
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
