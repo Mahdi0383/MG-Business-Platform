@@ -214,7 +214,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("StoreName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
             b.HasKey("Id");
-            b.HasIndex("BusinessId");
+            b.HasIndex("BusinessId", "DefaultBranchId");
             b.ToTable("StoreSettings", t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
 
