@@ -1,0 +1,270 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+
+using MG.BusinessPlatform.Infrastructure.Persistence;
+using MG.BusinessPlatform.Infrastructure.Security;
+
+namespace MG.BusinessPlatform.Domain.Tests.Security;
+
+public sealed class StaffAdministrationServiceTests
+{
+    private const string OwnerPassword = "Owner-Passphrase-2026!";
+    private const string CashierPassword = "Cashier-Passphrase-2026!";
+
+    [Fact]
+    public async Task Owner_CanCreateListAndUpdateStaffWithScopedBranchGrants()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        var ownerId = await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId, store.SecondBranchId],
+            "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(ownerContext);
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        Guid cashierId;
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            cashierId = await administration.CreateStaffAsync(
+                "cashier", "Front Cashier", CashierPassword, "Cashier",
+                [store.MainBranchId, store.SecondBranchId]);
+
+            var staff = await administration.ListStaffAsync();
+            Assert.Equal(2, staff.Count);
+            var cashier = Assert.Single(staff, x => x.StaffUserId == cashierId);
+            Assert.Equal("CASHIER", cashier.UserName);
+            Assert.Equal("Cashier", cashier.Role);
+            Assert.Equal([store.MainBranchId, store.SecondBranchId], cashier.BranchIds);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.UpdateStaffAccessAsync(
+                    ownerId, "Cashier", true, [store.MainBranchId]));
+
+            await administration.UpdateStaffAccessAsync(
+                cashierId, "Accountant", true, [store.SecondBranchId]);
+        }
+
+        var cashierLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "cashier", CashierPassword);
+        Assert.NotNull(cashierLogin);
+        var cashierUser = await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == cashierId);
+        Assert.Equal("Accountant", cashierUser.Role);
+        Assert.NotEqual(CashierPassword, cashierUser.PasswordHash);
+
+        var cashierAccess = await store.Db.StaffBranchAccess.AsNoTracking()
+            .Where(x => x.StaffUserId == cashierId)
+            .Select(x => x.BranchId)
+            .ToArrayAsync();
+        Assert.Equal([store.SecondBranchId], cashierAccess);
+
+        var auditEvents = await store.Db.AuditEvents.AsNoTracking().ToListAsync();
+        Assert.Contains(auditEvents, audit => audit.StaffUserId == ownerId);
+    }
+
+    [Fact]
+    public async Task Cashier_CannotCreateOrManageStaff()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(ownerContext);
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            await administration.CreateStaffAsync(
+                "cashier", "Front Cashier", CashierPassword, "Cashier", [store.MainBranchId]);
+        }
+
+        var cashierLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "cashier", CashierPassword);
+        Assert.NotNull(cashierLogin);
+        var cashierContext = await resolver.ResolveAsync(cashierLogin.Token);
+        Assert.NotNull(cashierContext);
+
+        using (StaffRequestContextScope.Push(cashierContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "second", "Second User", "Second-Passphrase-2026!", "ReadOnly",
+                    [store.MainBranchId]));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.UpdateStaffAccessAsync(
+                    cashierLogin.Identity.StaffUserId, "Manager", true, [store.MainBranchId]));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ListStaffAsync());
+        }
+    }
+
+    [Fact]
+    public async Task StaffAdministration_RejectsForeignBranchesAndUnknownRoles()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var login = await authentication.AuthenticateAsync(store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(login);
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var context = await resolver.ResolveAsync(login.Token);
+        Assert.NotNull(context);
+
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign business",
+            DisplayName = "Foreign business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
+        };
+        store.Db.Businesses.Add(foreignBusiness);
+        store.Db.Branches.Add(foreignBranch);
+        await store.Db.SaveChangesAsync();
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        using (StaffRequestContextScope.Push(context!))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                administration.CreateStaffAsync(
+                    "cashier", "Front Cashier", CashierPassword, "Cashier", [foreignBranch.Id]));
+            await Assert.ThrowsAsync<ArgumentException>(() =>
+                administration.CreateStaffAsync(
+                    "cashier", "Front Cashier", CashierPassword, "SuperUser", [store.MainBranchId]));
+            await Assert.ThrowsAsync<ArgumentException>(() =>
+                administration.CreateStaffAsync(
+                    "cashier", "Front Cashier", CashierPassword, "Cashier", []));
+        }
+
+        Assert.Empty(await store.Db.StaffUsers.Where(x => x.UserNameNormalized == "CASHIER").ToListAsync());
+    }
+
+    [Fact]
+    public async Task ChangeOwnPassword_RequiresCurrentCredentialAndRevokesAllSessions()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        var ownerId = await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var first = await authentication.AuthenticateAsync(store.BusinessId, "owner", OwnerPassword);
+        var second = await authentication.AuthenticateAsync(store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var context = await resolver.ResolveAsync(first.Token);
+        Assert.NotNull(context);
+        var administration = new StaffAdministrationService(store.Db, hasher);
+
+        using (StaffRequestContextScope.Push(context!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ChangeOwnPasswordAsync("wrong-current-password", "New-Owner-Passphrase-2026!"));
+
+            await administration.ChangeOwnPasswordAsync(
+                OwnerPassword, "New-Owner-Passphrase-2026!");
+        }
+
+        Assert.Null(await authentication.ValidateSessionAsync(store.BusinessId, first.Token));
+        Assert.Null(await authentication.ValidateSessionAsync(store.BusinessId, second.Token));
+        var relogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", "New-Owner-Passphrase-2026!");
+        Assert.NotNull(relogin);
+        Assert.Equal(ownerId, relogin.Identity.StaffUserId);
+        Assert.Null(await authentication.AuthenticateAsync(store.BusinessId, "owner", OwnerPassword));
+    }
+
+    private sealed class TestStore(
+        SqliteConnection connection,
+        BusinessDbContext db,
+        Guid businessId,
+        Guid mainBranchId,
+        Guid secondBranchId) : IAsyncDisposable
+    {
+        public BusinessDbContext Db { get; } = db;
+        public Guid BusinessId { get; } = businessId;
+        public Guid MainBranchId { get; } = mainBranchId;
+        public Guid SecondBranchId { get; } = secondBranchId;
+
+        public static async Task<TestStore> CreateAsync()
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+            var db = new BusinessDbContext(options);
+            await db.Database.MigrateAsync();
+
+            var businessId = Guid.NewGuid();
+            var mainBranchId = Guid.NewGuid();
+            var secondBranchId = Guid.NewGuid();
+            db.Businesses.Add(new BusinessRecord
+            {
+                Id = businessId,
+                LegalName = "Test business",
+                DisplayName = "Test business",
+                DefaultCurrencyCode = "IRR",
+                TimeZoneId = "UTC",
+                IsActive = true
+            });
+            db.Branches.AddRange(
+                new BranchRecord
+                {
+                    Id = mainBranchId,
+                    BusinessId = businessId,
+                    Code = "MAIN",
+                    Name = "Main branch",
+                    IsActive = true
+                },
+                new BranchRecord
+                {
+                    Id = secondBranchId,
+                    BusinessId = businessId,
+                    Code = "SECOND",
+                    Name = "Second branch",
+                    IsActive = true
+                });
+            db.StoreSettings.Add(new StoreSettings
+            {
+                Id = 1,
+                BusinessId = businessId,
+                DefaultBranchId = mainBranchId,
+                StoreName = "Test business",
+                CurrencyCode = "IRR",
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+            return new TestStore(connection, db, businessId, mainBranchId, secondBranchId);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Db.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
+}
