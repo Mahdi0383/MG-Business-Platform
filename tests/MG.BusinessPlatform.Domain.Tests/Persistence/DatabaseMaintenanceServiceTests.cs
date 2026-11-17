@@ -163,6 +163,45 @@ public sealed class DatabaseMaintenanceServiceTests
     }
 
     [Fact]
+    public async Task CreateBackup_WaitsForMaintenanceLockBeforeReadingDatabase()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mg-db-backup-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, "store.db");
+        var backupPath = Path.Combine(directory, "store-backup.db");
+        var lockPath = databasePath + ".migration.lock";
+        var service = new DatabaseMaintenanceService();
+
+        try
+        {
+            await SetStoreNameAsync(databasePath, "Keep current data");
+            await using var heldLock = new FileStream(
+                lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            using var cancellation = new CancellationTokenSource();
+
+            var backupTask = service.CreateBackupAsync(databasePath, backupPath, cancellation.Token);
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+            Assert.False(backupTask.IsCompleted,
+                "Manual backup must wait while another process owns the database maintenance lock.");
+
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => backupTask);
+
+            Assert.False(File.Exists(backupPath));
+            Assert.Equal("Keep current data", await ReadStoreNameAsync(databasePath));
+            Assert.Empty(Directory.GetFiles(directory, "*.tmp-*"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task CreateBackup_RejectsSameSourceAndDestination()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"mg-db-test-{Guid.NewGuid():N}");
