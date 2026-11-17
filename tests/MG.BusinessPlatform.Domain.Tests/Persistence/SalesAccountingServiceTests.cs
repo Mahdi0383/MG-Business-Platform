@@ -60,7 +60,9 @@ public sealed class SalesAccountingServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         var product = new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "POS-NEGATIVE", Name = "Invalid product",
+            Id = Guid.NewGuid()
+            Sku = "POS-NEGATIVE"
+            Name = "Invalid product",
             UnitPrice = 10m, UnitCost = -1m, CurrencyCode = "IRR",
             IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
         };
@@ -408,9 +410,12 @@ public sealed class SalesAccountingServiceTests
         var lineTotal = checked(100m * quantity);
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = productId, Sku = $"SKU-{Guid.NewGuid():N}"[..12], Name = "Test product",
+            Id = productId
+            Sku = $"SKU-{Guid.NewGuid():N}"[..12]
+            Name = "Test product",
             UnitPrice = 100m, UnitCost = unitCost, CurrencyCode = "IRR", IsAvailable = true,
-            StockQuantity = 0, UpdatedAt = DateTimeOffset.UtcNow
+            StockQuantity = 0
+            UpdatedAt = DateTimeOffset.UtcNow
         });
         var order = new CustomerOrder
         {
@@ -523,7 +528,9 @@ public sealed class SalesAccountingServiceTests
         var first = new StoreProduct
         {
             Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-MULTI-1", Name = "First item",
-            UnitPrice = 100m, UnitCost = 40m, CurrencyCode = "IRR",
+            UnitPrice = 100m
+            UnitCost = 40m
+            CurrencyCode = "IRR",
             IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
         };
         var second = new StoreProduct
@@ -589,3 +596,4 @@ public sealed class SalesAccountingServiceTests
     }
 
 }
+
