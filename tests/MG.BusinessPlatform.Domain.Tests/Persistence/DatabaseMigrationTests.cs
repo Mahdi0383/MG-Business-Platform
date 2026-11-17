@@ -425,6 +425,58 @@ public sealed class DatabaseMigrationTests
     }
 
     [Fact]
+    public async Task InitializeAsync_RejectsPartialExistingBranchBalanceSet()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var businessId = settings.BusinessId!.Value;
+        var defaultBranchId = settings.DefaultBranchId!.Value;
+        var secondBranchId = Guid.NewGuid();
+        db.Branches.Add(new BranchRecord
+        {
+            Id = secondBranchId,
+            BusinessId = businessId,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = businessId,
+            Sku = "BRANCH-STOCK-PARTIAL",
+            Name = "Partially mapped inventory",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+        {
+            BusinessId = businessId,
+            BranchId = defaultBranchId,
+            ProductId = product.Id,
+            OnHandQuantity = 5,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => DatabaseInitializer.InitializeAsync(db));
+
+        Assert.Contains("do not match", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(await db.BranchInventoryBalances.Where(x => x.ProductId == product.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task InitializeAsync_BackfillsNewZeroStockProductsAfterInitialInventoryMigration()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
