@@ -23,6 +23,44 @@ public sealed class BranchRecord
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class StaffUserRecord
+{
+    public Guid Id { get; set; }
+    public Guid BusinessId { get; set; }
+    public string UserNameNormalized { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public string Role { get; set; } = "ReadOnly";
+    public bool IsActive { get; set; } = true;
+    public bool MustChangePassword { get; set; }
+    public int FailedLoginCount { get; set; }
+    public DateTimeOffset? LockedUntilUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public DateTimeOffset? LastLoginAtUtc { get; set; }
+}
+
+public sealed class StaffSessionRecord
+{
+    public Guid Id { get; set; }
+    public Guid BusinessId { get; set; }
+    public Guid StaffUserId { get; set; }
+    public string TokenHash { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+    public DateTimeOffset? LastSeenAtUtc { get; set; }
+    public string ClientLabel { get; set; } = string.Empty;
+}
+
+public sealed class StaffBranchAccessRecord
+{
+    public Guid BusinessId { get; set; }
+    public Guid StaffUserId { get; set; }
+    public Guid BranchId { get; set; }
+    public DateTimeOffset GrantedAtUtc { get; set; }
+}
+
 public sealed class AuditEventRecord
 {
     public Guid Id { get; set; }
@@ -315,6 +353,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 {
     public DbSet<BusinessRecord> Businesses => Set<BusinessRecord>();
     public DbSet<BranchRecord> Branches => Set<BranchRecord>();
+    public DbSet<StaffUserRecord> StaffUsers => Set<StaffUserRecord>();
+    public DbSet<StaffSessionRecord> StaffSessions => Set<StaffSessionRecord>();
+    public DbSet<StaffBranchAccessRecord> StaffBranchAccess => Set<StaffBranchAccessRecord>();
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
     public DbSet<LedgerAccountRecord> LedgerAccounts => Set<LedgerAccountRecord>();
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
@@ -466,6 +507,52 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.HasAlternateKey(x => new { x.BusinessId, x.Id });
             entity.HasIndex(x => new { x.BusinessId, x.Code }).IsUnique();
             entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StaffUserRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.BusinessId, x.Id });
+            entity.Property(x => x.UserNameNormalized).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.DisplayName).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.PasswordHash).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.Role).HasMaxLength(32).IsRequired();
+            entity.HasIndex(x => new { x.BusinessId, x.UserNameNormalized }).IsUnique();
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_StaffUser_FailedLoginCount", "FailedLoginCount >= 0");
+                t.HasCheckConstraint("CK_StaffUser_Role", "Role IN ('Owner','Administrator','Manager','Cashier','Accountant','ReservationOperator','ReadOnly')");
+            });
+        });
+
+        modelBuilder.Entity<StaffSessionRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ClientLabel).HasMaxLength(120).IsRequired();
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.BusinessId, x.StaffUserId, x.ExpiresAtUtc });
+            entity.HasOne<StaffUserRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.StaffUserId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(t => t.HasCheckConstraint("CK_StaffSession_Expiry", "ExpiresAtUtc > CreatedAtUtc"));
+        });
+
+        modelBuilder.Entity<StaffBranchAccessRecord>(entity =>
+        {
+            entity.HasKey(x => new { x.BusinessId, x.StaffUserId, x.BranchId });
+            entity.HasIndex(x => new { x.BusinessId, x.BranchId });
+            entity.HasOne<StaffUserRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.StaffUserId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.BranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
