@@ -30,41 +30,6 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.ToTable("Businesses");
         });
 
-        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", b =>
-        {
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
-                .WithMany()
-                .HasForeignKey("BusinessId")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-        });
-
-        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffSessionRecord", b =>
-        {
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
-                .WithMany()
-                .HasForeignKey("BusinessId", "StaffUserId")
-                .HasPrincipalKey("BusinessId", "Id")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-        });
-
-        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffBranchAccessRecord", b =>
-        {
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
-                .WithMany()
-                .HasForeignKey("BusinessId", "StaffUserId")
-                .HasPrincipalKey("BusinessId", "Id")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
-                .WithMany()
-                .HasForeignKey("BusinessId", "BranchId")
-                .HasPrincipalKey("BusinessId", "Id")
-                .OnDelete(DeleteBehavior.Restrict)
-                .IsRequired();
-        });
-
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
@@ -455,6 +420,41 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 .HasForeignKey("BusinessId", "DefaultBranchId")
                 .HasPrincipalKey("BusinessId", "Id")
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffSessionRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "StaffUserId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StaffBranchAccessRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.StaffUserRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "StaffUserId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
