@@ -73,7 +73,7 @@ public sealed class AddBranchInventoryBalances : Migration
             FOR EACH ROW
             WHEN EXISTS (
                 SELECT 1 FROM BranchInventoryBalances
-                WHERE ProductId = OLD.Id AND BusinessId != NEW.BusinessId
+                WHERE ProductId = OLD.Id AND (NEW.BusinessId IS NULL OR BusinessId != NEW.BusinessId)
             )
             BEGIN
                 SELECT RAISE(ABORT, 'Product business ownership cannot change while branch inventory exists.');
