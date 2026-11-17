@@ -348,6 +348,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        ValidateStoreSettingsBusinessIdentity();
         StampBusinessOwnership();
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
@@ -365,6 +366,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
+        ValidateStoreSettingsBusinessIdentity();
         await StampBusinessOwnershipAsync(cancellationToken);
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
@@ -377,6 +379,19 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             DetachGeneratedAuditEvents(generatedAuditEvents);
             throw;
         }
+    }
+
+    private void ValidateStoreSettingsBusinessIdentity()
+    {
+        ChangeTracker.DetectChanges();
+        var changedBusinessOwner = ChangeTracker.Entries<StoreSettings>()
+            .FirstOrDefault(entry =>
+                entry.State == EntityState.Modified
+                && entry.Property(settings => settings.BusinessId).OriginalValue is Guid originalBusinessId
+                && entry.Entity.BusinessId != originalBusinessId);
+        if (changedBusinessOwner is not null)
+            throw new InvalidOperationException(
+                "A provisioned store cannot be reassigned to a different business.");
     }
 
     private void StampBusinessOwnership()
