@@ -76,9 +76,9 @@ public sealed class AddBusinessBranchIdentity : Migration
             unique: true);
 
         migrationBuilder.CreateIndex(
-            name: "IX_StoreSettings_BusinessId",
+            name: "IX_StoreSettings_BusinessId_DefaultBranchId",
             table: "StoreSettings",
-            column: "BusinessId");
+            columns: new[] { "BusinessId", "DefaultBranchId" });
 
         migrationBuilder.AddForeignKey(
             name: "FK_StoreSettings_Businesses_BusinessId",
