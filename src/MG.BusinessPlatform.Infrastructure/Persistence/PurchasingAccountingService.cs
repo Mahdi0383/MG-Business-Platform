@@ -139,6 +139,8 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             db.StockMovements.Add(new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
+                BusinessId = product.BusinessId,
+                BranchId = invoice.BranchId,
                 ProductId = product.Id,
                 OccurredAt = now,
                 MovementType = "PurchaseReceipt",
