@@ -33,11 +33,11 @@ public sealed class PurchasingAccountingServiceTests
             StoreName = "Purchase test business", CurrencyCode = "IRR", UpdatedAt = DateTimeOffset.UtcNow
         });
         db.LedgerAccounts.AddRange(
-            Account("1000", "Cash", "Asset"),
-            Account("1010", "Card clearing", "Asset"),
-            Account("1020", "Bank", "Asset"),
-            Account("1200", "Inventory", "Asset"),
-            Account("2000", "Accounts payable", "Liability"));
+            Account(businessId, "1000", "Cash", "Asset"),
+            Account(businessId, "1010", "Card clearing", "Asset"),
+            Account(businessId, "1020", "Bank", "Asset"),
+            Account(businessId, "1200", "Inventory", "Asset"),
+            Account(businessId, "2000", "Accounts payable", "Liability"));
         db.Suppliers.Add(new SupplierRecord
         {
             Id = supplierId, BusinessId = businessId, DisplayName = "Supplier A", Phone = "", Email = "", Address = "",
@@ -203,11 +203,11 @@ public sealed class PurchasingAccountingServiceTests
                 StoreName = "Purchase test business", CurrencyCode = "IRR", UpdatedAt = DateTimeOffset.UtcNow
             });
             db.LedgerAccounts.AddRange(
-                Account("1000", "Cash", "Asset"),
-                Account("1010", "Card clearing", "Asset"),
-                Account("1020", "Bank", "Asset"),
-                Account("1200", "Inventory", "Asset"),
-                Account("2000", "Accounts payable", "Liability"));
+                Account(businessId, "1000", "Cash", "Asset"),
+                Account(businessId, "1010", "Card clearing", "Asset"),
+                Account(businessId, "1020", "Bank", "Asset"),
+                Account(businessId, "1200", "Inventory", "Asset"),
+                Account(businessId, "2000", "Accounts payable", "Liability"));
             db.Suppliers.Add(new SupplierRecord
             {
                 Id = supplierId, BusinessId = businessId, DisplayName = "Supplier A", Phone = "", Email = "", Address = "",
