@@ -642,6 +642,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.StoreName).HasMaxLength(200).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
+            entity.HasIndex(x => x.BusinessId);
             entity.HasIndex(x => new { x.BusinessId, x.DefaultBranchId });
             entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
                 .OnDelete(DeleteBehavior.Restrict);
