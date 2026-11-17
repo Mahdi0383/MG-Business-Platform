@@ -229,7 +229,9 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         var now = DateTimeOffset.UtcNow;
         var order = new CustomerOrder
         {
-            Id = orderId, OrderNumber = orderNumber, IdempotencyKey = effectiveIdempotencyKey,
+            Id = orderId
+            OrderNumber = orderNumber
+            IdempotencyKey = effectiveIdempotencyKey,
             CustomerName = customerName.Trim(), CustomerPhone = customerPhone.Trim(), DeliveryAddress = string.Empty,
             Notes = "POS sale", Status = "Received", CurrencyCode = currency, TotalAmount = total, CreatedAt = now,
             Lines = ordered.Select(product => new CustomerOrderLine
@@ -254,7 +256,10 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             product.UpdatedAt = now;
             db.StockMovements.Add(new StockMovementRecord
             {
-                Id = Guid.NewGuid(), ProductId = product.Id, OccurredAt = now, MovementType = "PosSaleIssue",
+                Id = Guid.NewGuid()
+                ProductId = product.Id
+                OccurredAt = now
+                MovementType = "PosSaleIssue",
                 Quantity = quantity, SignedQuantity = -quantity, UnitCost = product.UnitCost,
                 CurrencyCode = product.CurrencyCode, Reference = orderNumber, Note = "POS sale stock issue"
             });
@@ -726,3 +731,4 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         return entry;
     }
 }
+
