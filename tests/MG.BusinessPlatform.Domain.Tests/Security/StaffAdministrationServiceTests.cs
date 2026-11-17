@@ -30,18 +30,23 @@ public sealed class StaffAdministrationServiceTests
 
         var administration = new StaffAdministrationService(store.Db, hasher);
         Guid cashierId;
+        StaffLoginSession cashierSessionBeforeUpdate;
         using (StaffRequestContextScope.Push(ownerContext!))
         {
             cashierId = await administration.CreateStaffAsync(
                 "cashier", "Front Cashier", CashierPassword, "Cashier",
                 [store.MainBranchId, store.SecondBranchId]);
+            cashierSessionBeforeUpdate = (await authentication.AuthenticateAsync(
+                store.BusinessId, "cashier", CashierPassword))!;
 
             var staff = await administration.ListStaffAsync();
             Assert.Equal(2, staff.Count);
             var cashier = Assert.Single(staff, x => x.StaffUserId == cashierId);
             Assert.Equal("CASHIER", cashier.UserName);
             Assert.Equal("Cashier", cashier.Role);
-            Assert.Equal([store.MainBranchId, store.SecondBranchId], cashier.BranchIds);
+            Assert.Equal(
+                new[] { store.MainBranchId, store.SecondBranchId }.OrderBy(x => x),
+                cashier.BranchIds);
 
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 administration.UpdateStaffAccessAsync(
@@ -51,6 +56,8 @@ public sealed class StaffAdministrationServiceTests
                 cashierId, "Accountant", true, [store.SecondBranchId]);
         }
 
+        Assert.Null(await authentication.ValidateSessionAsync(
+            store.BusinessId, cashierSessionBeforeUpdate.Token));
         var cashierLogin = await authentication.AuthenticateAsync(
             store.BusinessId, "cashier", CashierPassword);
         Assert.NotNull(cashierLogin);
@@ -62,8 +69,9 @@ public sealed class StaffAdministrationServiceTests
         var cashierAccess = await store.Db.StaffBranchAccess.AsNoTracking()
             .Where(x => x.StaffUserId == cashierId)
             .Select(x => x.BranchId)
+            .OrderBy(x => x)
             .ToArrayAsync();
-        Assert.Equal([store.SecondBranchId], cashierAccess);
+        Assert.Equal(new[] { store.SecondBranchId }, cashierAccess);
 
         var auditEvents = await store.Db.AuditEvents.AsNoTracking().ToListAsync();
         Assert.Contains(auditEvents, audit => audit.StaffUserId == ownerId);
