@@ -647,7 +647,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<BranchRecord>().WithMany()
                 .HasForeignKey(x => new { x.BusinessId, x.DefaultBranchId })
-                .HasPrincipalKey(x => new { x.BusinessId, (Guid?)x.Id })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
                 .OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
