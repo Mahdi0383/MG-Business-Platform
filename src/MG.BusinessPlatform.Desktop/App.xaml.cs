@@ -42,6 +42,18 @@ public partial class App : System.Windows.Application
         new MainWindow().Show();
     }
 
+    private static Guid LoadOrCreateBranchIdentity(string path)
+    {
+        if (File.Exists(path)
+            && Guid.TryParse(File.ReadAllText(path).Trim(), out var existing)
+            && existing != Guid.Empty)
+            return existing;
+
+        var created = Guid.NewGuid();
+        File.WriteAllText(path, created.ToString("D"));
+        return created;
+    }
+
     private static async Task StartStorefrontIfEnabledAsync()
     {
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
@@ -65,12 +77,7 @@ public partial class App : System.Windows.Application
             .Options;
 
         await using var db = new BusinessDbContext(options);
-        var branchIdPath = Path.Combine(dataDirectory, "branch-id.txt");
-        Guid? defaultBranchId = Guid.TryParse(
-            File.Exists(branchIdPath) ? await File.ReadAllTextAsync(branchIdPath) : null,
-            out var parsedBranchId) && parsedBranchId != Guid.Empty
-                ? parsedBranchId
-                : null;
+        var defaultBranchId = LoadOrCreateBranchIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
         await DatabaseInitializer.InitializeAsync(db, defaultBranchId: defaultBranchId);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
