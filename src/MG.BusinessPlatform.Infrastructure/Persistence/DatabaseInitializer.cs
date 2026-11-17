@@ -80,6 +80,9 @@ public static class DatabaseInitializer
         Guid? requestedDefaultBranchId,
         CancellationToken cancellationToken)
     {
+        if (requestedDefaultBranchId == Guid.Empty)
+            throw new ArgumentException("The requested default branch identity cannot be empty.", nameof(requestedDefaultBranchId));
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var settings = await db.StoreSettings.SingleAsync(x => x.Id == 1, cancellationToken);
 
@@ -120,6 +123,10 @@ public static class DatabaseInitializer
             settings.BusinessId = business.Id;
         }
 
+        if (await db.Businesses.CountAsync(cancellationToken) != 1)
+            throw new InvalidDataException(
+                "This installation is provisioned for one business per database. Shared-database multi-business mode is not enabled.");
+
         var legacyBranchIds = new HashSet<Guid>();
         legacyBranchIds.UnionWith(await db.GameSessions.Select(x => x.BranchId).Distinct().ToListAsync(cancellationToken));
         legacyBranchIds.UnionWith(await db.ReservationResources.Select(x => x.BranchId).Distinct().ToListAsync(cancellationToken));
@@ -136,11 +143,23 @@ public static class DatabaseInitializer
                     "Store settings reference a default branch that is missing or belongs to another business.");
         }
 
-        var defaultId = settings.DefaultBranchId
-            ?? requestedDefaultBranchId
-            ?? legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).FirstOrDefault();
-        if (defaultId == Guid.Empty)
-            defaultId = Guid.NewGuid();
+        if (settings.DefaultBranchId == Guid.Empty)
+            throw new InvalidDataException("Store settings contain an empty default BranchId.");
+
+        var existingBusinessBranchIds = existingBranches
+            .Where(x => x.BusinessId == business.Id)
+            .Select(x => x.Id)
+            .OrderBy(x => x.ToString("N"), StringComparer.Ordinal)
+            .ToArray();
+        var defaultId = settings.DefaultBranchId ?? requestedDefaultBranchId
+            ?? (legacyBranchIds.Count > 0
+                ? legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
+                : existingBusinessBranchIds.Length == 1
+                    ? existingBusinessBranchIds[0]
+                    : existingBusinessBranchIds.Length > 1
+                        ? throw new InvalidDataException(
+                            "Multiple branches exist but no default branch is configured. An explicit default branch selection is required.")
+                        : Guid.NewGuid());
 
         legacyBranchIds.Add(defaultId);
 
@@ -149,6 +168,11 @@ public static class DatabaseInitializer
         if (foreignOwnedBranch is not null)
             throw new InvalidDataException(
                 $"Legacy BranchId {foreignOwnedBranch.Id} is already owned by a different business. Organization bootstrap was stopped.");
+
+        if (!existingBranches.Any(x => x.Id == defaultId && x.BusinessId == business.Id)
+            && existingBranches.Any(x => x.BusinessId == business.Id && x.Code == "MAIN"))
+            throw new InvalidDataException(
+                "A different branch already uses the MAIN code. Select that branch as the default or resolve the code conflict explicitly.");
 
         var businessBranches = existingBranches
             .Where(x => x.BusinessId == business.Id)
