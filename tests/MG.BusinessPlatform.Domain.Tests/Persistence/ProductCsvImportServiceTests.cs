@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Infrastructure.Services;
 
@@ -78,8 +79,14 @@ public sealed class ProductCsvImportServiceTests
         await DatabaseInitializer.InitializeAsync(db);
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "EXISTING-1", Name = "Original", UnitPrice = 10m,
-            UnitCost = 4m, CurrencyCode = "IRR", StockQuantity = 2, IsAvailable = true,
+            Id = Guid.NewGuid(),
+            Sku = "EXISTING-1",
+            Name = "Original",
+            UnitPrice = 10m,
+            UnitCost = 4m,
+            CurrencyCode = "IRR",
+            StockQuantity = 2,
+            IsAvailable = true,
             UpdatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
