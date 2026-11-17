@@ -50,6 +50,8 @@ public sealed class StaffAuthenticationServiceTests
         var service = new StaffAuthenticationService(store.Db, new StaffPasswordHasher());
         await service.CreateInitialOwnerAsync(
             store.BusinessId, [store.BranchId], "owner", "Store Owner", InitialPassword);
+        var existingLogin = await service.AuthenticateAsync(store.BusinessId, "owner", InitialPassword);
+        Assert.NotNull(existingLogin);
 
         for (var attempt = 0; attempt < 5; attempt++)
             Assert.Null(await service.AuthenticateAsync(store.BusinessId, "owner", "Wrong-password-2026!"));
@@ -58,6 +60,8 @@ public sealed class StaffAuthenticationServiceTests
         Assert.Equal(5, user.FailedLoginCount);
         Assert.True(user.LockedUntilUtc > DateTimeOffset.UtcNow);
         Assert.Null(await service.AuthenticateAsync(store.BusinessId, "owner", InitialPassword));
+        Assert.Null(await service.ValidateSessionAsync(store.BusinessId, existingLogin.Token));
+        Assert.NotNull((await store.Db.StaffSessions.SingleAsync()).RevokedAtUtc);
     }
 
     [Fact]
