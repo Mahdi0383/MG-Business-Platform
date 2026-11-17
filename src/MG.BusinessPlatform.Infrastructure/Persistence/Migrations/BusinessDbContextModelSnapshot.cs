@@ -104,6 +104,11 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.AuditEventRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid?>("BranchId").HasColumnType("TEXT");
+            b.Property<Guid?>("StaffUserId").HasColumnType("TEXT");
+            b.Property<string>("ActorType").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+            b.Property<string>("CorrelationId").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
             b.Property<string>("Action").IsRequired().HasMaxLength(20).HasColumnType("TEXT");
             b.Property<string>("Actor").IsRequired().HasMaxLength(300).HasColumnType("TEXT");
             b.Property<string>("ChangedFields").IsRequired().HasMaxLength(2000).HasColumnType("TEXT");
@@ -114,7 +119,12 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.HasKey("Id");
             b.HasIndex("OccurredAtUnixMilliseconds");
             b.HasIndex("EntityType", "EntityId", "OccurredAtUnixMilliseconds");
-            b.ToTable("AuditEvents");
+            b.HasIndex("BusinessId", "BranchId", "OccurredAtUnixMilliseconds");
+            b.HasIndex("StaffUserId", "OccurredAtUnixMilliseconds");
+            b.ToTable("AuditEvents", t =>
+            {
+                t.HasCheckConstraint("CK_AuditEvent_ActorType", "ActorType IN ('Staff','LegacyProcess','System')");
+            });
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.LedgerAccountRecord", b =>
