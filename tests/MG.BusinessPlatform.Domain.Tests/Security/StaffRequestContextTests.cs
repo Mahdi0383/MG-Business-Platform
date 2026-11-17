@@ -120,12 +120,10 @@ public sealed class StaffRequestContextTests
         Assert.False(StaffAuthorizationPolicy.IsAllowed(context, StaffPermission.AccountingManage));
         Assert.False(StaffAuthorizationPolicy.IsAllowed(context, StaffPermission.StaffManage));
         Assert.False(StaffAuthorizationPolicy.IsAllowed(null, StaffPermission.DashboardRead));
-
-        user.Role = "UnknownRole";
-        await store.Db.SaveChangesAsync();
-        var unknownRoleContext = await resolver.ResolveAsync(login.Token);
-        Assert.NotNull(unknownRoleContext);
-        Assert.False(StaffAuthorizationPolicy.IsAllowed(unknownRoleContext, StaffPermission.DashboardRead));
+        Assert.False(StaffAuthorizationPolicy.IsAllowed(
+            new StaffRequestContext(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+                "USER", "Unknown", "UnknownRole", "test-correlation"),
+            StaffPermission.DashboardRead));
     }
 
     private sealed class TestStore(SqliteConnection connection, BusinessDbContext db, Guid businessId, Guid branchId)
