@@ -80,7 +80,6 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.SalesInvoiceRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
-            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<decimal>("CostTotal").HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
@@ -193,6 +192,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.SupplierRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("Address").IsRequired().HasMaxLength(1000).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
             b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
