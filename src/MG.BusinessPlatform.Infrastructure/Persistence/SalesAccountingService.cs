@@ -12,6 +12,23 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // A caller may lose the response after the transaction commits and retry.
+        // Return the already-issued invoice instead of creating duplicate revenue/COGS
+        // journals or turning a successful fulfillment into an apparent failure.
+        var existingInvoice = await db.SalesInvoices
+            .Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            var existingOrder = await db.CustomerOrders.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == orderId, cancellationToken);
+            if (!string.Equals(existingOrder?.Status, "Fulfilled", StringComparison.Ordinal))
+                throw new InvalidOperationException("An invoice exists for an order that is not marked fulfilled.");
+            await transaction.CommitAsync(cancellationToken);
+            return existingInvoice;
+        }
+
         var invoice = await FulfillOrderCoreAsync(orderId, issueDate, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
