@@ -161,11 +161,14 @@ public static class DatabaseInitializer
             .Select(x => x.Id)
             .OrderBy(x => x.ToString("N"), StringComparer.Ordinal)
             .ToArray();
+        var matchingLegacyDefaultId = requestedDefaultBranchId is Guid requestedId
+            && legacyBranchIds.Contains(requestedId)
+                ? requestedId
+                : (Guid?)null;
         var defaultId = settings.DefaultBranchId
             ?? (legacyBranchIds.Count > 0
-                ? legacyBranchIds.Contains(requestedDefaultBranchId ?? Guid.Empty)
-                    ? requestedDefaultBranchId.Value
-                    : legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
+                ? matchingLegacyDefaultId
+                    ?? legacyBranchIds.OrderBy(x => x.ToString("N"), StringComparer.Ordinal).First()
                 : requestedDefaultBranchId
                     ?? (existingBusinessBranchIds.Length == 1
                         ? existingBusinessBranchIds[0]
