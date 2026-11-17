@@ -28,7 +28,7 @@ public sealed class StaffAdministrationService(
     public async Task<IReadOnlyList<StaffUserSummary>> ListStaffAsync(
         CancellationToken cancellationToken = default)
     {
-        var context = RequireContext(StaffPermission.StaffRead);
+        var context = await RequireContextAsync(StaffPermission.StaffRead, cancellationToken);
         var users = await db.StaffUsers.AsNoTracking()
             .Where(x => x.BusinessId == context.BusinessId)
             .OrderBy(x => x.UserNameNormalized)
@@ -83,6 +83,9 @@ public sealed class StaffAdministrationService(
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await AcquireBusinessWriteLockAsync(context.BusinessId, cancellationToken);
+        context = await RequireLiveContextAsync(context, StaffPermission.StaffManage, cancellationToken);
+        if (normalizedRole == "Owner" && context.Role != "Owner")
+            throw new UnauthorizedAccessException("Only an Owner can create another Owner account.");
 
         if (await db.StaffUsers.AnyAsync(
                 x => x.BusinessId == context.BusinessId
@@ -140,6 +143,7 @@ public sealed class StaffAdministrationService(
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await AcquireBusinessWriteLockAsync(context.BusinessId, cancellationToken);
+        context = await RequireLiveContextAsync(context, StaffPermission.StaffManage, cancellationToken);
 
         var user = await db.StaffUsers.SingleOrDefaultAsync(
             x => x.Id == staffUserId && x.BusinessId == context.BusinessId,
@@ -207,6 +211,7 @@ public sealed class StaffAdministrationService(
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await AcquireBusinessWriteLockAsync(context.BusinessId, cancellationToken);
+        context = await RequireLiveContextAsync(context, StaffPermission.DashboardRead, cancellationToken);
 
         var user = await db.StaffUsers.SingleOrDefaultAsync(
             x => x.Id == context.StaffUserId
@@ -236,6 +241,44 @@ public sealed class StaffAdministrationService(
             throw new UnauthorizedAccessException(
                 $"A validated staff session with '{permission}' permission is required.");
         return context!;
+    }
+
+    private async Task<StaffRequestContext> RequireContextAsync(StaffPermission permission, CancellationToken cancellationToken)
+    {
+        var context = RequireContext(permission);
+        return await RequireLiveContextAsync(context, permission, cancellationToken);
+    }
+
+    private async Task<StaffRequestContext> RequireLiveContextAsync(StaffRequestContext context, StaffPermission permission, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var session = await db.StaffSessions.AsNoTracking().SingleOrDefaultAsync(
+            x => x.Id == context.SessionId && x.BusinessId == context.BusinessId
+                && x.StaffUserId == context.StaffUserId && x.RevokedAtUtc == null,
+            cancellationToken);
+        if (session is null || session.ExpiresAtUtc <= now)
+            throw new UnauthorizedAccessException("The staff session is revoked or expired.");
+
+        var user = await db.StaffUsers.AsNoTracking().SingleOrDefaultAsync(
+            x => x.Id == context.StaffUserId && x.BusinessId == context.BusinessId && x.IsActive,
+            cancellationToken);
+        if (user is null || (user.LockedUntilUtc is DateTimeOffset lockedUntil && lockedUntil > now))
+            throw new UnauthorizedAccessException("The staff account is inactive or locked.");
+
+        var businessActive = await db.Businesses.AsNoTracking()
+            .AnyAsync(x => x.Id == context.BusinessId && x.IsActive, cancellationToken);
+        var branchGranted = await db.StaffBranchAccess.AsNoTracking().AnyAsync(
+            x => x.BusinessId == context.BusinessId && x.StaffUserId == context.StaffUserId
+                && x.BranchId == context.BranchId, cancellationToken);
+        var branchActive = await db.Branches.AsNoTracking().AnyAsync(
+            x => x.Id == context.BranchId && x.BusinessId == context.BusinessId && x.IsActive,
+            cancellationToken);
+        if (!businessActive || !branchGranted || !branchActive
+            || !StaffAuthorizationPolicy.IsRoleAllowed(user.Role, permission))
+            throw new UnauthorizedAccessException("The current staff session no longer has the required access.");
+
+        return new StaffRequestContext(context.BusinessId, context.BranchId, user.Id, session.Id,
+            user.UserNameNormalized, user.DisplayName, user.Role, context.CorrelationId);
     }
 
     private async Task AcquireBusinessWriteLockAsync(
