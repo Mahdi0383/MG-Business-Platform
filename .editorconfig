@@ -16,6 +16,7 @@ trim_trailing_whitespace = false
 indent_size = 2
 
 [*.cs]
+# Keep C# source line endings deterministic for the Windows formatter.
 end_of_line = crlf
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = true
