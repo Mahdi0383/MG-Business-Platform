@@ -418,7 +418,18 @@ public partial class MainWindow : Window
             if (GeneralLedgerAccountInput.SelectedItem is null && ledgerAccountsForPicker.Count > 0)
                 GeneralLedgerAccountInput.SelectedIndex = 0;
 
-            var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+            var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (storeSettings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار در تنظیمات پایگاه داده ثبت نشده است.");
+            var branchBalances = await db.BranchInventoryBalances.AsNoTracking()
+                .Where(x => x.BusinessId == businessId && x.BranchId == _sessionBranchId)
+                .ToDictionaryAsync(x => x.ProductId, x => x.OnHandQuantity);
+            var products = await db.StoreProducts.AsNoTracking().Where(x => x.BusinessId == businessId)
+                .OrderBy(x => x.Name).ToListAsync();
+            // The desktop product view is branch-specific. StockQuantity on StoreProduct
+            // remains a compatibility aggregate while branch balances are authoritative.
+            foreach (var product in products)
+                product.StockQuantity = branchBalances.GetValueOrDefault(product.Id);
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
             PurchaseProductInput.ItemsSource = products;
@@ -442,6 +453,7 @@ public partial class MainWindow : Window
             var stockMovementRows = await (
                 from movement in db.StockMovements.AsNoTracking()
                 join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
+                where movement.BranchId == _sessionBranchId
                 select new
                 {
                     movement.OccurredAt,
