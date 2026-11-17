@@ -657,6 +657,9 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
             entity.HasIndex(x => new { x.BranchId, x.StartedAtUtc });
             entity.HasIndex(x => new { x.DeviceId, x.Status });
+            entity.HasIndex(x => x.DeviceId).IsUnique()
+                .HasDatabaseName("IX_GameSessions_OneOpenSessionPerDevice")
+                .HasFilter("\"Status\" IN ('Active','Paused')");
             entity.ToTable(t =>
             {
                 t.HasCheckConstraint("CK_GameSession_Rate", "CAST(RatePerHour AS NUMERIC) >= 0");

@@ -26,6 +26,9 @@ internal static class GameSessionsSchemaModel
             b.HasKey("Id");
             b.HasIndex("BranchId", "StartedAtUtc");
             b.HasIndex("DeviceId", "Status");
+            b.HasIndex("DeviceId").IsUnique()
+                .HasDatabaseName("IX_GameSessions_OneOpenSessionPerDevice")
+                .HasFilter("\"Status\" IN ('Active','Paused')");
             
             b.ToTable("GameSessions", t =>
             {

@@ -109,4 +109,61 @@ public sealed class GameSessionPersistenceTests
             Assert.Contains("20261013040000_AddGameSessions", await reopened.Database.GetAppliedMigrationsAsync());
         }
     }
+    [Fact]
+    public async Task Migration_EnforcesSingleOpenGameSessionPerDeviceAtDatabaseLevel()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await db.Database.MigrateAsync();
+
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var startedAt = "2026-11-17T08:00:00.0000000+00:00";
+
+        async Task InsertSession(Guid id, string status)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO GameSessions
+                    (Id, BranchId, DeviceId, GameName, RatePerHour, CurrencyCode,
+                     StartedAtUtc, PausedAtUtc, EndedAtUtc, AccumulatedPauseTicks,
+                     LastTransitionAtUtc, Status)
+                VALUES ($id, $branch, $device, 'Test Game', '600', 'IRR',
+                        $started, NULL, NULL, 0, $started, $status);
+                """;
+            command.Parameters.AddWithValue("$id", id.ToString());
+            command.Parameters.AddWithValue("$branch", branchId.ToString());
+            command.Parameters.AddWithValue("$device", deviceId.ToString());
+            command.Parameters.AddWithValue("$started", startedAt);
+            command.Parameters.AddWithValue("$status", status);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var firstId = Guid.NewGuid();
+        await InsertSession(firstId, "Active");
+
+        var duplicatePaused = await Assert.ThrowsAsync<SqliteException>(
+            () => InsertSession(Guid.NewGuid(), "Paused"));
+        Assert.Equal(19, duplicatePaused.SqliteErrorCode);
+
+        await using (var completeCommand = connection.CreateCommand())
+        {
+            completeCommand.CommandText = "UPDATE GameSessions SET Status = 'Completed', EndedAtUtc = $ended, LastTransitionAtUtc = $ended WHERE Id = $id;";
+            completeCommand.Parameters.AddWithValue("$ended", "2026-11-17T08:30:00.0000000+00:00");
+            completeCommand.Parameters.AddWithValue("$id", firstId.ToString());
+            Assert.Equal(1, await completeCommand.ExecuteNonQueryAsync());
+        }
+
+        var secondId = Guid.NewGuid();
+        await InsertSession(secondId, "Paused");
+
+        var duplicateActive = await Assert.ThrowsAsync<SqliteException>(
+            () => InsertSession(Guid.NewGuid(), "Active"));
+        Assert.Equal(19, duplicateActive.SqliteErrorCode);
+
+        Assert.Equal(2, await db.GameSessions.CountAsync());
+    }
+
 }
