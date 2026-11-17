@@ -136,3 +136,39 @@ The following target decisions are recommended to avoid mixing business ownershi
 ### Migration consequence
 
 Before generating EF migrations, update the inventory table above to distinguish business-owned catalog from branch-owned stock, and enumerate every write path that currently mutates StoreProduct.StockQuantity. The migration must preserve legacy quantities as opening balances for the explicitly mapped legacy branch, reconcile quantity totals against stock movements, and reject ambiguous or inconsistent legacy state rather than fabricate a distribution across branches. Tests must prove same-business branches cannot read each other's stock and cross-business products cannot be referenced by orders, purchase lines or stock movements.
+
+## Verified schema facts from the current main branch
+
+This section records concrete findings from `BusinessDbContext` and the existing SQLite migrations. It is an inventory, not a proposed claim that isolation already exists.
+
+| Area | Verified current state | Required migration direction |
+| --- | --- | --- |
+| Store settings | `StoreSettings` is constrained to singleton `Id = 1`. | Replace singleton assumption with Business-owned settings and separately scoped branch settings; map existing row explicitly. |
+| Product catalog/stock | `StoreProducts` has one global unique SKU and one `StockQuantity`; the initial migration creates no BusinessId or BranchId. | Business-scoped SKU uniqueness; branch inventory balance and branch-scoped movements. Preserve old stock as one approved branch opening balance. |
+| Stock movements | `StockMovements` records ProductId and time but no BusinessId or BranchId; no FK enforces product ownership. | Add ownership columns, composite product FK and branch-aware idempotent movement/source identity. |
+| Customer orders | Order number and idempotency key are globally unique; order and order-line records do not carry ownership scope in the current mapping. | Scope order keys by business and attach order lines to products through same-business composite ownership. |
+| Accounting | Account code, invoice number, payment number and journal entry number are globally unique. Journal source uniqueness is global on (SourceType, SourceId); journal lines reference accounts by AccountId only. | Business-scoped unique indexes; composite same-business FKs for invoices, payments, journal entries and accounts. Keep branch optional only for business-level postings. |
+| Purchasing | Purchase invoice has BranchId, but supplier/product relationships are single-column references and the invoice number is global. | Enforce BranchId -> BusinessId and ensure supplier, product and invoice all share the same BusinessId. Scope invoice numbering by business (and optionally branch according to numbering policy). |
+| Reservations | Reservation resource has BranchId; reservation has ResourceId but no BusinessId/BranchId. Reservation number and idempotency key are global. | Validate resource branch ownership, persist BusinessId/BranchId on reservation, and scope idempotency and number uniqueness to business. |
+| Game sessions | Session has BranchId; one-open-session filtered unique index is currently keyed only by DeviceId. | Enforce device ownership by branch/business; use tenant-aware uniqueness without permitting two open sessions on the same physical device. |
+| Audit | Audit rows currently identify actor from OS process identity and contain no BusinessId, BranchId or validated StaffUserId. | Introduce request-scoped authenticated actor and tenant scope; retain an explicit system actor for background/desktop maintenance and classify legacy events. |
+
+### Migration preflight queries and invariants
+
+Before adding non-null ownership columns or rebuilding indexes, a preflight command must produce a deterministic report and stop without modifying the database when any invariant fails:
+
+1. Count businesses and branches; require an explicit operator-approved mapping for every legacy row. Do not infer the target branch merely from a current UI selection.
+2. Check every non-null BranchId against an existing Branch and verify the branch's BusinessId. A branch with no business or an orphan reference is a hard failure.
+3. Check all existing globally unique identifiers before replacing them with tenant-scoped indexes. Existing global uniqueness can be retained as a stricter interim constraint until the tenant migration is complete.
+4. For each product, compare StoreProduct.StockQuantity with the sum of signed stock movements under the existing movement semantics. If there is no opening movement or totals disagree, require a reviewed reconciliation entry; do not silently generate balancing stock.
+5. Check reservation resource references, game device references, invoice/order links, journal source links, journal-line account links, payment/invoice links, purchase/supplier links and purchase-line/product links for orphan or ambiguous ownership.
+6. Produce counts and stable IDs only (no customer PII) in the preflight report; store the report hash and migration version in the backup/upgrade log.
+7. Run the preflight against a restored copy of the actual production database before the migration is eligible for release. A successful empty-database migration is not sufficient evidence.
+
+### Rollout safety
+
+- Expand first with nullable ownership columns and supporting non-unique indexes; keep old constraints in place.
+- Backfill from a reviewed, immutable mapping file/manifest; record the mapping version and operator approval. Abort on unmapped or multiply mapped rows.
+- Validate ownership joins and stock reconciliation before enforcing NOT NULL, composite unique indexes and composite foreign keys.
+- Constrain only after a second backup and restore verification. Keep a tested rollback/restore path; do not rely on reversing destructive SQLite table rebuilds as the sole recovery strategy.
+- Do not enable shared-host mode or expose staff mutation endpoints while any ownership, identity, authorization or audit invariant remains unverified.
