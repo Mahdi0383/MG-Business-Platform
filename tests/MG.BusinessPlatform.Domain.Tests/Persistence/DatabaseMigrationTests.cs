@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
@@ -69,31 +70,55 @@ public sealed class DatabaseMigrationTests
         });
         db.StockMovements.Add(new StockMovementRecord
         {
-            Id = Guid.NewGuid(), ProductId = db.StoreProducts.Local.Single().Id,
-            OccurredAt = DateTimeOffset.UtcNow, MovementType = "OpeningBalance",
-            Quantity = 8, SignedQuantity = 8, UnitCost = 80m, CurrencyCode = "IRR",
-            Reference = "MIGRATION", Note = string.Empty
+            Id = Guid.NewGuid(),
+            ProductId = db.StoreProducts.Local.Single().Id,
+            OccurredAt = DateTimeOffset.UtcNow,
+            MovementType = "OpeningBalance",
+            Quantity = 8,
+            SignedQuantity = 8,
+            UnitCost = 80m,
+            CurrencyCode = "IRR",
+            Reference = "MIGRATION",
+            Note = string.Empty
         });
         db.Customers.Add(new CustomerRecord
         {
-            Id = Guid.NewGuid(), DisplayName = "Test Customer", Phone = "0912", Email = string.Empty,
-            Address = string.Empty, CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+            Id = Guid.NewGuid(),
+            DisplayName = "Test Customer",
+            Phone = "0912",
+            Email = string.Empty,
+            Address = string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsActive = true
         });
         var supplierId = Guid.NewGuid();
         db.Suppliers.Add(new SupplierRecord
         {
-            Id = supplierId, DisplayName = "Test Supplier", Phone = "021", Email = string.Empty,
-            Address = string.Empty, TaxIdentifier = string.Empty, PaymentTerms = string.Empty,
-            CreatedAt = DateTimeOffset.UtcNow, IsActive = true
+            Id = supplierId,
+            DisplayName = "Test Supplier",
+            Phone = "021",
+            Email = string.Empty,
+            Address = string.Empty,
+            TaxIdentifier = string.Empty,
+            PaymentTerms = string.Empty,
+            CreatedAt = DateTimeOffset.UtcNow,
+            IsActive = true
         });
         var issueDate = new DateOnly(2026, 10, 1);
         var dueDate = new DateOnly(2026, 11, 15);
         db.PurchaseInvoices.Add(new PurchaseInvoiceRecord
         {
-            Id = Guid.NewGuid(), InvoiceNumber = "PUR-DUE-TEST", BranchId = Guid.NewGuid(),
-            SupplierId = supplierId, IssueDate = issueDate, DueDate = dueDate,
-            CurrencyCode = "IRR", TotalAmount = 100m, PaidAmount = 0m,
-            Status = "Received", CreatedAt = DateTimeOffset.UtcNow
+            Id = Guid.NewGuid(),
+            InvoiceNumber = "PUR-DUE-TEST",
+            BranchId = Guid.NewGuid(),
+            SupplierId = supplierId,
+            IssueDate = issueDate,
+            DueDate = dueDate,
+            CurrencyCode = "IRR",
+            TotalAmount = 100m,
+            PaidAmount = 0m,
+            Status = "Received",
+            CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
 
@@ -121,6 +146,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261016010000_AddPurchasingAccounting", appliedMigrations);
         Assert.Contains("20261016020000_AddAuditEvents", appliedMigrations);
         Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
+        Assert.Contains("20261117020000_AddBusinessBranchIdentity", appliedMigrations);
     }
 
     [Fact]
@@ -164,6 +190,14 @@ public sealed class DatabaseMigrationTests
         Assert.False(settings.OnlineReservationsEnabled);
         Assert.False(settings.PublicPublicationEnabled);
         Assert.Equal(string.Empty, settings.PublicHostname);
+        Assert.NotEqual(Guid.Empty, settings.BusinessId);
+        Assert.NotEqual(Guid.Empty, settings.DefaultBranchId);
+        var business = await db.Businesses.AsNoTracking().SingleAsync();
+        var defaultBranch = await db.Branches.AsNoTracking().SingleAsync();
+        Assert.Equal(settings.BusinessId, business.Id);
+        Assert.Equal(settings.DefaultBranchId, defaultBranch.Id);
+        Assert.Equal(business.Id, defaultBranch.BusinessId);
+        Assert.Equal("MAIN", defaultBranch.Code);
 
         var accounts = await db.LedgerAccounts.AsNoTracking()
             .OrderBy(account => account.Code)

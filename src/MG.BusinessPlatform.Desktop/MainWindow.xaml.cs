@@ -110,7 +110,7 @@ public partial class MainWindow : Window
     private bool _isSalesPaymentInProgress;
     private bool _isSupplierPaymentInProgress;
     private readonly ObservableCollection<PurchaseInvoiceDraftLine> _purchaseDraftLines = [];
-    private readonly Guid _sessionBranchId;
+    private Guid _sessionBranchId;
     private readonly Guid _sessionDeviceId;
     private Guid? _selectedGameSessionId;
     private Process? _storefrontProcess;
@@ -175,7 +175,16 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
-            await DatabaseInitializer.InitializeAsync(db);
+            await DatabaseInitializer.InitializeAsync(db, defaultBranchId: _sessionBranchId);
+            var persistedDefaultBranchId = await db.StoreSettings.AsNoTracking()
+                .Select(settings => settings.DefaultBranchId)
+                .SingleAsync();
+            if (persistedDefaultBranchId is Guid branchId && branchId != Guid.Empty)
+            {
+                _sessionBranchId = branchId;
+                await File.WriteAllTextAsync(
+                    Path.Combine(_dataDirectory, "branch-id.txt"), branchId.ToString("D"));
+            }
 
             await LoadSettingsAsync();
             try
@@ -1662,68 +1671,68 @@ public partial class MainWindow : Window
         CompletePosSaleButton.IsEnabled = false;
         try
         {
-        var cart = _posCartLines.ToArray();
-        if (cart.Length == 0)
-        {
-            StatusText.Text = "سبد فروش خالی است؛ ابتدا کالا اضافه کنید.";
-            return;
-        }
-        if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string paymentMethod)
-        {
-            StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
-            return;
-        }
-        var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text) ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
-        var customerPhone = PosCustomerPhoneInput.Text.Trim();
-        if (customerName.Length > 160 || customerPhone.Length > 40)
-        {
-            StatusText.Text = "طول نام مشتری یا شماره تماس بیش از حد مجاز است.";
-            return;
-        }
+            var cart = _posCartLines.ToArray();
+            if (cart.Length == 0)
+            {
+                StatusText.Text = "سبد فروش خالی است؛ ابتدا کالا اضافه کنید.";
+                return;
+            }
+            if (PosPaymentMethodInput.SelectedItem is not ComboBoxItem methodItem || methodItem.Tag is not string paymentMethod)
+            {
+                StatusText.Text = "روش دریافت وجه را انتخاب کنید.";
+                return;
+            }
+            var customerName = string.IsNullOrWhiteSpace(PosCustomerNameInput.Text) ? "مشتری حضوری" : PosCustomerNameInput.Text.Trim();
+            var customerPhone = PosCustomerPhoneInput.Text.Trim();
+            if (customerName.Length > 160 || customerPhone.Length > 40)
+            {
+                StatusText.Text = "طول نام مشتری یا شماره تماس بیش از حد مجاز است.";
+                return;
+            }
 
-        decimal total;
-        try { total = cart.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal)); }
-        catch (OverflowException)
-        {
-            StatusText.Text = "مجموع سبد خارج از محدوده مجاز است.";
-            return;
-        }
-        var summary = string.Join(Environment.NewLine, cart.Select(x => $"{x.ProductName} × {x.Quantity} = {x.LineTotal:N2} {x.CurrencyCode}"));
-        if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
-            $"{summary}{Environment.NewLine}مجموع: {total:N2} {cart[0].CurrencyCode}{Environment.NewLine}موجودی، فاکتور و دریافت وجه به‌صورت تراکنشی ثبت می‌شوند.",
-            "ثبت فروش"))
-            return;
+            decimal total;
+            try { total = cart.Aggregate(0m, (sum, line) => checked(sum + line.LineTotal)); }
+            catch (OverflowException)
+            {
+                StatusText.Text = "مجموع سبد خارج از محدوده مجاز است.";
+                return;
+            }
+            var summary = string.Join(Environment.NewLine, cart.Select(x => $"{x.ProductName} × {x.Quantity} = {x.LineTotal:N2} {x.CurrencyCode}"));
+            if (!ConfirmationDialog.Confirm(this, "ثبت فروش حضوری",
+                $"{summary}{Environment.NewLine}مجموع: {total:N2} {cart[0].CurrencyCode}{Environment.NewLine}موجودی، فاکتور و دریافت وجه به‌صورت تراکنشی ثبت می‌شوند.",
+                "ثبت فروش"))
+                return;
 
-        SalesInvoiceRecord invoice;
-        try
-        {
-            await using var db = new BusinessDbContext(CreateOptions());
-            var accounting = new SalesAccountingService(db);
-            invoice = await accounting.CreatePosSaleAsync(
-                cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
-                customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
-                DateOnly.FromDateTime(DateTime.Today));
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
-            return;
-        }
+            SalesInvoiceRecord invoice;
+            try
+            {
+                await using var db = new BusinessDbContext(CreateOptions());
+                var accounting = new SalesAccountingService(db);
+                invoice = await accounting.CreatePosSaleAsync(
+                    cart.Select(x => new PosSaleLineRequest(x.ProductId, x.Quantity, x.UnitPrice)).ToArray(),
+                    customerName, customerPhone, paymentMethod, string.Empty, "POS checkout",
+                    DateOnly.FromDateTime(DateTime.Today));
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"ثبت فروش حضوری ناموفق بود: {ex.Message}";
+                return;
+            }
 
-        _posCartLines.Clear();
-        UpdatePosCartTotal();
-        StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
-        try
-        {
-            await RefreshAsync();
-            await RefreshTrialBalanceAsync();
-        }
-        catch (Exception ex)
-        {
-            // The transaction has already committed. Never tell the operator the
-            // sale failed, or encourage a retry, just because a follow-up refresh failed.
-            StatusText.Text = $"فروش ثبت شد (فاکتور {invoice.InvoiceNumber})، اما تازه‌سازی فهرست/گزارش ناموفق بود: {ex.Message}";
-        }
+            _posCartLines.Clear();
+            UpdatePosCartTotal();
+            StatusText.Text = $"فروش حضوری ثبت شد: فاکتور {invoice.InvoiceNumber}، مبلغ {invoice.TotalAmount:N2} {invoice.CurrencyCode}، وضعیت {invoice.Status}.";
+            try
+            {
+                await RefreshAsync();
+                await RefreshTrialBalanceAsync();
+            }
+            catch (Exception ex)
+            {
+                // The transaction has already committed. Never tell the operator the
+                // sale failed, or encourage a retry, just because a follow-up refresh failed.
+                StatusText.Text = $"فروش ثبت شد (فاکتور {invoice.InvoiceNumber})، اما تازه‌سازی فهرست/گزارش ناموفق بود: {ex.Message}";
+            }
         }
         finally
         {

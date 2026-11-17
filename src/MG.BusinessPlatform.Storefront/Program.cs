@@ -188,7 +188,24 @@ app.Use(async (context, next) =>
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BusinessDbContext>();
-    await DatabaseInitializer.InitializeAsync(db);
+    var dataDirectory = Environment.GetEnvironmentVariable("MG_BUSINESS_DATA_PATH")
+        ?? Path.GetDirectoryName(databasePath)!;
+    Directory.CreateDirectory(dataDirectory);
+    var branchIdPath = Path.Combine(dataDirectory, "branch-id.txt");
+    Guid defaultBranchId;
+    if (File.Exists(branchIdPath)
+        && Guid.TryParse((await File.ReadAllTextAsync(branchIdPath)).Trim(), out var parsedBranchId)
+        && parsedBranchId != Guid.Empty)
+    {
+        defaultBranchId = parsedBranchId;
+    }
+    else
+    {
+        defaultBranchId = Guid.NewGuid();
+        await File.WriteAllTextAsync(branchIdPath, defaultBranchId.ToString("D"));
+    }
+
+    await DatabaseInitializer.InitializeAsync(db, defaultBranchId: defaultBranchId);
 }
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" })).AllowAnonymous().RequireRateLimiting("public");

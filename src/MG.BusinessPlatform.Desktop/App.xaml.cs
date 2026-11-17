@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http;
 using System.Windows;
+
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Desktop.Services;
 
@@ -42,6 +44,18 @@ public partial class App : System.Windows.Application
         new MainWindow().Show();
     }
 
+    private static Guid LoadOrCreateBranchIdentity(string path)
+    {
+        if (File.Exists(path)
+            && Guid.TryParse(File.ReadAllText(path).Trim(), out var existing)
+            && existing != Guid.Empty)
+            return existing;
+
+        var created = Guid.NewGuid();
+        File.WriteAllText(path, created.ToString("D"));
+        return created;
+    }
+
     private static async Task StartStorefrontIfEnabledAsync()
     {
         var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MGBusinessPlatform");
@@ -65,7 +79,8 @@ public partial class App : System.Windows.Application
             .Options;
 
         await using var db = new BusinessDbContext(options);
-        await DatabaseInitializer.InitializeAsync(db);
+        var defaultBranchId = LoadOrCreateBranchIdentity(Path.Combine(dataDirectory, "branch-id.txt"));
+        await DatabaseInitializer.InitializeAsync(db, defaultBranchId: defaultBranchId);
 
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
         var licensedModules = payload.Modules.ToHashSet(StringComparer.Ordinal);

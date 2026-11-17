@@ -1,7 +1,8 @@
-using MG.BusinessPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+
+using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence.Migrations;
 
@@ -15,6 +16,34 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder
             .HasAnnotation("ProductVersion", "10.0.0")
             .HasAnnotation("Relational:MaxIdentifierLength", 64);
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("DefaultCurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
+            b.Property<string>("DisplayName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<string>("LegalName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
+            b.Property<string>("TimeZoneId").IsRequired().HasMaxLength(100).HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasIndex("DisplayName");
+            b.ToTable("Businesses");
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<string>("Address").HasMaxLength(1000).HasColumnType("TEXT");
+            b.Property<Guid>("BusinessId").HasColumnType("TEXT");
+            b.Property<string>("Code").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
+            b.Property<bool>("IsActive").HasColumnType("INTEGER");
+            b.Property<string>("Name").IsRequired().HasMaxLength(160).HasColumnType("TEXT");
+            b.Property<string>("Phone").HasMaxLength(40).HasColumnType("TEXT");
+            b.HasKey("Id");
+            b.HasAlternateKey("BusinessId", "Id");
+            b.HasIndex("BusinessId", "Code").IsUnique();
+            b.ToTable("Branches");
+        });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.AuditEventRecord", b =>
         {
@@ -175,6 +204,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreSettings", b =>
         {
             b.Property<int>("Id").ValueGeneratedNever().HasColumnType("INTEGER");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid?>("DefaultBranchId").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<bool>("OnlineOrderingEnabled").HasColumnType("INTEGER");
             b.Property<bool>("OnlineReservationsEnabled").HasColumnType("INTEGER");
@@ -183,6 +214,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("StoreName").IsRequired().HasMaxLength(200).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("TEXT");
             b.HasKey("Id");
+            b.HasIndex("BusinessId");
+            b.HasIndex("BusinessId", "DefaultBranchId");
             b.ToTable("StoreSettings", t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
 
@@ -309,6 +342,28 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
                 t.HasCheckConstraint("CK_OrderLine_Price", "CAST(UnitPrice AS NUMERIC) >= 0 AND CAST(UnitCost AS NUMERIC) >= 0 AND CAST(LineTotal AS NUMERIC) >= 0");
                 t.HasCheckConstraint("CK_OrderLine_Quantity", "Quantity > 0");
             });
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreSettings", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BusinessRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId")
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "DefaultBranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
