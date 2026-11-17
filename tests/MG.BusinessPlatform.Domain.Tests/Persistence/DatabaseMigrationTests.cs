@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -149,6 +151,7 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261117020000_AddBusinessBranchIdentity", appliedMigrations);
         Assert.Contains("20261117025000_AddBusinessOwnershipToCatalog", appliedMigrations);
         Assert.Contains("20261117050000_AddStockMovementOwnership", appliedMigrations);
+        Assert.Contains("20261117060000_AddBranchInventoryBalances", appliedMigrations);
         Assert.Contains("20261117060000_EnforceStockMovementBranchOwnership", appliedMigrations);
     }
 
@@ -179,7 +182,7 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         var movementId = Guid.NewGuid();
-        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO StockMovements
                 (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
@@ -231,7 +234,7 @@ public sealed class DatabaseMigrationTests
         await db.SaveChangesAsync();
 
         var movementId = Guid.NewGuid();
-        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO StockMovements
                 (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
@@ -248,6 +251,288 @@ public sealed class DatabaseMigrationTests
         var movement = await db.StockMovements.AsNoTracking().SingleAsync(x => x.Id == movementId);
         Assert.Null(movement.BusinessId);
         Assert.Null(movement.BranchId);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_BackfillsLegacyProductStockToTheOnlyBranchBalance()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-SINGLE",
+            Name = "Single branch inventory",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 9,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var balance = await db.BranchInventoryBalances.SingleAsync();
+        Assert.Equal(settings.BusinessId, balance.BusinessId);
+        Assert.Equal(settings.DefaultBranchId, balance.BranchId);
+        Assert.Equal(product.Id, balance.ProductId);
+        Assert.Equal(9, balance.OnHandQuantity);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ReconstructsMultiBranchBalancesOnlyWhenMovementTotalsMatchLegacyStock()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var businessId = settings.BusinessId!.Value;
+        var defaultBranchId = settings.DefaultBranchId!.Value;
+        var secondBranchId = Guid.NewGuid();
+        db.Branches.Add(new BranchRecord
+        {
+            Id = secondBranchId,
+            BusinessId = businessId,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = businessId,
+            Sku = "BRANCH-STOCK-MULTI",
+            Name = "Multi branch inventory",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 7,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        db.StockMovements.AddRange(
+            new StockMovementRecord
+            {
+                Id = Guid.NewGuid(),
+                BusinessId = businessId,
+                BranchId = defaultBranchId,
+                ProductId = product.Id,
+                OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+                MovementType = "OpeningBalance",
+                Quantity = 5,
+                SignedQuantity = 5,
+                UnitCost = 50m,
+                CurrencyCode = "IRR",
+                Reference = "MIGRATION-MAIN",
+                Note = string.Empty
+            },
+            new StockMovementRecord
+            {
+                Id = Guid.NewGuid(),
+                BusinessId = businessId,
+                BranchId = secondBranchId,
+                ProductId = product.Id,
+                OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                MovementType = "OpeningBalance",
+                Quantity = 2,
+                SignedQuantity = 2,
+                UnitCost = 50m,
+                CurrencyCode = "IRR",
+                Reference = "MIGRATION-SECOND",
+                Note = string.Empty
+            });
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var balances = await db.BranchInventoryBalances
+            .Where(x => x.ProductId == product.Id)
+            .OrderBy(x => x.BranchId)
+            .ToArrayAsync();
+        Assert.Equal(2, balances.Length);
+        Assert.Equal(7, balances.Sum(x => x.OnHandQuantity));
+        Assert.Contains(balances, x => x.BranchId == defaultBranchId && x.OnHandQuantity == 5);
+        Assert.Contains(balances, x => x.BranchId == secondBranchId && x.OnHandQuantity == 2);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_FailsClosedWhenMultiBranchMovementTotalsDoNotMatchLegacyStock()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var businessId = settings.BusinessId!.Value;
+        var defaultBranchId = settings.DefaultBranchId!.Value;
+        db.Branches.Add(new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = businessId,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = businessId,
+            Sku = "BRANCH-STOCK-MISMATCH",
+            Name = "Unmapped multi branch inventory",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 8,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        db.StockMovements.Add(new StockMovementRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = businessId,
+            BranchId = defaultBranchId,
+            ProductId = product.Id,
+            OccurredAt = DateTimeOffset.UtcNow,
+            MovementType = "OpeningBalance",
+            Quantity = 5,
+            SignedQuantity = 5,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            Reference = "MIGRATION-MISMATCH",
+            Note = string.Empty
+        });
+        await db.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => DatabaseInitializer.InitializeAsync(db));
+
+        Assert.Contains("cannot be mapped safely", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await db.BranchInventoryBalances.ToListAsync());
+    }
+
+    [Fact]
+    public async Task InitializeAsync_BackfillsNewZeroStockProductsAfterInitialInventoryMigration()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var firstProduct = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-FIRST",
+            Name = "First inventory item",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 3,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(firstProduct);
+        await db.SaveChangesAsync();
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var secondProduct = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-SECOND",
+            Name = "New zero stock item",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 0,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(secondProduct);
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var newBalance = await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == secondProduct.Id);
+        Assert.Equal(settings.DefaultBranchId, newBalance.BranchId);
+        Assert.Equal(0, newBalance.OnHandQuantity);
+        Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == firstProduct.Id)).OnHandQuantity);
+    }
+
+    [Fact]
+    public async Task DatabaseConstraint_RejectsInventoryBalanceForProductOwnedByAnotherBusiness()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign business",
+            DisplayName = "Foreign business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
+        };
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "OWNED-PRODUCT",
+            Name = "Owned product",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 0,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.Businesses.Add(foreignBusiness);
+        db.Branches.Add(foreignBranch);
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+        {
+            BusinessId = foreignBusiness.Id,
+            BranchId = foreignBranch.Id,
+            ProductId = product.Id,
+            OnHandQuantity = 1,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        Assert.Empty(await db.BranchInventoryBalances.ToListAsync());
     }
 
     [Fact]
