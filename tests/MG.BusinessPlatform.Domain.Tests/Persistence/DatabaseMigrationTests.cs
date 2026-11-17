@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Domain.Tests.Persistence;
