@@ -248,17 +248,34 @@ app.MapGet("/api/storefront/products", async (
         return Results.Ok(Array.Empty<ProductResponse>());
     var inventory = new BranchInventoryService(db);
     var branchId = await inventory.GetDefaultBranchIdAsync(ct);
-    var products = await db.StoreProducts.AsNoTracking()
+    var catalog = await db.StoreProducts.AsNoTracking()
         .Where(x => x.BusinessId == businessId && x.IsAvailable)
         .OrderBy(x => x.Name)
-        .Select(x => new ProductResponse(
-            x.Id, x.Sku, x.Name, x.Description, x.UnitPrice, x.CurrencyCode,
-            db.BranchInventoryBalances.Any(balance =>
-                balance.BusinessId == businessId && balance.BranchId == branchId
-                && balance.ProductId == x.Id && balance.OnHandQuantity > 0)))
         .Take(500)
         .ToListAsync(ct);
-    return Results.Ok(products);
+    var branchBalances = await db.BranchInventoryBalances.AsNoTracking()
+        .Where(x => x.BusinessId == businessId && x.BranchId == branchId)
+        .ToDictionaryAsync(x => x.ProductId, x => x.OnHandQuantity, ct);
+
+    // Older single-branch catalogs may have products created after the migration but
+    // before the balance service was enabled. Initialize only unambiguous balances;
+    // ambiguous multi-branch positive stock remains unavailable until mapped.
+    foreach (var product in catalog.Where(x => !branchBalances.ContainsKey(x.Id)))
+    {
+        try
+        {
+            branchBalances[product.Id] = await inventory.GetOnHandAsync(
+                businessId, branchId, product.Id, ct);
+        }
+        catch (InvalidOperationException)
+        {
+            branchBalances[product.Id] = 0;
+        }
+    }
+
+    return Results.Ok(catalog.Select(product => new ProductResponse(
+        product.Id, product.Sku, product.Name, product.Description, product.UnitPrice,
+        product.CurrencyCode, branchBalances.GetValueOrDefault(product.Id) > 0)).ToArray());
 }).RequireRateLimiting("public");
 
 app.MapGet("/api/storefront/reservation-resources", async (BusinessDbContext db, CancellationToken ct) =>
