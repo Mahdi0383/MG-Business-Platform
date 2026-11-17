@@ -1124,7 +1124,14 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var branchBalances = await db.BranchInventoryBalances.AsNoTracking()
+                .Where(x => x.BusinessId == businessId && x.BranchId == _sessionBranchId)
+                .ToDictionaryAsync(x => x.ProductId, x => x.OnHandQuantity);
             var products = await db.StoreProducts.AsNoTracking()
+                .Where(product => product.BusinessId == businessId)
                 .OrderBy(product => product.Sku)
                 .Take(100001)
                 .ToListAsync();
@@ -1144,7 +1151,7 @@ public partial class MainWindow : Window
                     product.UnitPrice.ToString(CultureInfo.InvariantCulture),
                     product.UnitCost.ToString(CultureInfo.InvariantCulture),
                     AuditCsvFormatter.EscapeField(product.CurrencyCode),
-                    product.StockQuantity.ToString(CultureInfo.InvariantCulture),
+                    branchBalances.GetValueOrDefault(product.Id).ToString(CultureInfo.InvariantCulture),
                     product.IsAvailable.ToString().ToLowerInvariant()
                 };
                 csv.AppendLine(string.Join(",", fields));
@@ -1216,9 +1223,13 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var productId = Guid.NewGuid();
             db.StoreProducts.Add(new StoreProduct
             {
-                Id = Guid.NewGuid(),
+                Id = productId,
+                BusinessId = businessId,
                 Sku = sku.ToUpperInvariant(),
                 Name = name,
                 Description = string.Empty,
@@ -1229,12 +1240,22 @@ public partial class MainWindow : Window
                 StockQuantity = stock,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
+            db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+            {
+                BusinessId = businessId,
+                BranchId = _sessionBranchId,
+                ProductId = productId,
+                OnHandQuantity = stock,
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            });
             if (stock > 0)
             {
                 db.StockMovements.Add(new StockMovementRecord
                 {
                     Id = Guid.NewGuid(),
-                    ProductId = db.StoreProducts.Local.Single().Id,
+                    BusinessId = businessId,
+                    BranchId = _sessionBranchId,
+                    ProductId = productId,
                     OccurredAt = DateTimeOffset.UtcNow,
                     MovementType = "OpeningBalance",
                     Quantity = stock,
