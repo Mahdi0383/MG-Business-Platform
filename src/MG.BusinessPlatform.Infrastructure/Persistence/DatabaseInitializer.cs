@@ -59,6 +59,7 @@ public static class DatabaseInitializer
             .SingleAsync(cancellationToken)
             ?? throw new InvalidDataException("The local business identity was not persisted.");
         await BackfillBusinessOwnedRecordsAsync(db, businessId, cancellationToken);
+        await BackfillBranchInventoryBalancesAsync(db, businessId, cancellationToken);
 
         // Seed by account code rather than table emptiness. A partially populated chart
         // must still receive every required system account without overwriting custom data.
@@ -124,6 +125,59 @@ public static class DatabaseInitializer
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(supplier => supplier.BusinessId, (Guid?)businessId),
                 cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task BackfillBranchInventoryBalancesAsync(
+        BusinessDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        if (await db.BranchInventoryBalances.AnyAsync(
+                balance => balance.BusinessId != businessId, cancellationToken))
+        {
+            throw new InvalidDataException(
+                "Inventory balances are assigned to a different business. Legacy inventory backfill was stopped.");
+        }
+
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleAsync(x => x.Id == 1, cancellationToken);
+        if (settings.BusinessId != businessId
+            || settings.DefaultBranchId is not Guid defaultBranchId
+            || defaultBranchId == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                "A persisted business and default branch are required before legacy stock can be assigned.");
+        }
+
+        var existingProductIds = await db.BranchInventoryBalances
+            .Where(balance => balance.BusinessId == businessId)
+            .Select(balance => balance.ProductId)
+            .ToHashSetAsync(cancellationToken);
+        var legacyProducts = await db.StoreProducts
+            .Where(product => product.BusinessId == businessId)
+            .ToListAsync(cancellationToken);
+
+        var openingBalances = legacyProducts
+            .Where(product => !existingProductIds.Contains(product.Id))
+            .Select(product => new BranchInventoryBalanceRecord
+            {
+                BusinessId = businessId,
+                BranchId = defaultBranchId,
+                ProductId = product.Id,
+                Quantity = product.StockQuantity,
+                UpdatedAt = DateTimeOffset.UtcNow
+            })
+            .ToArray();
+
+        if (openingBalances.Length > 0)
+        {
+            db.BranchInventoryBalances.AddRange(openingBalances);
+            await db.SaveChangesAsync(cancellationToken);
+        }
 
         await transaction.CommitAsync(cancellationToken);
     }
