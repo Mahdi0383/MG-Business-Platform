@@ -90,3 +90,18 @@ This inventory must be reconciled against the complete EF model and every write/
 ## Release gate
 
 No multi-tenant or public staff-management production claim is permitted until schema constraints, identity, authorization, tenant-aware audit, migration/restore and the complete integration test matrix pass on a production-like database. The current static web prototype remains non-production.
+
+## Existing test harness and remaining coverage
+
+The repository already has a consolidated xUnit project, `MG.BusinessPlatform.Domain.Tests`, which references Infrastructure and Storefront. It includes SQLite migration/persistence tests and a Storefront HTTP integration suite at `tests/MG.BusinessPlatform.Domain.Tests/Storefront/StorefrontOrderIntegrationTests.cs`. The tenant rollout should extend this existing test infrastructure rather than assume no HTTP integration harness exists.
+
+The current public-order integration coverage does not establish staff authentication or tenant isolation. Add integration cases for:
+- two businesses using the same SKU, account code and document numbers without cross-tenant collisions;
+- cross-business and cross-branch IDOR attempts for every staff-facing resource;
+- anonymous, disabled, expired and revoked staff sessions;
+- role and branch membership boundaries for fulfillment, settlement and reservation state transitions;
+- audit events attributed to the authenticated staff identity or an explicit system actor;
+- tenant-aware composite FK failures using direct database writes;
+- preflight failure on ambiguous legacy ownership, duplicate keys and orphan references, with the original database remaining unchanged.
+
+Keep disposable SQLite databases and real HTTP host execution in the acceptance suite. A dedicated test project is optional; coverage and isolation guarantees are mandatory.
