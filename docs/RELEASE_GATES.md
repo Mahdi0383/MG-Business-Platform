@@ -29,6 +29,15 @@ A release may not be described as complete until all applicable gates have evide
 - Secrets are not logged or committed.
 - Static analysis and dependency scanning are reviewed.
 
+## Web backend and synchronization
+- Follow the contract in [WEB_BACKEND_CONTRACT.md](WEB_BACKEND_CONTRACT.md); it defines tenant isolation, API conventions, transaction boundaries, offline replay, and mandatory security tests.
+- The browser UI remains visibly in demo mode until an authenticated API and persistent database are deployed and verified.
+- Tenant/store scope is derived from the authenticated principal, never trusted from client-supplied identifiers.
+- Server-side authorization, idempotency, audit history, and concurrency control cover every business mutation.
+- Sales, inventory movements, payments, café tickets, game sessions, and double-entry journals commit atomically and reconcile.
+- Offline synchronization rejects stale permissions and resolves financial/inventory conflicts on the server; last-write-wins is prohibited for these records.
+- Cross-tenant isolation, authorization matrix, replay, concurrency, failure-injection, migration, backup/restore, and security tests pass.
+
 ## Storefront publication
 - DNS, HTTPS, reverse proxy, host-header validation, CSRF, rate limits, and public health checks tested.
 - CGNAT/inbound-port-blocked scenarios fail safely and explain alternatives.
