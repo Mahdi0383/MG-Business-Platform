@@ -431,10 +431,21 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.HasIndex("BusinessId", "BranchId", "ProductId", "OccurredAt");
             b.ToTable("StockMovements", t =>
             {
+                t.HasCheckConstraint("CK_StockMovement_BusinessBranchPair",
+                    "(BusinessId IS NULL AND BranchId IS NULL) OR (BusinessId IS NOT NULL AND BranchId IS NOT NULL)");
                 t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0");
                 t.HasCheckConstraint("CK_StockMovement_SignedQuantity", "SignedQuantity = Quantity OR SignedQuantity = -Quantity");
                 t.HasCheckConstraint("CK_StockMovement_UnitCost", "CAST(UnitCost AS NUMERIC) >= 0");
             });
+        });
+
+        modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StockMovementRecord", b =>
+        {
+            b.HasOne("MG.BusinessPlatform.Infrastructure.Persistence.BranchRecord", null)
+                .WithMany()
+                .HasForeignKey("BusinessId", "BranchId")
+                .HasPrincipalKey("BusinessId", "Id")
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.CustomerOrderLine", b =>
