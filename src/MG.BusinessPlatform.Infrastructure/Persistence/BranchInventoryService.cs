@@ -201,28 +201,25 @@ public sealed class BranchInventoryService(BusinessDbContext db)
         StoreProduct product,
         CancellationToken cancellationToken)
     {
-        var exists = await db.BranchInventoryBalances.AnyAsync(
-            x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == product.Id,
-            cancellationToken);
-        if (exists)
+        var existingBalances = await db.BranchInventoryBalances.AsNoTracking()
+            .Where(x => x.BusinessId == businessId && x.ProductId == product.Id)
+            .Select(x => new { x.BranchId, x.OnHandQuantity })
+            .ToArrayAsync(cancellationToken);
+        var mappedQuantity = existingBalances.Aggregate(
+            0, (sum, balance) => checked(sum + balance.OnHandQuantity));
+        if (existingBalances.Length > 0 && mappedQuantity != product.StockQuantity)
+            throw new InvalidOperationException(
+                "Existing branch balances do not reconcile to the business-wide stock quantity. Reconcile inventory before continuing.");
+        if (existingBalances.Any(x => x.BranchId == branchId))
             return;
 
         var branchCount = await db.Branches.CountAsync(
             x => x.BusinessId == businessId, cancellationToken);
         if (branchCount == 0)
             throw new InvalidOperationException("The business has no branches.");
-
-        var existingBalances = await db.BranchInventoryBalances.AsNoTracking()
-            .Where(x => x.BusinessId == businessId && x.ProductId == product.Id)
-            .Select(x => x.OnHandQuantity)
-            .ToArrayAsync(cancellationToken);
         int openingQuantity;
         if (existingBalances.Length > 0)
         {
-            var mappedQuantity = existingBalances.Aggregate(0, (sum, value) => checked(sum + value));
-            if (mappedQuantity != product.StockQuantity)
-                throw new InvalidOperationException(
-                    "Existing branch balances do not reconcile to the business-wide stock quantity. Reconcile inventory before continuing.");
             // A missing branch row is safely interpreted as zero only after every existing
             // branch balance already accounts for the complete business-wide quantity.
             openingQuantity = 0;
