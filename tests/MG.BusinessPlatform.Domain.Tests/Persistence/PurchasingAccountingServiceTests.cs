@@ -77,6 +77,14 @@ public sealed class PurchasingAccountingServiceTests
             StockQuantity = 5,
             UpdatedAt = DateTimeOffset.UtcNow
         });
+        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+        {
+            BusinessId = businessId,
+            BranchId = branchId,
+            ProductId = productId,
+            OnHandQuantity = 5,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
         await db.SaveChangesAsync();
 
         var service = new PurchasingAccountingService(db);
@@ -92,7 +100,11 @@ public sealed class PurchasingAccountingServiceTests
         var product = await db.StoreProducts.SingleAsync(x => x.Id == productId);
         Assert.Equal(8, product.StockQuantity);
         Assert.Equal(13m, product.UnitCost);
+        var movement = await db.StockMovements.SingleAsync(x => x.Reference == invoice.InvoiceNumber);
         Assert.Equal(1, await db.StockMovements.CountAsync(x => x.Reference == invoice.InvoiceNumber && x.SignedQuantity == 3));
+        Assert.Equal(businessId, movement.BusinessId);
+        Assert.Equal(branchId, movement.BranchId);
+        Assert.Equal(8, (await db.BranchInventoryBalances.SingleAsync()).OnHandQuantity);
         var purchaseJournal = await db.JournalEntries.Include(x => x.Lines)
             .SingleAsync(x => x.SourceType == "PurchaseInvoice" && x.SourceId == invoice.Id);
         Assert.Equal(54m, purchaseJournal.Lines.Where(x => x.Side == "Debit").Sum(x => x.Amount));
@@ -146,6 +158,13 @@ public sealed class PurchasingAccountingServiceTests
             .ToListAsync();
         Assert.Equal(2, movements.Count);
         Assert.Equal(5, movements.Sum(x => x.SignedQuantity));
+        var businessId = (await fixture.Db.StoreSettings.AsNoTracking().SingleAsync()).BusinessId;
+        Assert.All(movements, movement =>
+        {
+            Assert.Equal(fixture.BranchId, movement.BranchId);
+            Assert.Equal(businessId, movement.BusinessId);
+        });
+        Assert.Equal(10, (await fixture.Db.BranchInventoryBalances.SingleAsync()).OnHandQuantity);
         Assert.Equal(114m, movements.Sum(x => x.Quantity * x.UnitCost));
 
         var journal = await fixture.Db.JournalEntries.Include(x => x.Lines)
@@ -317,6 +336,14 @@ public sealed class PurchasingAccountingServiceTests
                 StockQuantity = 5,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
+                    db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+                    {
+                        BusinessId = businessId,
+                        BranchId = branchId,
+                        ProductId = productId,
+                        OnHandQuantity = 5,
+                        UpdatedAtUtc = DateTimeOffset.UtcNow
+                    });
             await db.SaveChangesAsync();
             return new PurchasingFixture(connection, db, supplierId, productId, branchId);
         }
