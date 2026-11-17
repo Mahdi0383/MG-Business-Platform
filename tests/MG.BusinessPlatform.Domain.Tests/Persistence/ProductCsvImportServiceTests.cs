@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Infrastructure.Services;
 
@@ -14,7 +15,7 @@ public sealed class ProductCsvImportServiceTests
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await DatabaseInitializer.InitializeAsync(db);
 
         const string csv = """
             SKU,Name,Description,UnitPrice,UnitCost,CurrencyCode,StockQuantity,IsAvailable
@@ -37,6 +38,11 @@ public sealed class ProductCsvImportServiceTests
         Assert.Equal("OpeningBalance", movement.MovementType);
         Assert.Equal(12, movement.SignedQuantity);
         Assert.Equal(product.Id, movement.ProductId);
+        Assert.Equal((await db.StoreSettings.SingleAsync()).DefaultBranchId, movement.BranchId);
+        var balance = await db.BranchInventoryBalances.SingleAsync();
+        Assert.Equal(product.Id, balance.ProductId);
+        Assert.Equal(12, balance.OnHandQuantity);
+        Assert.Equal(movement.BranchId, balance.BranchId);
     }
 
     [Fact]
@@ -46,7 +52,7 @@ public sealed class ProductCsvImportServiceTests
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await DatabaseInitializer.InitializeAsync(db);
 
         const string csv = """
             SKU,Name,UnitPrice
@@ -70,11 +76,17 @@ public sealed class ProductCsvImportServiceTests
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await DatabaseInitializer.InitializeAsync(db);
         db.StoreProducts.Add(new StoreProduct
         {
-            Id = Guid.NewGuid(), Sku = "EXISTING-1", Name = "Original", UnitPrice = 10m,
-            UnitCost = 4m, CurrencyCode = "IRR", StockQuantity = 2, IsAvailable = true,
+            Id = Guid.NewGuid(),
+            Sku = "EXISTING-1",
+            Name = "Original",
+            UnitPrice = 10m,
+            UnitCost = 4m,
+            CurrencyCode = "IRR",
+            StockQuantity = 2,
+            IsAvailable = true,
             UpdatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
@@ -102,7 +114,7 @@ public sealed class ProductCsvImportServiceTests
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await DatabaseInitializer.InitializeAsync(db);
 
         const string csv = """
             کد کالا,نام محصول,قیمت فروش,بهای واحد,واحد پول,موجودی,فعال
@@ -127,7 +139,7 @@ public sealed class ProductCsvImportServiceTests
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
         await using var db = new BusinessDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await DatabaseInitializer.InitializeAsync(db);
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             new ProductCsvImportService(db).ImportAsync("SKU,Name,UnitPrice\nA,\"broken,10"));

@@ -418,7 +418,18 @@ public partial class MainWindow : Window
             if (GeneralLedgerAccountInput.SelectedItem is null && ledgerAccountsForPicker.Count > 0)
                 GeneralLedgerAccountInput.SelectedIndex = 0;
 
-            var products = await db.StoreProducts.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+            var storeSettings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (storeSettings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار در تنظیمات پایگاه داده ثبت نشده است.");
+            var branchBalances = await db.BranchInventoryBalances.AsNoTracking()
+                .Where(x => x.BusinessId == businessId && x.BranchId == _sessionBranchId)
+                .ToDictionaryAsync(x => x.ProductId, x => x.OnHandQuantity);
+            var products = await db.StoreProducts.AsNoTracking().Where(x => x.BusinessId == businessId)
+                .OrderBy(x => x.Name).ToListAsync();
+            // The desktop product view is branch-specific. StockQuantity on StoreProduct
+            // remains a compatibility aggregate while branch balances are authoritative.
+            foreach (var product in products)
+                product.StockQuantity = branchBalances.GetValueOrDefault(product.Id);
             ProductsGrid.ItemsSource = products;
             PosProductInput.ItemsSource = products.Where(x => x.IsAvailable && x.StockQuantity > 0).ToList();
             PurchaseProductInput.ItemsSource = products;
@@ -442,6 +453,7 @@ public partial class MainWindow : Window
             var stockMovementRows = await (
                 from movement in db.StockMovements.AsNoTracking()
                 join product in db.StoreProducts.AsNoTracking() on movement.ProductId equals product.Id
+                where movement.BusinessId == businessId && movement.BranchId == _sessionBranchId
                 select new
                 {
                     movement.OccurredAt,
@@ -1112,7 +1124,14 @@ public partial class MainWindow : Window
         try
         {
             await using var db = new BusinessDbContext(CreateOptions());
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var branchBalances = await db.BranchInventoryBalances.AsNoTracking()
+                .Where(x => x.BusinessId == businessId && x.BranchId == _sessionBranchId)
+                .ToDictionaryAsync(x => x.ProductId, x => x.OnHandQuantity);
             var products = await db.StoreProducts.AsNoTracking()
+                .Where(product => product.BusinessId == businessId)
                 .OrderBy(product => product.Sku)
                 .Take(100001)
                 .ToListAsync();
@@ -1132,7 +1151,7 @@ public partial class MainWindow : Window
                     product.UnitPrice.ToString(CultureInfo.InvariantCulture),
                     product.UnitCost.ToString(CultureInfo.InvariantCulture),
                     AuditCsvFormatter.EscapeField(product.CurrencyCode),
-                    product.StockQuantity.ToString(CultureInfo.InvariantCulture),
+                    branchBalances.GetValueOrDefault(product.Id).ToString(CultureInfo.InvariantCulture),
                     product.IsAvailable.ToString().ToLowerInvariant()
                 };
                 csv.AppendLine(string.Join(",", fields));
@@ -1204,9 +1223,13 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var productId = Guid.NewGuid();
             db.StoreProducts.Add(new StoreProduct
             {
-                Id = Guid.NewGuid(),
+                Id = productId,
+                BusinessId = businessId,
                 Sku = sku.ToUpperInvariant(),
                 Name = name,
                 Description = string.Empty,
@@ -1217,12 +1240,22 @@ public partial class MainWindow : Window
                 StockQuantity = stock,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
+            db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+            {
+                BusinessId = businessId,
+                BranchId = _sessionBranchId,
+                ProductId = productId,
+                OnHandQuantity = stock,
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            });
             if (stock > 0)
             {
                 db.StockMovements.Add(new StockMovementRecord
                 {
                     Id = Guid.NewGuid(),
-                    ProductId = db.StoreProducts.Local.Single().Id,
+                    BusinessId = businessId,
+                    BranchId = _sessionBranchId,
+                    ProductId = productId,
                     OccurredAt = DateTimeOffset.UtcNow,
                     MovementType = "OpeningBalance",
                     Quantity = stock,
@@ -1534,42 +1567,30 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             await using var transaction = await db.Database.BeginTransactionAsync();
-            var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var product = await db.StoreProducts.SingleOrDefaultAsync(
+                x => x.Id == selected.Id && x.BusinessId == businessId);
             if (product is null)
             {
                 StatusText.Text = "کالا پیدا نشد؛ فهرست را تازه‌سازی کنید.";
                 return;
             }
-            var updatedStock = checked(product.StockQuantity + delta);
+
+            var inventory = new BranchInventoryService(db);
+            var branchStock = await inventory.GetOnHandAsync(businessId, _sessionBranchId, product.Id);
+            var updatedStock = checked(branchStock + delta);
             if (updatedStock < 0)
             {
-                StatusText.Text = "اصلاح موجودی نمی‌تواند موجودی کالا را منفی کند.";
+                StatusText.Text = "اصلاح موجودی نمی‌تواند موجودی این شعبه را منفی کند.";
                 return;
             }
 
-            var updatedAt = DateTimeOffset.UtcNow;
-            var affected = await db.StoreProducts
-                .Where(x => x.Id == product.Id && x.StockQuantity == product.StockQuantity
-                    && x.UnitCost == product.UnitCost && x.CurrencyCode == product.CurrencyCode)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.StockQuantity, updatedStock)
-                    .SetProperty(x => x.UpdatedAt, updatedAt));
-            if (affected != 1)
-                throw new InvalidOperationException("موجودی یا بهای کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی کنید.");
-
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                ProductId = product.Id,
-                OccurredAt = DateTimeOffset.UtcNow,
-                MovementType = delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
-                Quantity = Math.Abs(delta),
-                SignedQuantity = delta,
-                UnitCost = product.UnitCost,
-                CurrencyCode = product.CurrencyCode,
-                Reference = "MANUAL",
-                Note = note
-            });
+            await inventory.ApplyMovementAsync(
+                businessId, _sessionBranchId, product.Id, delta, product.UnitCost, product.CurrencyCode,
+                delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
+                "MANUAL", note);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
             StockAdjustmentInput.Clear();
@@ -2924,38 +2945,23 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var inventory = new BranchInventoryService(db);
             foreach (var line in order.Lines)
             {
-                var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == line.ProductId);
+                var product = await db.StoreProducts.SingleOrDefaultAsync(
+                    x => x.Id == line.ProductId && x.BusinessId == businessId);
                 if (product is null)
                 {
                     StatusText.Text = $"کالای سفارش «{line.ProductName}» پیدا نشد؛ برای جلوگیری از مغایرت، لغو انجام نشد.";
                     return;
                 }
-                var restoredAt = DateTimeOffset.UtcNow;
-                var affected = await db.StoreProducts
-                    .Where(x => x.Id == product.Id && x.StockQuantity <= int.MaxValue - line.Quantity)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(x => x.StockQuantity, x => x.StockQuantity + line.Quantity)
-                        .SetProperty(x => x.UpdatedAt, restoredAt));
-                if (affected != 1)
-                {
-                    StatusText.Text = $"موجودی کالای «{line.ProductName}» هم‌زمان تغییر کرده یا از محدوده مجاز خارج می‌شود؛ لغو انجام نشد.";
-                    return;
-                }
-                db.StockMovements.Add(new StockMovementRecord
-                {
-                    Id = Guid.NewGuid(),
-                    ProductId = product.Id,
-                    OccurredAt = DateTimeOffset.UtcNow,
-                    MovementType = "WebOrderCancellation",
-                    Quantity = line.Quantity,
-                    SignedQuantity = line.Quantity,
-                    UnitCost = line.UnitCost,
-                    CurrencyCode = order.CurrencyCode,
-                    Reference = order.OrderNumber,
-                    Note = "Stock restored after order cancellation"
-                });
+                await inventory.ApplyMovementAsync(
+                    businessId, _sessionBranchId, product.Id, line.Quantity, line.UnitCost,
+                    order.CurrencyCode, "WebOrderCancellation", order.OrderNumber,
+                    "Stock restored after order cancellation");
             }
 
             order.Status = "Cancelled";

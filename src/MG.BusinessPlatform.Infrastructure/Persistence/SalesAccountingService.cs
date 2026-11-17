@@ -74,12 +74,22 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             return existingInvoice;
         }
 
-        var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == productId, cancellationToken)
-            ?? throw new KeyNotFoundException("Product was not found.");
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            throw new InvalidOperationException("The local business identity is missing.");
+        var inventory = new BranchInventoryService(db);
+        var branchId = await inventory.GetDefaultBranchIdAsync(cancellationToken);
+        var product = await db.StoreProducts.SingleOrDefaultAsync(
+            x => x.Id == productId && x.BusinessId == businessId, cancellationToken)
+            ?? throw new KeyNotFoundException("Product was not found in the configured business.");
         if (!product.IsAvailable)
             throw new InvalidOperationException("The selected product is unavailable.");
-        if (product.StockQuantity < quantity)
-            throw new InvalidOperationException($"Insufficient stock. Available quantity: {product.StockQuantity}.");
+        var availableQuantity = await inventory.GetOnHandAsync(
+            businessId, branchId, product.Id, cancellationToken);
+        if (availableQuantity < quantity)
+            throw new InvalidOperationException($"Insufficient stock at the selected branch. Available quantity: {availableQuantity}.");
         if (product.UnitPrice < 0m || product.UnitCost < 0m)
             throw new InvalidOperationException("The selected product has a negative price or cost.");
 
@@ -115,36 +125,15 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             ]
         };
 
-        var updatedAt = DateTimeOffset.UtcNow;
-        var affected = await db.StoreProducts
-            .Where(x => x.Id == product.Id && x.IsAvailable && x.StockQuantity >= quantity
-                && x.UnitPrice == product.UnitPrice && x.UnitCost == product.UnitCost
-                && x.CurrencyCode == product.CurrencyCode)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
-                .SetProperty(x => x.UpdatedAt, updatedAt), cancellationToken);
-        if (affected != 1)
-            throw new InvalidOperationException("Stock or price changed during checkout. Refresh the product and retry.");
-
-        // ExecuteUpdate bypasses EF's change tracker. Synchronize the tracked entity so
-        // subsequent reads through this DbContext observe the committed checkout quantity.
-        product.StockQuantity -= quantity;
-        product.UpdatedAt = updatedAt;
+        await inventory.ApplyMovementAsync(
+            businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
+            "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken,
+            expectedUnitPrice: product.UnitPrice,
+            expectedUnitCost: product.UnitCost,
+            expectedCurrencyCode: product.CurrencyCode,
+            requireAvailable: true);
 
         db.CustomerOrders.Add(order);
-        db.StockMovements.Add(new StockMovementRecord
-        {
-            Id = Guid.NewGuid(),
-            ProductId = product.Id,
-            OccurredAt = DateTimeOffset.UtcNow,
-            MovementType = "PosSaleIssue",
-            Quantity = quantity,
-            SignedQuantity = -quantity,
-            UnitCost = product.UnitCost,
-            CurrencyCode = product.CurrencyCode,
-            Reference = orderNumber,
-            Note = "POS sale stock issue"
-        });
 
         await db.SaveChangesAsync(cancellationToken);
         var invoice = await FulfillOrderCoreAsync(orderId, saleDate, cancellationToken);
@@ -200,11 +189,19 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             return existingInvoice;
         }
 
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            throw new InvalidOperationException("The local business identity is missing.");
+        var inventory = new BranchInventoryService(db);
+        var branchId = await inventory.GetDefaultBranchIdAsync(cancellationToken);
         var ids = quantities.Keys.ToArray();
-        var products = await db.StoreProducts.Where(x => ids.Contains(x.Id))
+        var products = await db.StoreProducts
+            .Where(x => ids.Contains(x.Id) && x.BusinessId == businessId)
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         if (products.Count != ids.Length)
-            throw new KeyNotFoundException("One or more POS products were not found.");
+            throw new KeyNotFoundException("One or more POS products were not found in the configured business.");
         foreach (var requested in requestedLines)
             if (requested.ExpectedUnitPrice is decimal expected && products[requested.ProductId].UnitPrice != expected)
                 throw new InvalidOperationException($"Price for '{products[requested.ProductId].Name}' changed. Refresh the cart and confirm the new total.");
@@ -215,8 +212,13 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         foreach (var product in ordered)
         {
             var quantity = quantities[product.Id];
-            if (!product.IsAvailable || product.StockQuantity < quantity)
-                throw new InvalidOperationException($"Product '{product.Name}' is unavailable or has insufficient stock.");
+            if (!product.IsAvailable)
+                throw new InvalidOperationException($"Product '{product.Name}' is unavailable.");
+            var availableQuantity = await inventory.GetOnHandAsync(
+                businessId, branchId, product.Id, cancellationToken);
+            if (availableQuantity < quantity)
+                throw new InvalidOperationException(
+                    $"Product '{product.Name}' has insufficient stock at the selected branch. Available quantity: {availableQuantity}.");
             if (!string.Equals(product.CurrencyCode, currency, StringComparison.Ordinal))
                 throw new InvalidOperationException("A POS sale cannot mix currencies.");
             if (product.UnitPrice < 0m || product.UnitCost < 0m)
@@ -256,28 +258,16 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         foreach (var product in ordered)
         {
             var quantity = quantities[product.Id];
-            var affected = await db.StoreProducts.Where(x => x.Id == product.Id && x.IsAvailable
-                    && x.StockQuantity >= quantity && x.UnitPrice == product.UnitPrice
-                    && x.UnitCost == product.UnitCost && x.CurrencyCode == product.CurrencyCode)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.StockQuantity, x => x.StockQuantity - quantity)
-                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
-            if (affected != 1)
-                throw new InvalidOperationException($"Stock or price for '{product.Name}' changed during checkout.");
-            product.StockQuantity -= quantity;
-            product.UpdatedAt = now;
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                ProductId = product.Id,
-                OccurredAt = now,
-                MovementType = "PosSaleIssue",
-                Quantity = quantity,
-                SignedQuantity = -quantity,
-                UnitCost = product.UnitCost,
-                CurrencyCode = product.CurrencyCode,
-                Reference = orderNumber,
-                Note = "POS sale stock issue"
-            });
+            if (!product.IsAvailable || product.UnitPrice < 0m || product.UnitCost < 0m
+                || product.CurrencyCode != currency)
+                throw new InvalidOperationException($"Product '{product.Name}' changed during checkout.");
+            await inventory.ApplyMovementAsync(
+                businessId, branchId, product.Id, -quantity, product.UnitCost, product.CurrencyCode,
+                "PosSaleIssue", orderNumber, "POS sale stock issue", cancellationToken,
+            expectedUnitPrice: product.UnitPrice,
+            expectedUnitCost: product.UnitCost,
+            expectedCurrencyCode: product.CurrencyCode,
+            requireAvailable: true);
         }
 
         db.CustomerOrders.Add(order);

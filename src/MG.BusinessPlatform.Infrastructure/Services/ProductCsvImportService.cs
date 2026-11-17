@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 
 namespace MG.BusinessPlatform.Infrastructure.Services;
@@ -13,9 +15,9 @@ public sealed record ProductCsvImportResult(
     IReadOnlyList<ProductCsvImportIssue> Issues);
 
 /// <summary>
-/// Imports a deliberately small, documented product CSV schema into the local catalog.
-/// The import is all-or-nothing for malformed rows, skips existing SKUs, and records
-/// opening-stock movements rather than silently changing the inventory balance.
+/// Imports a deliberately small, documented product CSV schema into the configured business.
+/// The import is all-or-nothing for malformed rows, skips existing business SKUs, and creates
+/// an opening balance and movement for the configured default branch in the same transaction.
 /// </summary>
 public sealed class ProductCsvImportService(BusinessDbContext db)
 {
@@ -132,7 +134,15 @@ public sealed class ProductCsvImportService(BusinessDbContext db)
             throw new InvalidDataException("CSV contains no product rows.");
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var settings = await db.StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+            ?? throw new InvalidOperationException("The local business is not configured.");
+        if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+            throw new InvalidOperationException("The local business identity is missing.");
+        var inventory = new BranchInventoryService(db);
+        var branchId = await inventory.GetDefaultBranchIdAsync(cancellationToken);
         var existingSkus = (await db.StoreProducts.AsNoTracking()
+                .Where(product => product.BusinessId == businessId)
                 .Select(product => product.Sku)
                 .ToListAsync(cancellationToken))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -146,11 +156,23 @@ public sealed class ProductCsvImportService(BusinessDbContext db)
         }
 
         var now = DateTimeOffset.UtcNow;
+        foreach (var product in toImport)
+            product.BusinessId = businessId;
         db.StoreProducts.AddRange(toImport);
+        db.BranchInventoryBalances.AddRange(toImport.Select(product => new BranchInventoryBalanceRecord
+        {
+            BusinessId = businessId,
+            BranchId = branchId,
+            ProductId = product.Id,
+            OnHandQuantity = product.StockQuantity,
+            UpdatedAtUtc = now
+        }));
         db.StockMovements.AddRange(toImport.Where(product => product.StockQuantity > 0).Select(product =>
             new StockMovementRecord
             {
                 Id = Guid.NewGuid(),
+                BusinessId = businessId,
+                BranchId = branchId,
                 ProductId = product.Id,
                 OccurredAt = now,
                 MovementType = "OpeningBalance",

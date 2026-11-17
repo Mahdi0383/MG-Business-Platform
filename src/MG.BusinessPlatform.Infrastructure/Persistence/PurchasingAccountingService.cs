@@ -83,6 +83,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         if (currency.Length != 3 || products.Values.Any(x => !string.Equals(x.CurrencyCode, currency, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("All products on a supplier invoice must use the same three-letter currency.");
 
+        var inventory = new BranchInventoryService(db);
         var lineDrafts = new List<(PurchaseInvoiceLineRequest Request, StoreProduct Product, decimal NetTotal, decimal EffectiveUnitCost)>();
         decimal total = 0m;
         foreach (var request in requestedLines)
@@ -123,6 +124,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
         // Apply stock and weighted-average cost once per product. A supplier invoice
         // may contain multiple lines for the same SKU; updating from the original
         // quantity for each line would overwrite earlier receipts and misstate stock.
+        var weightedAverageCosts = new Dictionary<Guid, decimal>();
         foreach (var group in lineDrafts.GroupBy(draft => draft.Product.Id))
         {
             var product = group.First().Product;
@@ -131,9 +133,7 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
             var previousQuantity = product.StockQuantity;
             var newQuantity = checked(previousQuantity + receivedQuantity);
             var previousValue = checked(previousQuantity * product.UnitCost);
-            product.StockQuantity = newQuantity;
-            product.UnitCost = checked(previousValue + incomingValue) / newQuantity;
-            product.UpdatedAt = now;
+            weightedAverageCosts[product.Id] = checked(previousValue + incomingValue) / newQuantity;
         }
 
         foreach (var draft in lineDrafts)
@@ -152,21 +152,19 @@ public sealed class PurchasingAccountingService(BusinessDbContext db)
                 LineTotal = draft.NetTotal
             });
 
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                BusinessId = businessId,
-                BranchId = invoice.BranchId,
-                ProductId = product.Id,
-                OccurredAt = now,
-                MovementType = "PurchaseReceipt",
-                Quantity = draft.Request.Quantity,
-                SignedQuantity = draft.Request.Quantity,
-                UnitCost = draft.EffectiveUnitCost,
-                CurrencyCode = currency,
-                Reference = invoiceNumber,
-                Note = $"Supplier invoice {invoiceNumber}"
-            });
+            await inventory.ApplyMovementAsync(
+                businessId, invoice.BranchId, product.Id, draft.Request.Quantity,
+                draft.EffectiveUnitCost, currency, "PurchaseReceipt", invoiceNumber,
+                $"Supplier invoice {invoiceNumber}", cancellationToken,
+                expectedUnitCost: product.UnitCost,
+                expectedCurrencyCode: product.CurrencyCode);
+        }
+
+        foreach (var (productId, weightedAverageCost) in weightedAverageCosts)
+        {
+            var product = products[productId];
+            product.UnitCost = weightedAverageCost;
+            product.UpdatedAt = now;
         }
 
         db.PurchaseInvoices.Add(invoice);

@@ -246,6 +246,8 @@ public sealed class SalesAccountingServiceTests
         var movement = await db.StockMovements.SingleAsync();
         Assert.Equal(-2, movement.SignedQuantity);
         Assert.Equal("PosSaleIssue", movement.MovementType);
+        Assert.Equal((await db.StoreSettings.SingleAsync()).DefaultBranchId, movement.BranchId);
+        Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == product.Id)).OnHandQuantity);
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
@@ -297,6 +299,11 @@ public sealed class SalesAccountingServiceTests
         Assert.Equal(2, await db.StockMovements.CountAsync());
         Assert.Equal(3, (await db.StoreProducts.SingleAsync(x => x.Id == first.Id)).StockQuantity);
         Assert.Equal(4, (await db.StoreProducts.SingleAsync(x => x.Id == second.Id)).StockQuantity);
+        Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == first.Id)).OnHandQuantity);
+        Assert.Equal(4, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == second.Id)).OnHandQuantity);
+        var defaultBranchId = (await db.StoreSettings.SingleAsync()).DefaultBranchId;
+        Assert.All(await db.StockMovements.ToListAsync(),
+            movement => Assert.Equal(defaultBranchId, movement.BranchId));
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
