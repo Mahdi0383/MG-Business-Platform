@@ -552,4 +552,38 @@ public sealed class SalesAccountingServiceTests
         await AssertAllJournalEntriesBalancedAsync(db);
     }
 
+
+    [Fact]
+    public async Task PosSale_RetryWithSameIdempotencyKeyAndDifferentSaleDateIsRejected()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+        await DatabaseInitializer.InitializeAsync(db);
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(), Sku = "POS-IDEMPOTENT-DATE", Name = "Date-safe item",
+            UnitPrice = 100m, UnitCost = 40m, CurrencyCode = "IRR",
+            IsAvailable = true, StockQuantity = 5, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        var service = new SalesAccountingService(db);
+        await service.CreatePosSaleAsync(product.Id, 2, "Walk-in customer", "",
+            "Cash", "POS-REF-DATE", "", new DateOnly(2026, 10, 13),
+            idempotencyKey: "terminal-01-sale-date");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreatePosSaleAsync(
+            product.Id, 2, "Walk-in customer", "", "Cash", "POS-REF-DATE", "",
+            new DateOnly(2026, 10, 14), idempotencyKey: "terminal-01-sale-date"));
+
+        Assert.Equal(3, (await db.StoreProducts.SingleAsync(x => x.Id == product.Id)).StockQuantity);
+        Assert.Single(await db.CustomerOrders.ToListAsync());
+        Assert.Single(await db.SalesInvoices.ToListAsync());
+        Assert.Single(await db.Payments.ToListAsync());
+        Assert.Single(await db.StockMovements.ToListAsync());
+    }
+
 }
