@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Security;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
