@@ -425,6 +425,115 @@ public sealed class DatabaseMigrationTests
     }
 
     [Fact]
+    public async Task InitializeAsync_BackfillsNewZeroStockProductsAfterInitialInventoryMigration()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var firstProduct = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-FIRST",
+            Name = "First inventory item",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 3,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(firstProduct);
+        await db.SaveChangesAsync();
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var secondProduct = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "BRANCH-STOCK-SECOND",
+            Name = "New zero stock item",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 0,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(secondProduct);
+        await db.SaveChangesAsync();
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var newBalance = await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == secondProduct.Id);
+        Assert.Equal(settings.DefaultBranchId, newBalance.BranchId);
+        Assert.Equal(0, newBalance.OnHandQuantity);
+        Assert.Equal(3, (await db.BranchInventoryBalances.SingleAsync(x => x.ProductId == firstProduct.Id)).OnHandQuantity);
+    }
+
+    [Fact]
+    public async Task DatabaseConstraint_RejectsInventoryBalanceForProductOwnedByAnotherBusiness()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var foreignBusiness = new BusinessRecord
+        {
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign business",
+            DisplayName = "Foreign business",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
+        };
+        var foreignBranch = new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
+        };
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "OWNED-PRODUCT",
+            Name = "Owned product",
+            UnitPrice = 10m,
+            UnitCost = 5m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 0,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.Businesses.Add(foreignBusiness);
+        db.Branches.Add(foreignBranch);
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        db.BranchInventoryBalances.Add(new BranchInventoryBalanceRecord
+        {
+            BusinessId = foreignBusiness.Id,
+            BranchId = foreignBranch.Id,
+            ProductId = product.Id,
+            OnHandQuantity = 1,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        Assert.Empty(await db.BranchInventoryBalances.ToListAsync());
+    }
+
+    [Fact]
     public async Task DatabaseConstraint_RejectsNegativeDecimalPrice()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
