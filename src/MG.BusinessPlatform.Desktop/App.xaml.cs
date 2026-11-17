@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http;
 using System.Windows;
+
 using Microsoft.EntityFrameworkCore;
+
 using MG.BusinessPlatform.Infrastructure.Persistence;
 using MG.BusinessPlatform.Desktop.Services;
 
