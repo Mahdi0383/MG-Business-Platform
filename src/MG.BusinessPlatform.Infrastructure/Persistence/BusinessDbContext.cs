@@ -321,9 +321,11 @@ public sealed class CustomerReservationRecord
     public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
-public sealed class CustomerOrder
+public sealed class CustomerOrder : IBusinessOwnedRecord
 {
     public Guid Id { get; set; }
+    public Guid? BusinessId { get; set; }
+    public Guid? BranchId { get; set; }
     public string OrderNumber { get; set; } = string.Empty;
     public string IdempotencyKey { get; set; } = string.Empty;
     public string CustomerName { get; set; } = string.Empty;
@@ -410,6 +412,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         ValidateStoreSettingsBusinessIdentity();
         StampBusinessOwnership();
         StampStockMovementBranchOwnership();
+        StampCustomerOrderBranchOwnership();
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -429,6 +432,7 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         ValidateStoreSettingsBusinessIdentity();
         await StampBusinessOwnershipAsync(cancellationToken);
         await StampStockMovementBranchOwnershipAsync(cancellationToken);
+        await StampCustomerOrderBranchOwnershipAsync(cancellationToken);
         ValidateInvoiceDueDates();
         var generatedAuditEvents = AddAuditEvents();
         try
@@ -626,6 +630,106 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
                     cancellationToken);
             if (!valid)
                 throw new InvalidOperationException("A stock movement must belong to an active branch of the configured business.");
+        }
+    }
+
+    private void StampCustomerOrderBranchOwnership()
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<CustomerOrder>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var staffContext = StaffRequestContextScope.Current;
+        var settings = StoreSettings.Local.SingleOrDefault(x => x.Id == 1)
+            ?? StoreSettings.AsNoTracking().SingleOrDefault(x => x.Id == 1);
+        var businessId = staffContext?.BusinessId ?? settings?.BusinessId;
+        var branchId = staffContext?.BranchId ?? settings?.DefaultBranchId;
+        if (businessId is not Guid currentBusinessId || branchId is not Guid currentBranchId)
+            throw new InvalidOperationException("A customer order requires a configured business and branch.");
+        if (staffContext is not null && settings?.BusinessId != staffContext.BusinessId)
+            throw new InvalidOperationException("The staff request business does not match the order database business.");
+
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+                entry.Entity.BusinessId = currentBusinessId;
+            else if (entry.Entity.BusinessId != currentBusinessId)
+                throw new InvalidOperationException("A customer order cannot be written under a different business.");
+
+            if (entry.Entity.BranchId is null)
+                entry.Entity.BranchId = currentBranchId;
+            else if (staffContext is not null && entry.Entity.BranchId != staffContext.BranchId)
+                throw new InvalidOperationException("A staff request cannot create or change an order for an unassigned branch.");
+
+            if (entry.State == EntityState.Modified
+                && entry.Property(order => order.BranchId).OriginalValue != entry.Entity.BranchId)
+                throw new InvalidOperationException("A customer order's originating branch cannot be changed after creation.");
+        }
+
+        var branchIds = entries.Select(entry => entry.Entity.BranchId!.Value).Distinct().ToArray();
+        foreach (var currentBranchId in branchIds)
+        {
+            var trackedBranch = Branches.Local.FirstOrDefault(branch => branch.Id == currentBranchId);
+            var valid = trackedBranch is not null
+                ? trackedBranch.BusinessId == currentBusinessId && trackedBranch.IsActive
+                : Branches.AsNoTracking().Any(branch =>
+                    branch.Id == currentBranchId && branch.BusinessId == currentBusinessId && branch.IsActive);
+            if (!valid)
+                throw new InvalidOperationException("A customer order must belong to an active branch of the configured business.");
+        }
+    }
+
+    private async Task StampCustomerOrderBranchOwnershipAsync(CancellationToken cancellationToken)
+    {
+        ChangeTracker.DetectChanges();
+        var entries = ChangeTracker.Entries<CustomerOrder>()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .ToArray();
+        if (entries.Length == 0)
+            return;
+
+        var staffContext = StaffRequestContextScope.Current;
+        var trackedSettings = StoreSettings.Local.SingleOrDefault(x => x.Id == 1);
+        var settings = trackedSettings ?? await StoreSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
+        var businessId = staffContext?.BusinessId ?? settings?.BusinessId;
+        var branchId = staffContext?.BranchId ?? settings?.DefaultBranchId;
+        if (businessId is not Guid currentBusinessId || branchId is not Guid currentBranchId)
+            throw new InvalidOperationException("A customer order requires a configured business and branch.");
+        if (staffContext is not null && settings?.BusinessId != staffContext.BusinessId)
+            throw new InvalidOperationException("The staff request business does not match the order database business.");
+
+        foreach (var entry in entries)
+        {
+            if (entry.Entity.BusinessId is null)
+                entry.Entity.BusinessId = currentBusinessId;
+            else if (entry.Entity.BusinessId != currentBusinessId)
+                throw new InvalidOperationException("A customer order cannot be written under a different business.");
+
+            if (entry.Entity.BranchId is null)
+                entry.Entity.BranchId = currentBranchId;
+            else if (staffContext is not null && entry.Entity.BranchId != staffContext.BranchId)
+                throw new InvalidOperationException("A staff request cannot create or change an order for an unassigned branch.");
+
+            if (entry.State == EntityState.Modified
+                && entry.Property(order => order.BranchId).OriginalValue != entry.Entity.BranchId)
+                throw new InvalidOperationException("A customer order's originating branch cannot be changed after creation.");
+        }
+
+        var branchIds = entries.Select(entry => entry.Entity.BranchId!.Value).Distinct().ToArray();
+        foreach (var currentBranchId in branchIds)
+        {
+            var trackedBranch = Branches.Local.FirstOrDefault(branch => branch.Id == currentBranchId);
+            var valid = trackedBranch is not null
+                ? trackedBranch.BusinessId == currentBusinessId && trackedBranch.IsActive
+                : await Branches.AsNoTracking().AnyAsync(branch =>
+                    branch.Id == currentBranchId && branch.BusinessId == currentBusinessId && branch.IsActive,
+                    cancellationToken);
+            if (!valid)
+                throw new InvalidOperationException("A customer order must belong to an active branch of the configured business.");
         }
     }
 
@@ -1035,8 +1139,13 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
         modelBuilder.Entity<CustomerOrder>(entity =>
         {
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.OrderNumber).IsUnique();
-            entity.HasIndex(x => x.IdempotencyKey).IsUnique();
+            entity.HasIndex(x => new { x.BusinessId, x.OrderNumber }).IsUnique();
+            entity.HasIndex(x => new { x.BusinessId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.BusinessId, x.BranchId });
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.BranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
             entity.Property(x => x.OrderNumber).HasMaxLength(40).IsRequired();
             entity.Property(x => x.IdempotencyKey).HasMaxLength(100).IsRequired();
             entity.Property(x => x.CustomerName).HasMaxLength(160).IsRequired();
