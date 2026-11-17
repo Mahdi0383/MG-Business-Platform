@@ -139,6 +139,18 @@ public sealed class BranchInventoryService(BusinessDbContext db)
             if (balanceAffected != 1)
                 throw new InvalidOperationException("The selected branch has insufficient stock or its inventory balance changed. Refresh and retry.");
 
+            // ExecuteUpdate bypasses EF tracking; synchronize any balance already loaded
+            // by the caller or created during legacy-balance initialization.
+            var trackedBalance = db.ChangeTracker.Entries<BranchInventoryBalanceRecord>()
+                .SingleOrDefault(entry => entry.Entity.BusinessId == businessId
+                    && entry.Entity.BranchId == branchId
+                    && entry.Entity.ProductId == productId)?.Entity;
+            if (trackedBalance is not null)
+            {
+                trackedBalance.OnHandQuantity = checked(trackedBalance.OnHandQuantity + signedQuantity);
+                trackedBalance.UpdatedAtUtc = now;
+            }
+
             if (signedQuantity > 0)
                 productQuery = productQuery.Where(x => x.StockQuantity <= int.MaxValue - amount);
 
