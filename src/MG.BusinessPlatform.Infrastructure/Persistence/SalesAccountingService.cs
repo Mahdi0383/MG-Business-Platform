@@ -12,6 +12,23 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // A caller may lose the response after the transaction commits and retry.
+        // Return the already-issued invoice instead of creating duplicate revenue/COGS
+        // journals or turning a successful fulfillment into an apparent failure.
+        var existingInvoice = await db.SalesInvoices
+            .Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrderId == orderId, cancellationToken);
+        if (existingInvoice is not null)
+        {
+            var existingOrder = await db.CustomerOrders.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == orderId, cancellationToken);
+            if (!string.Equals(existingOrder?.Status, "Fulfilled", StringComparison.Ordinal))
+                throw new InvalidOperationException("An invoice exists for an order that is not marked fulfilled.");
+            await transaction.CommitAsync(cancellationToken);
+            return existingInvoice;
+        }
+
         var invoice = await FulfillOrderCoreAsync(orderId, issueDate, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -212,13 +229,26 @@ public sealed class SalesAccountingService(BusinessDbContext db)
         var now = DateTimeOffset.UtcNow;
         var order = new CustomerOrder
         {
-            Id = orderId, OrderNumber = orderNumber, IdempotencyKey = effectiveIdempotencyKey,
-            CustomerName = customerName.Trim(), CustomerPhone = customerPhone.Trim(), DeliveryAddress = string.Empty,
-            Notes = "POS sale", Status = "Received", CurrencyCode = currency, TotalAmount = total, CreatedAt = now,
+            Id = orderId,
+            OrderNumber = orderNumber,
+            IdempotencyKey = effectiveIdempotencyKey,
+            CustomerName = customerName.Trim(),
+            CustomerPhone = customerPhone.Trim(),
+            DeliveryAddress = string.Empty,
+            Notes = "POS sale",
+            Status = "Received",
+            CurrencyCode = currency,
+            TotalAmount = total,
+            CreatedAt = now,
             Lines = ordered.Select(product => new CustomerOrderLine
             {
-                Id = Guid.NewGuid(), OrderId = orderId, ProductId = product.Id, ProductName = product.Name,
-                UnitPrice = product.UnitPrice, UnitCost = product.UnitCost, Quantity = quantities[product.Id],
+                Id = Guid.NewGuid(),
+                OrderId = orderId,
+                ProductId = product.Id,
+                ProductName = product.Name,
+                UnitPrice = product.UnitPrice,
+                UnitCost = product.UnitCost,
+                Quantity = quantities[product.Id],
                 LineTotal = checked(product.UnitPrice * quantities[product.Id])
             }).ToList()
         };
@@ -237,9 +267,16 @@ public sealed class SalesAccountingService(BusinessDbContext db)
             product.UpdatedAt = now;
             db.StockMovements.Add(new StockMovementRecord
             {
-                Id = Guid.NewGuid(), ProductId = product.Id, OccurredAt = now, MovementType = "PosSaleIssue",
-                Quantity = quantity, SignedQuantity = -quantity, UnitCost = product.UnitCost,
-                CurrencyCode = product.CurrencyCode, Reference = orderNumber, Note = "POS sale stock issue"
+                Id = Guid.NewGuid(),
+                ProductId = product.Id,
+                OccurredAt = now,
+                MovementType = "PosSaleIssue",
+                Quantity = quantity,
+                SignedQuantity = -quantity,
+                UnitCost = product.UnitCost,
+                CurrencyCode = product.CurrencyCode,
+                Reference = orderNumber,
+                Note = "POS sale stock issue"
             });
         }
 
