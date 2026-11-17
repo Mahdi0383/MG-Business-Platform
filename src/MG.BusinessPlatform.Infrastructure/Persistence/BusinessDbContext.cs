@@ -2,6 +2,27 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MG.BusinessPlatform.Infrastructure.Persistence;
 
+public sealed class BusinessRecord
+{
+    public Guid Id { get; set; }
+    public string LegalName { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string DefaultCurrencyCode { get; set; } = "IRR";
+    public string TimeZoneId { get; set; } = "UTC";
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class BranchRecord
+{
+    public Guid Id { get; set; }
+    public Guid BusinessId { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Address { get; set; }
+    public string? Phone { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class AuditEventRecord
 {
     public Guid Id { get; set; }
@@ -180,6 +201,8 @@ public sealed class SupplierRecord
 public sealed class StoreSettings
 {
     public int Id { get; set; } = 1;
+    public Guid? BusinessId { get; set; }
+    public Guid? DefaultBranchId { get; set; }
     public string StoreName { get; set; } = "فروشگاه شما";
     public string CurrencyCode { get; set; } = "IRR";
     public bool OnlineOrderingEnabled { get; set; }
@@ -290,6 +313,8 @@ public sealed class CustomerOrderLine
 
 public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> options) : DbContext(options)
 {
+    public DbSet<BusinessRecord> Businesses => Set<BusinessRecord>();
+    public DbSet<BranchRecord> Branches => Set<BranchRecord>();
     public DbSet<StoreProduct> StoreProducts => Set<StoreProduct>();
     public DbSet<LedgerAccountRecord> LedgerAccounts => Set<LedgerAccountRecord>();
     public DbSet<AuditEventRecord> AuditEvents => Set<AuditEventRecord>();
@@ -421,6 +446,29 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<BusinessRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.LegalName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.DefaultCurrencyCode).HasMaxLength(3).IsRequired();
+            entity.Property(x => x.TimeZoneId).HasMaxLength(100).IsRequired();
+            entity.HasIndex(x => x.DisplayName);
+        });
+
+        modelBuilder.Entity<BranchRecord>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Code).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Address).HasMaxLength(1000);
+            entity.Property(x => x.Phone).HasMaxLength(40);
+            entity.HasAlternateKey(x => new { x.BusinessId, x.Id });
+            entity.HasIndex(x => new { x.BusinessId, x.Code }).IsUnique();
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<AuditEventRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
@@ -594,6 +642,13 @@ public sealed class BusinessDbContext(DbContextOptions<BusinessDbContext> option
             entity.Property(x => x.StoreName).HasMaxLength(200).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.PublicHostname).HasMaxLength(253).IsRequired();
+            entity.HasIndex(x => x.BusinessId);
+            entity.HasOne<BusinessRecord>().WithMany().HasForeignKey(x => x.BusinessId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<BranchRecord>().WithMany()
+                .HasForeignKey(x => new { x.BusinessId, x.DefaultBranchId })
+                .HasPrincipalKey(x => new { x.BusinessId, x.Id })
+                .OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(t => t.HasCheckConstraint("CK_StoreSettings_Singleton", "Id = 1"));
         });
 
