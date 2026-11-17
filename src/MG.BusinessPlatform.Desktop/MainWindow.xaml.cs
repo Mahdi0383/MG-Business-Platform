@@ -1567,42 +1567,30 @@ public partial class MainWindow : Window
         {
             await using var db = new BusinessDbContext(CreateOptions());
             await using var transaction = await db.Database.BeginTransactionAsync();
-            var product = await db.StoreProducts.SingleOrDefaultAsync(x => x.Id == selected.Id);
+            var settings = await db.StoreSettings.AsNoTracking().SingleAsync(x => x.Id == 1);
+            if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
+                throw new InvalidOperationException("هویت کسب‌وکار ثبت نشده است.");
+            var product = await db.StoreProducts.SingleOrDefaultAsync(
+                x => x.Id == selected.Id && x.BusinessId == businessId);
             if (product is null)
             {
                 StatusText.Text = "کالا پیدا نشد؛ فهرست را تازه‌سازی کنید.";
                 return;
             }
-            var updatedStock = checked(product.StockQuantity + delta);
+
+            var inventory = new BranchInventoryService(db);
+            var branchStock = await inventory.GetOnHandAsync(businessId, _sessionBranchId, product.Id);
+            var updatedStock = checked(branchStock + delta);
             if (updatedStock < 0)
             {
-                StatusText.Text = "اصلاح موجودی نمی‌تواند موجودی کالا را منفی کند.";
+                StatusText.Text = "اصلاح موجودی نمی‌تواند موجودی این شعبه را منفی کند.";
                 return;
             }
 
-            var updatedAt = DateTimeOffset.UtcNow;
-            var affected = await db.StoreProducts
-                .Where(x => x.Id == product.Id && x.StockQuantity == product.StockQuantity
-                    && x.UnitCost == product.UnitCost && x.CurrencyCode == product.CurrencyCode)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(x => x.StockQuantity, updatedStock)
-                    .SetProperty(x => x.UpdatedAt, updatedAt));
-            if (affected != 1)
-                throw new InvalidOperationException("موجودی یا بهای کالا هم‌زمان تغییر کرده است؛ فهرست را تازه‌سازی کنید.");
-
-            db.StockMovements.Add(new StockMovementRecord
-            {
-                Id = Guid.NewGuid(),
-                ProductId = product.Id,
-                OccurredAt = DateTimeOffset.UtcNow,
-                MovementType = delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
-                Quantity = Math.Abs(delta),
-                SignedQuantity = delta,
-                UnitCost = product.UnitCost,
-                CurrencyCode = product.CurrencyCode,
-                Reference = "MANUAL",
-                Note = note
-            });
+            await inventory.ApplyMovementAsync(
+                businessId, _sessionBranchId, product.Id, delta, product.UnitCost, product.CurrencyCode,
+                delta > 0 ? "ManualPositiveAdjustment" : "ManualNegativeAdjustment",
+                "MANUAL", note);
             await db.SaveChangesAsync();
             await transaction.CommitAsync();
             StockAdjustmentInput.Clear();
