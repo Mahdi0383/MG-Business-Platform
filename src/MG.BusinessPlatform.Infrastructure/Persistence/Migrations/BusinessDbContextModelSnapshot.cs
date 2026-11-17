@@ -304,6 +304,7 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StoreProduct", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("Description").IsRequired().HasMaxLength(2000).HasColumnType("TEXT");
             b.Property<bool>("IsAvailable").HasColumnType("INTEGER");
