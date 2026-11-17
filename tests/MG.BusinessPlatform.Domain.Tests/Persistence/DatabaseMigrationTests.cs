@@ -148,6 +148,105 @@ public sealed class DatabaseMigrationTests
         Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
         Assert.Contains("20261117020000_AddBusinessBranchIdentity", appliedMigrations);
         Assert.Contains("20261117025000_AddBusinessOwnershipToCatalog", appliedMigrations);
+        Assert.Contains("20261117050000_AddStockMovementOwnership", appliedMigrations);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_BackfillsLegacyStockMovementsToTheOnlyBranch()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "LEGACY-STOCK-ONLY-BRANCH",
+            Name = "Legacy stock product",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 4,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        var movementId = Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO StockMovements
+                (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
+                 Quantity, SignedQuantity, UnitCost, CurrencyCode, Reference, Note)
+            VALUES
+                ({movementId}, NULL, NULL, {product.Id}, {occurredAt}, 'LegacyAdjustment',
+                 2, 2, '50', 'IRR', 'LEGACY-STOCK', '');
+            """);
+
+        await DatabaseInitializer.InitializeAsync(db);
+
+        var movement = await db.StockMovements.AsNoTracking().SingleAsync(x => x.Id == movementId);
+        Assert.Equal(settings.BusinessId, movement.BusinessId);
+        Assert.Equal(settings.DefaultBranchId, movement.BranchId);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_StopsLegacyStockBackfillWhenMultipleBranchesMakeOwnershipAmbiguous()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<BusinessDbContext>().UseSqlite(connection).Options;
+        await using var db = new BusinessDbContext(options);
+
+        await DatabaseInitializer.InitializeAsync(db);
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync();
+        db.Branches.Add(new BranchRecord
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId!.Value,
+            Code = "SECOND",
+            Name = "Second branch",
+            IsActive = true
+        });
+        var product = new StoreProduct
+        {
+            Id = Guid.NewGuid(),
+            BusinessId = settings.BusinessId,
+            Sku = "LEGACY-STOCK-AMBIGUOUS",
+            Name = "Ambiguous legacy stock product",
+            UnitPrice = 100m,
+            UnitCost = 50m,
+            CurrencyCode = "IRR",
+            IsAvailable = true,
+            StockQuantity = 4,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.StoreProducts.Add(product);
+        await db.SaveChangesAsync();
+
+        var movementId = Guid.NewGuid();
+        var occurredAt = DateTimeOffset.UtcNow.ToString("O");
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO StockMovements
+                (Id, BusinessId, BranchId, ProductId, OccurredAt, MovementType,
+                 Quantity, SignedQuantity, UnitCost, CurrencyCode, Reference, Note)
+            VALUES
+                ({movementId}, NULL, NULL, {product.Id}, {occurredAt}, 'LegacyAdjustment',
+                 2, 2, '50', 'IRR', 'LEGACY-STOCK', '');
+            """);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => DatabaseInitializer.InitializeAsync(db));
+        Assert.Contains("multiple branches", exception.Message, StringComparison.OrdinalIgnoreCase);
+
+        var movement = await db.StockMovements.AsNoTracking().SingleAsync(x => x.Id == movementId);
+        Assert.Null(movement.BusinessId);
+        Assert.Null(movement.BranchId);
     }
 
     [Fact]
