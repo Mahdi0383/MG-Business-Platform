@@ -48,7 +48,7 @@ function App(){
   {id:1048,customer:'علی رضایی',items:3,total:455000,status:'تکمیل‌شده',time:'۱۰:۴۲'},
   {id:1047,customer:'مشتری حضوری',items:2,total:330000,status:'در حال آماده‌سازی',time:'۱۰:۳۶'},
   {id:1046,customer:'سارا محمدی',items:1,total:245000,status:'تکمیل‌شده',time:'۱۰:۲۸'},
- ],isValidOrders);
+ ],isValidOrders));
  const [cart,setCart]=useState([]),[query,setQuery]=useState(''),[modal,setModal]=useState(''),[toast,setToast]=useState('');
  const [form,setForm]=useState({}),[range,setRange]=useState('امروز');
  useEffect(()=>{if(!writeJsonStorage('mg-products',products))console.warn('MG Business Web: could not persist products to local storage')},[products]);
