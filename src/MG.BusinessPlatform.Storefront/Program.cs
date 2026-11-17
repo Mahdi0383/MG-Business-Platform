@@ -247,7 +247,15 @@ app.MapGet("/api/storefront/products", async (
     if (settings.BusinessId is not Guid businessId || businessId == Guid.Empty)
         return Results.Ok(Array.Empty<ProductResponse>());
     var inventory = new BranchInventoryService(db);
-    var branchId = await inventory.GetDefaultBranchIdAsync(ct);
+    Guid branchId;
+    try
+    {
+        branchId = await inventory.GetDefaultBranchIdAsync(ct);
+    }
+    catch (InvalidOperationException)
+    {
+        return Results.Problem("The store inventory branch is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
     var catalog = await db.StoreProducts.AsNoTracking()
         .Where(x => x.BusinessId == businessId && x.IsAvailable)
         .OrderBy(x => x.Name)
@@ -578,7 +586,15 @@ app.MapPost("/api/storefront/orders", async (
         if (storeSettings.BusinessId is not Guid businessId || businessId == Guid.Empty)
             return Results.Problem("The store business identity is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
         var inventory = new BranchInventoryService(db);
-        var branchId = await inventory.GetDefaultBranchIdAsync(ct);
+        Guid branchId;
+        try
+        {
+            branchId = await inventory.GetDefaultBranchIdAsync(ct);
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem("The store inventory branch is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
         var productIds = requested.Keys.ToArray();
         var products = await db.StoreProducts
             .Where(x => productIds.Contains(x.Id) && x.BusinessId == businessId && x.IsAvailable)
@@ -596,7 +612,15 @@ app.MapPost("/api/storefront/orders", async (
         foreach (var (id, quantity) in requested)
         {
             var product = products[id];
-            var availableQuantity = await inventory.GetOnHandAsync(businessId, branchId, id, ct);
+            int availableQuantity;
+            try
+            {
+                availableQuantity = await inventory.GetOnHandAsync(businessId, branchId, id, ct);
+            }
+            catch (InvalidOperationException)
+            {
+                return Results.Problem("The selected product's branch inventory is not reconciled.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
             if (availableQuantity < quantity)
                 return Results.Conflict(new { error = $"Insufficient stock at the selected branch for {product.Name}." });
         }
