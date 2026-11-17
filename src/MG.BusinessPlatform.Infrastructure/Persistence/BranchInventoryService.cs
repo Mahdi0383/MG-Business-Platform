@@ -78,23 +78,27 @@ public static class BranchInventoryService
             || !string.Equals(resolvedCurrency, product.CurrencyCode, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Stock movement currency must match the product's three-letter currency.");
 
-        var balanceExists = await db.BranchInventoryBalances.AsNoTracking()
-            .AnyAsync(x => x.BusinessId == businessId && x.BranchId == branchId && x.ProductId == productId,
-                cancellationToken);
-        if (!balanceExists && signedQuantity < 0)
-            throw new InvalidOperationException("Insufficient branch stock: no inventory balance exists for this product at the selected branch.");
-
         var now = DateTimeOffset.UtcNow;
-        var balanceRows = await db.Database.ExecuteSqlInterpolatedAsync($"""
+        // Insert a zero row first, then apply the signed delta with a guarded UPDATE.
+        // SQLite validates CHECK constraints on the candidate INSERT row before resolving
+        // an UPSERT conflict, so inserting a negative delta directly can fail even when
+        // an existing balance would make the resulting quantity non-negative.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO BranchInventoryBalances
                 (BusinessId, BranchId, ProductId, OnHandQuantity, UpdatedAtUtc)
-            VALUES
-                ({businessId}, {branchId}, {productId}, {signedQuantity}, {now})
-            ON CONFLICT (BusinessId, BranchId, ProductId) DO UPDATE SET
-                OnHandQuantity = BranchInventoryBalances.OnHandQuantity + excluded.OnHandQuantity,
-                UpdatedAtUtc = excluded.UpdatedAtUtc
-            WHERE BranchInventoryBalances.OnHandQuantity + excluded.OnHandQuantity >= 0
-              AND BranchInventoryBalances.OnHandQuantity + excluded.OnHandQuantity <= {int.MaxValue};
+            VALUES ({businessId}, {branchId}, {productId}, 0, {now})
+            ON CONFLICT (BusinessId, BranchId, ProductId) DO NOTHING;
+            """, cancellationToken);
+
+        var balanceRows = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE BranchInventoryBalances
+            SET OnHandQuantity = OnHandQuantity + {signedQuantity},
+                UpdatedAtUtc = {now}
+            WHERE BusinessId = {businessId}
+              AND BranchId = {branchId}
+              AND ProductId = {productId}
+              AND OnHandQuantity + {signedQuantity} >= 0
+              AND OnHandQuantity + {signedQuantity} <= {int.MaxValue};
             """, cancellationToken);
         if (balanceRows != 1)
             throw new InvalidOperationException(
