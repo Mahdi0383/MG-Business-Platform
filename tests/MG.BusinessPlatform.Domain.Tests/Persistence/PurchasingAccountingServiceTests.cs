@@ -151,13 +151,20 @@ public sealed class PurchasingAccountingServiceTests
         await using var fixture = await PurchasingFixture.CreateAsync();
         var foreignBusiness = new BusinessRecord
         {
-            Id = Guid.NewGuid(), LegalName = "Foreign", DisplayName = "Foreign",
-            DefaultCurrencyCode = "IRR", TimeZoneId = "UTC", IsActive = true
+            Id = Guid.NewGuid(),
+            LegalName = "Foreign",
+            DisplayName = "Foreign",
+            DefaultCurrencyCode = "IRR",
+            TimeZoneId = "UTC",
+            IsActive = true
         };
         var foreignBranch = new BranchRecord
         {
-            Id = Guid.NewGuid(), BusinessId = foreignBusiness.Id,
-            Code = "FOREIGN", Name = "Foreign branch", IsActive = true
+            Id = Guid.NewGuid(),
+            BusinessId = foreignBusiness.Id,
+            Code = "FOREIGN",
+            Name = "Foreign branch",
+            IsActive = true
         };
         fixture.Db.Businesses.Add(foreignBusiness);
         fixture.Db.Branches.Add(foreignBranch);
@@ -193,10 +200,15 @@ public sealed class PurchasingAccountingServiceTests
         Assert.Empty(await fixture.Db.JournalEntries.ToListAsync());
     }
 
-    private static LedgerAccountRecord Account(string code, string name, string type) => new()
+    private static LedgerAccountRecord Account(Guid businessId, string code, string name, string type) => new()
     {
-        Id = Guid.NewGuid(), Code = code, Name = name, AccountType = type,
-        IsActive = true, IsPostingAllowed = true
+        Id = Guid.NewGuid(),
+        BusinessId = businessId,
+        Code = code,
+        Name = name,
+        AccountType = type,
+        IsActive = true,
+        IsPostingAllowed = true
     };
 
     private sealed class PurchasingFixture(SqliteConnection connection, BusinessDbContext db,
