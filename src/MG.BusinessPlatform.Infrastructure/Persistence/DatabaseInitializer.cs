@@ -53,6 +53,12 @@ public static class DatabaseInitializer
         }
 
         await EnsureSingleBusinessOrganizationAsync(db, defaultBranchId, cancellationToken);
+        var businessId = await db.StoreSettings.AsNoTracking()
+            .Where(settings => settings.Id == 1)
+            .Select(settings => settings.BusinessId)
+            .SingleAsync(cancellationToken)
+            ?? throw new InvalidDataException("The local business identity was not persisted.");
+        await BackfillBusinessOwnedRecordsAsync(db, businessId, cancellationToken);
 
         // Seed by account code rather than table emptiness. A partially populated chart
         // must still receive every required system account without overwriting custom data.
@@ -76,6 +82,50 @@ public static class DatabaseInitializer
             db.LedgerAccounts.AddRange(missingAccounts);
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task BackfillBusinessOwnedRecordsAsync(
+        BusinessDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        if (await db.StoreProducts.AnyAsync(
+                product => product.BusinessId != null && product.BusinessId != businessId, cancellationToken)
+            || await db.LedgerAccounts.AnyAsync(
+                account => account.BusinessId != null && account.BusinessId != businessId, cancellationToken)
+            || await db.Customers.AnyAsync(
+                customer => customer.BusinessId != null && customer.BusinessId != businessId, cancellationToken)
+            || await db.Suppliers.AnyAsync(
+                supplier => supplier.BusinessId != null && supplier.BusinessId != businessId, cancellationToken))
+        {
+            throw new InvalidDataException(
+                "Catalog or ledger records are already assigned to a different business. The legacy ownership backfill was stopped.");
+        }
+
+        await db.StoreProducts
+            .Where(product => product.BusinessId == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(product => product.BusinessId, (Guid?)businessId),
+                cancellationToken);
+        await db.LedgerAccounts
+            .Where(account => account.BusinessId == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(account => account.BusinessId, (Guid?)businessId),
+                cancellationToken);
+        await db.Customers
+            .Where(customer => customer.BusinessId == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(customer => customer.BusinessId, (Guid?)businessId),
+                cancellationToken);
+        await db.Suppliers
+            .Where(supplier => supplier.BusinessId == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(supplier => supplier.BusinessId, (Guid?)businessId),
+                cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static async Task EnsureSingleBusinessOrganizationAsync(
