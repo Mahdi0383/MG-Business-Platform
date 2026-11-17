@@ -13,9 +13,9 @@ public sealed record ProductCsvImportResult(
     IReadOnlyList<ProductCsvImportIssue> Issues);
 
 /// <summary>
-/// Imports a deliberately small, documented product CSV schema into the local catalog.
-/// The import is all-or-nothing for malformed rows, skips existing SKUs, and records
-/// opening-stock movements rather than silently changing the inventory balance.
+/// Imports a deliberately small, documented product CSV schema into the configured business.
+/// The import is all-or-nothing for malformed rows, skips existing business SKUs, and creates
+/// an opening balance and movement for the configured default branch in the same transaction.
 /// </summary>
 public sealed class ProductCsvImportService(BusinessDbContext db)
 {
