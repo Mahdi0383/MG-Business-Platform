@@ -414,6 +414,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("MG.BusinessPlatform.Infrastructure.Persistence.StockMovementRecord", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("TEXT");
+            b.Property<Guid?>("BusinessId").HasColumnType("TEXT");
+            b.Property<Guid?>("BranchId").HasColumnType("TEXT");
             b.Property<string>("CurrencyCode").IsRequired().HasMaxLength(3).HasColumnType("TEXT");
             b.Property<string>("MovementType").IsRequired().HasMaxLength(40).HasColumnType("TEXT");
             b.Property<DateTimeOffset>("OccurredAt").HasColumnType("TEXT");
@@ -425,6 +427,8 @@ public sealed class BusinessDbContextModelSnapshot : ModelSnapshot
             b.Property<decimal>("UnitCost").HasColumnType("TEXT");
             b.HasKey("Id");
             b.HasIndex("ProductId", "OccurredAt");
+            b.HasIndex("BusinessId");
+            b.HasIndex("BusinessId", "BranchId", "ProductId", "OccurredAt");
             b.ToTable("StockMovements", t =>
             {
                 t.HasCheckConstraint("CK_StockMovement_Quantity", "Quantity > 0");
