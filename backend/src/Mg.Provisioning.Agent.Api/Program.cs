@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Mg.Provisioning.Agent.Api;
 using Mg.Provisioning.Agent.Core;
@@ -148,4 +147,4 @@ static bool TryParseRequest(JsonElement root, out AgentRequestDto? request)
 
 internal sealed record AgentRequestDto(Guid TenantId, Guid IdempotencyKey, string DatabaseName);
 
-public partial class Program;
+public partial class Program { }
