@@ -256,9 +256,7 @@ public sealed class AgentProvisioningOperationStore(
             || !string.Equals(app.Host, owner.Host, StringComparison.OrdinalIgnoreCase)
             || app.Port != owner.Port
             || app.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || app.TrustServerCertificate
-            || owner.TrustServerCertificate)
+            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException(
                 "Provisioning agent credential bundle does not meet immutable tenant role, database and TLS requirements.");
     }
