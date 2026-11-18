@@ -36,3 +36,25 @@ test('generates the next order id without colliding with existing ids', () => {
   assert.equal(nextOrderIdentifier([]), 1049);
   assert.equal(nextOrderIdentifier([{ id: 'invalid' }]), null);
 });
+
+test('rejects duplicate product lines and ambiguous duplicate catalog ids', () => {
+  const duplicateLines = [{ id: 1, qty: 2 }, { id: 1, qty: 1 }];
+  assert.equal(validateCartAgainstInventory(duplicateLines, catalog), false);
+  assert.equal(calculateCartTotal(duplicateLines, catalog), null);
+  assert.equal(applySaleToInventory(duplicateLines, catalog), null);
+
+  const duplicateCatalog = [...catalog, { ...catalog[0] }];
+  assert.equal(validateCartAgainstInventory([{ id: 1, qty: 1 }], duplicateCatalog), false);
+});
+
+test('rejects arithmetic overflow instead of producing invalid totals or inventory', () => {
+  const expensiveCatalog = [{ id: 3, price: Number.MAX_VALUE, stock: 3, sold: 0 }];
+  assert.equal(calculateCartTotal([{ id: 3, qty: 2 }], expensiveCatalog), null);
+
+  const overflowSoldCatalog = [{ id: 4, price: 10, stock: 3, sold: Number.MAX_VALUE }];
+  assert.equal(applySaleToInventory([{ id: 4, qty: 1 }], overflowSoldCatalog), null);
+});
+
+test('rejects order identifiers that would exceed JavaScript safe integers', () => {
+  assert.equal(nextOrderIdentifier([{ id: Number.MAX_SAFE_INTEGER }]), null);
+});
