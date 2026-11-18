@@ -11,6 +11,7 @@ on:
       - 'backend/src/Mg.Provisioning.Agent.Api/**'
       - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
       - 'backend/tests/Mg.Platform.Api.Tests/**'
+      - 'backend/tests/scripts/enable-postgres-tls.sh'
       - '.github/workflows/tenant-provisioning-tests.yml'
   push:
     branches: [main, 'feature/mg-business-web-foundation', 'feature/mg-provisioning-job-leases']
@@ -60,5 +61,7 @@ jobs:
         uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
+      - name: Enable PostgreSQL TLS for strict certificate validation tests
+        run: bash backend/tests/scripts/enable-postgres-tls.sh
       - name: Run provisioning and tenant schema integration tests
         run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
