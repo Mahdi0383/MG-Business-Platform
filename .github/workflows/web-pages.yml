@@ -58,6 +58,9 @@ jobs:
       - name: Restore and build backend
         run: dotnet build backend/src/Mg.Platform.Api/Mg.Platform.Api.csproj --configuration Release
         working-directory: .
+      - name: Build isolated provisioning agent API
+        run: dotnet build backend/src/Mg.Provisioning.Agent.Api/Mg.Provisioning.Agent.Api.csproj --configuration Release
+        working-directory: .
       - name: Run backend unit tests
         run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
         working-directory: .
