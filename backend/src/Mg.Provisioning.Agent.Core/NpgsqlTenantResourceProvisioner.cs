@@ -63,7 +63,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         var databaseName = $"mg_tenant_{tenantId:N}";
         _ = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
-        var ownerRole = OwnerRoleName(tenantId);
         var appRole = ApplicationRoleName(tenantId);
 
         var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
