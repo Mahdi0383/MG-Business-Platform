@@ -8,6 +8,104 @@ namespace Mg.Platform.Api.Tests;
 public sealed class AgentProvisioningOperationStorePostgresTests
 {
     [Fact]
+    public async Task CoordinatorExecutesStagesAndReplaysVerifiedCredentialWithoutRepeatingSideEffects()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var provisioner = new FakeResourceProvisioner();
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('a', 64));
+        var generated = 0;
+        ValueTask<string> CredentialFactory(CancellationToken _) 
+        {
+            Interlocked.Increment(ref generated);
+            return ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "coordinator-secret"));
+        }
+
+        var first = await coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+        var replay = await coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+
+        Assert.Equal(first, replay);
+        Assert.Equal(1, generated);
+        Assert.Equal(1, provisioner.EnsureCalls);
+        Assert.Equal(1, provisioner.MigrationCalls);
+        Assert.Equal(1, provisioner.VerifyCalls);
+        Assert.Equal("Verified", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+    }
+
+    [Fact]
+    public async Task CoordinatorResumesFromLastCommittedPhaseAfterExternalStageFailure()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var provisioner = new FakeResourceProvisioner { FailMigrationOnce = true };
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('b', 64));
+        ValueTask<string> CredentialFactory(CancellationToken _) =>
+            ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "replay-secret"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory));
+        Assert.Equal("DatabaseCreated", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+
+        var recovered = await coordinator.ProvisionAsync(
+            new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+
+        Assert.Contains("replay-secret", recovered, StringComparison.Ordinal);
+        Assert.Equal(1, provisioner.EnsureCalls);
+        Assert.Equal(2, provisioner.MigrationCalls);
+        Assert.Equal(1, provisioner.VerifyCalls);
+        Assert.Equal("Verified", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+    }
+
+    [Fact]
+    public async Task CoordinatorRejectsConcurrentTenantOperationAndReleasesLockAfterCompletion()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var enteredProvisioning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProvisioning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provisioner = new FakeResourceProvisioner
+        {
+            OnEnsure = async token =>
+            {
+                enteredProvisioning.TrySetResult();
+                await releaseProvisioning.Task.WaitAsync(token);
+            }
+        };
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('c', 64));
+        ValueTask<string> CredentialFactory(CancellationToken _) =>
+            ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "exclusive-secret"));
+
+        var firstTask = coordinator.ProvisionAsync(
+            new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+        await enteredProvisioning.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await Assert.ThrowsAsync<AgentProvisioningBusyException>(() =>
+            coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory));
+
+        releaseProvisioning.TrySetResult();
+        await firstTask;
+
+        var replay = await coordinator.ProvisionAsync(
+            new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+        Assert.Contains("exclusive-secret", replay, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CoordinatorRejectsInvalidMigrationChecksum()
+    {
+        using var protector = new AgentCredentialProtector(
+            "key-v1", new Dictionary<string, string>
+            {
+                ["key-v1"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            });
+        Assert.Throws<ArgumentException>(() =>
+            new AgentProvisioningCoordinator(null!, new FakeResourceProvisioner(), "not-a-checksum"));
+    }
+
+    [Fact]
     public async Task SameRequestReplaysStableCredentialAndAllowsOnlyForwardPhaseTransitions()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -149,6 +247,55 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantId, idempotencyKey, databaseName,
             _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "retry-secret")));
         Assert.Contains("retry-secret", created, StringComparison.Ordinal);
+    }
+
+    private sealed class FakeResourceProvisioner : ITenantResourceProvisioner
+    {
+        public int EnsureCalls { get; private set; }
+        public int MigrationCalls { get; private set; }
+        public int VerifyCalls { get; private set; }
+        public bool FailMigrationOnce { get; init; }
+        private bool migrationFailureConsumed;
+        public Func<CancellationToken, Task>? OnEnsure { get; init; }
+
+        public async Task EnsureDatabaseAndRolesAsync(
+            Guid tenantId, Guid idempotencyKey, string databaseName,
+            string applicationConnectionString, CancellationToken cancellationToken)
+        {
+            EnsureCalls++;
+            Assert.Equal($"mg_tenant_{tenantId:N}", databaseName);
+            Assert.NotEqual(Guid.Empty, idempotencyKey);
+            Assert.Contains(databaseName, applicationConnectionString, StringComparison.Ordinal);
+            if (OnEnsure is not null)
+                await OnEnsure(cancellationToken);
+        }
+
+        public Task ApplyTenantSchemaAsync(
+            Guid tenantId, string applicationConnectionString, int migrationVersion,
+            string migrationSha256, CancellationToken cancellationToken)
+        {
+            MigrationCalls++;
+            Assert.Equal(1, migrationVersion);
+            Assert.Matches("^[a-f0-9]{64}$", migrationSha256);
+            if (FailMigrationOnce && !migrationFailureConsumed)
+            {
+                migrationFailureConsumed = true;
+                throw new InvalidOperationException("simulated idempotent migration interruption");
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> VerifyRuntimeAsync(
+            Guid tenantId, string databaseName, string applicationConnectionString,
+            int expectedMigrationVersion, string expectedMigrationSha256,
+            CancellationToken cancellationToken)
+        {
+            VerifyCalls++;
+            Assert.Equal($"mg_tenant_{tenantId:N}", databaseName);
+            Assert.Equal(1, expectedMigrationVersion);
+            Assert.Matches("^[a-f0-9]{64}$", expectedMigrationSha256);
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class Fixture : IAsyncDisposable
