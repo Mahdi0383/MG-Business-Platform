@@ -188,19 +188,25 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                        EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = role.oid),
                        EXISTS (SELECT 1 FROM pg_auth_members m
                                JOIN pg_roles member_role ON member_role.oid = m.member
+                               JOIN pg_roles grantor_role ON grantor_role.oid = m.grantor
                                WHERE m.roleid = role.oid
                                  AND member_role.rolname = @control_role
+                                 AND grantor_role.rolname = @control_role
                                  AND m.set_option AND NOT m.inherit_option AND NOT m.admin_option),
                        EXISTS (SELECT 1 FROM pg_auth_members m
                                WHERE m.roleid = role.oid
                                  AND pg_get_userbyid(m.member) <> @control_role),
                        EXISTS (SELECT 1 FROM pg_auth_members m
                                JOIN pg_roles member_role ON member_role.oid = m.member
+                               JOIN pg_roles grantor_role ON grantor_role.oid = m.grantor
                                WHERE m.roleid = role.oid
                                  AND member_role.rolname = @control_role
-                                 AND (m.inherit_option
-                                      OR (m.set_option AND m.admin_option)
-                                      OR (NOT m.set_option AND NOT m.admin_option)))
+                                 AND NOT (
+                                     (grantor_role.rolsuper AND m.admin_option
+                                      AND NOT m.inherit_option AND NOT m.set_option)
+                                     OR (grantor_role.rolname = @control_role AND m.set_option
+                                         AND NOT m.inherit_option AND NOT m.admin_option)
+                                 ))
                 FROM pg_roles role
                 JOIN pg_database database ON database.datname = current_database()
                 WHERE role.rolname = current_user;
@@ -233,6 +239,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                                WHERE m.member = role.oid
                                   OR (m.roleid = role.oid
                                       AND (pg_get_userbyid(m.member) <> @control_role
+                                           OR NOT EXISTS (SELECT 1 FROM pg_roles grantor_role
+                                                          WHERE grantor_role.oid = m.grantor AND grantor_role.rolsuper)
                                            OR m.set_option OR m.inherit_option OR NOT m.admin_option))),
                        has_schema_privilege(current_user, 'mg', 'CREATE'),
                        has_database_privilege(current_user, current_database(), 'CREATE')
