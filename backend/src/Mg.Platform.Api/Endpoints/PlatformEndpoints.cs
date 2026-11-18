@@ -1,14 +1,10 @@
-using System.Text.RegularExpressions;
 using Mg.Platform.Api.Contracts;
 using Mg.Platform.Api.Security;
 
 namespace Mg.Platform.Api.Endpoints;
 
-public static partial class PlatformEndpoints
+public static class PlatformEndpoints
 {
-    [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$", RegexOptions.CultureInvariant)]
-    private static partial Regex SlugPattern();
-
     public static IEndpointRouteBuilder MapPlatformEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/platform/businesses")
@@ -30,7 +26,7 @@ public static partial class PlatformEndpoints
                 {
                     ["name"] = ["نام کسب‌وکار الزامی است و حداکثر ۱۶۰ نویسه دارد."]
                 });
-            if (string.IsNullOrWhiteSpace(request.Slug) || !SlugPattern().IsMatch(request.Slug.Trim().ToLowerInvariant()))
+            if (!BusinessSlug.TryNormalize(request.Slug, out _))
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
                     ["slug"] = ["شناسه باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد."]
