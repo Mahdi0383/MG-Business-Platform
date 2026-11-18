@@ -27,6 +27,9 @@ services:
       Secrets__Vault__Address: ${MG_VAULT_ADDRESS:-}
       Secrets__Vault__Token: ${MG_VAULT_TOKEN:-}
       Secrets__Vault__Mount: ${MG_VAULT_MOUNT:-secret}
+      Provisioning__Agent__Address: ${MG_PROVISIONING_AGENT_ADDRESS:-}
+      Provisioning__Agent__ClientCertificatePath: ${MG_PROVISIONING_AGENT_CLIENT_CERTIFICATE_PATH:-}
+      Provisioning__Agent__ClientCertificatePassword: ${MG_PROVISIONING_AGENT_CLIENT_CERTIFICATE_PASSWORD:-}
       Provisioning__WorkerEnabled: ${MG_PROVISIONING_WORKER_ENABLED:-false}
       Provisioning__WorkerId: ${MG_PROVISIONING_WORKER_ID:-}
     ports:
