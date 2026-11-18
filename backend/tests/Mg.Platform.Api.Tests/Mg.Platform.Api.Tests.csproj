@@ -28,5 +28,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/Mg.Platform.Api/Mg.Platform.Api.csproj" />
+    <ProjectReference Include="../../src/Mg.Provisioning.Agent.Core/Mg.Provisioning.Agent.Core.csproj" />
   </ItemGroup>
 </Project>
