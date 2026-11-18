@@ -2,19 +2,17 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Mg.Platform.Api.Provisioning;
 
-/// <summary>Non-secret endpoint and mounted client-certificate settings for the isolated agent.</summary>
-public sealed class TenantProvisioningAgentOptions
+/// <summary>Validated endpoint and mounted client certificate for the isolated agent.</summary>
+public sealed class TenantProvisioningAgentOptions : IDisposable
 {
-    private TenantProvisioningAgentOptions(Uri address, string certificatePath, string certificatePassword)
+    private TenantProvisioningAgentOptions(Uri address, X509Certificate2 clientCertificate)
     {
         Address = address;
-        ClientCertificatePath = certificatePath;
-        ClientCertificatePassword = certificatePassword;
+        ClientCertificate = clientCertificate;
     }
 
     public Uri Address { get; }
-    public string ClientCertificatePath { get; }
-    public string ClientCertificatePassword { get; }
+    public X509Certificate2 ClientCertificate { get; }
 
     public static TenantProvisioningAgentOptions? From(IConfiguration configuration)
     {
@@ -41,13 +39,18 @@ public sealed class TenantProvisioningAgentOptions
         if (!File.Exists(fullPath))
             throw new InvalidOperationException("Provisioning agent client certificate file was not found.");
 
-        using var certificate = new X509Certificate2(
+        var certificate = X509CertificateLoader.LoadPkcs12FromFile(
             fullPath, certificatePassword, X509KeyStorageFlags.EphemeralKeySet);
         if (!certificate.HasPrivateKey
             || certificate.NotBefore > DateTime.UtcNow
             || certificate.NotAfter <= DateTime.UtcNow)
+        {
+            certificate.Dispose();
             throw new InvalidOperationException("Provisioning agent client certificate is invalid or expired.");
+        }
 
-        return new TenantProvisioningAgentOptions(address, fullPath, certificatePassword);
+        return new TenantProvisioningAgentOptions(address, certificate);
     }
+
+    public void Dispose() => ClientCertificate.Dispose();
 }
