@@ -41,6 +41,21 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsPreexistingOwnerRoleWithMismatchedImmutableMarkerWithoutCreatingDatabase()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.CreateRoleWithCommentAsync(
+            $"{fixture.DatabaseName}_owner", "mg-tenant:wrong:owner:v1");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+
+        Assert.False(await fixture.DatabaseExistsAsync());
+    }
+
+    [Fact]
     public async Task RejectsExistingTenantDatabaseWithMismatchedImmutableMarker()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -155,6 +170,32 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+        }
+
+        public async Task CreateRoleWithCommentAsync(string roleName, string comment)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L; COMMENT ON ROLE %I IS %L;', @role, @password, @role, @comment);",
+                connection);
+            format.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
+            format.Parameters.AddWithValue("password", NpgsqlDbType.Text,
+                Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+            format.Parameters.AddWithValue("comment", NpgsqlDbType.Text, comment);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> DatabaseExistsAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = @database);", connection);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task SetDatabaseCommentAsync(string? comment)
