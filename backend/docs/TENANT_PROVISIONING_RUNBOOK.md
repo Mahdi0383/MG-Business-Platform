@@ -63,3 +63,7 @@ The API intentionally does not run schema migrations automatically at startup. C
 ## Tenant secret storage
 
 An optional `ITenantSecretStore` adapter targets HashiCorp Vault KV v2. Configure `Secrets:Vault:Address` as an HTTPS origin, `Secrets:Vault:Token` from deployment secret injection, and `Secrets:Vault:Mount` (defaults to `secret`). The API container receives these through the optional `MG_VAULT_*` environment variables. The central registry stores only the secret reference. The Vault token must be scoped to the tenant-secret prefix only; do not use a root token. No Vault server, token, policy or tenant database provisioning is configured by this repository. The adapter has not been exercised against a live Vault deployment.
+
+## Hosted worker safety gate
+
+A hosted queue worker skeleton is present but is opt-in (Provisioning:WorkerEnabled=false by default). Enabling it fails closed during API startup unless a concrete ITenantProvisioningHandler is registered and Provisioning:WorkerId is set. The worker resolves the handler before claiming jobs, claims with a two-minute lease, renews every 30 seconds using an independent scope, stops work when lease renewal fails, and only marks success through the owner-checked lease service. Provider exception messages are not logged; only exception types and stable safe error codes are recorded. No concrete tenant database provisioner is registered yet, so keep the worker disabled.
