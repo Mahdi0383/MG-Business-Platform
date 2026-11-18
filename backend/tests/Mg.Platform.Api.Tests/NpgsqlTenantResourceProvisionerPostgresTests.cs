@@ -232,6 +232,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 JOIN pg_database database ON database.datname = current_database()
                 WHERE role.rolname = current_user;
                 """, connection);
+            command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(applicationRoleName, reader.GetString(0));
