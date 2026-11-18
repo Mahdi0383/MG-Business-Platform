@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Mg.Provisioning.Agent.Core;
 using Npgsql;
 using NpgsqlTypes;
@@ -17,11 +18,11 @@ public sealed class AgentProvisioningOperationStore(
     private static readonly string[] Phases =
         ["Prepared", "DatabaseCreated", "SchemaApplied", "Verified"];
 
-    public async Task<string> GetOrCreatePreparedCredentialAsync(
+    public async Task<AgentProvisioningCredentials> GetOrCreatePreparedCredentialsAsync(
         Guid tenantId,
         Guid idempotencyKey,
         string databaseName,
-        Func<CancellationToken, ValueTask<string>> credentialFactory,
+        Func<CancellationToken, ValueTask<AgentProvisioningCredentials>> credentialFactory,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(credentialFactory);
@@ -73,11 +74,14 @@ public sealed class AgentProvisioningOperationStore(
                         throw new InvalidOperationException(
                             "A conflicting provisioning operation already exists for this tenant.");
 
-                    var stableCredential = credentialProtector.Unprotect(
+                    var stablePayload = credentialProtector.Unprotect(
                         encrypted, tenantId, idempotencyKey, databaseName);
+                    var stableCredentials = JsonSerializer.Deserialize<AgentProvisioningCredentials>(stablePayload)
+                        ?? throw new InvalidOperationException("Stored tenant credential bundle is invalid.");
+                    ValidateCredentials(stableCredentials, tenantId, databaseName);
                     await reader.CloseAsync();
                     await transaction.CommitAsync(cancellationToken);
-                    return stableCredential;
+                    return stableCredentials;
                 }
             }
 
@@ -97,10 +101,11 @@ public sealed class AgentProvisioningOperationStore(
             }
 
             // The factory must only generate a credential; it must not perform external side effects.
-            var connectionString = await credentialFactory(cancellationToken);
-            ValidateApplicationConnectionString(connectionString, tenantId, databaseName);
+            var credentials = await credentialFactory(cancellationToken);
+            ValidateCredentials(credentials, tenantId, databaseName);
+            var payload = JsonSerializer.Serialize(credentials);
             var envelope = credentialProtector.Protect(
-                connectionString, tenantId, idempotencyKey, databaseName);
+                payload, tenantId, idempotencyKey, databaseName);
 
             await using (var insert = new NpgsqlCommand(
                 """
@@ -128,7 +133,7 @@ public sealed class AgentProvisioningOperationStore(
             }
 
             await transaction.CommitAsync(cancellationToken);
-            return connectionString;
+            return credentials;
         }
         finally
         {
@@ -234,25 +239,43 @@ public sealed class AgentProvisioningOperationStore(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
     }
 
-    private static void ValidateApplicationConnectionString(string connectionString, Guid tenantId, string expectedDatabase)
+    private static void ValidateCredentials(
+        AgentProvisioningCredentials credentials, Guid tenantId, string expectedDatabase)
     {
-        NpgsqlConnectionStringBuilder parsed;
+        ArgumentNullException.ThrowIfNull(credentials);
+        var app = ParseCredential(credentials.ApplicationConnectionString, "application");
+        var owner = ParseCredential(credentials.OwnerConnectionString, "owner");
+
+        if (!string.Equals(app.Database, expectedDatabase, StringComparison.Ordinal)
+            || !string.Equals(app.Username, $"{expectedDatabase}_app", StringComparison.Ordinal)
+            || !string.Equals(owner.Database, expectedDatabase, StringComparison.Ordinal)
+            || !string.Equals(owner.Username, $"{expectedDatabase}_owner", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(app.Password)
+            || string.IsNullOrWhiteSpace(owner.Password)
+            || string.Equals(app.Password, owner.Password, StringComparison.Ordinal)
+            || !string.Equals(app.Host, owner.Host, StringComparison.OrdinalIgnoreCase)
+            || app.Port != owner.Port
+            || app.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
+            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
+            throw new InvalidOperationException(
+                "Provisioning agent credential bundle does not meet immutable tenant role, database and TLS requirements.");
+    }
+
+    private static NpgsqlConnectionStringBuilder ParseCredential(string connectionString, string roleKind)
+    {
         try
         {
-            parsed = new NpgsqlConnectionStringBuilder(connectionString);
+            var parsed = new NpgsqlConnectionStringBuilder(connectionString);
+            if (string.IsNullOrWhiteSpace(parsed.Host)
+                || string.IsNullOrWhiteSpace(parsed.Username)
+                || string.IsNullOrWhiteSpace(parsed.Password))
+                throw new InvalidOperationException("Provisioning agent generated an incomplete " + roleKind + " credential.");
+            return parsed;
         }
         catch (ArgumentException)
         {
-            throw new InvalidOperationException("Provisioning agent generated an invalid application connection string.");
+            throw new InvalidOperationException("Provisioning agent generated a malformed " + roleKind + " credential.");
         }
-
-        if (!string.Equals(parsed.Database, expectedDatabase, StringComparison.Ordinal)
-            || !string.Equals(parsed.Username, $"mg_tenant_{tenantId:N}_app", StringComparison.Ordinal)
-            || string.IsNullOrWhiteSpace(parsed.Host)
-            || string.IsNullOrWhiteSpace(parsed.Password)
-            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
-            throw new InvalidOperationException(
-                "Provisioning agent application credential does not meet tenant database identity and TLS requirements.");
     }
 
     private static byte[] ComputeRequestHash(Guid tenantId, Guid idempotencyKey, string databaseName) =>
