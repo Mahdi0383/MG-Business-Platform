@@ -120,8 +120,11 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
     }
 
     public Task<int> RewrapStoredCredentialsAsync(
-        int batchSize, CancellationToken cancellationToken) =>
-        operationStore.RewrapStoredCredentialsAsync(batchSize, cancellationToken);
+        int batchSize, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        return operationStore.RewrapStoredCredentialsAsync(batchSize, cancellationToken);
+    }
 
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
