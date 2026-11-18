@@ -12,6 +12,15 @@ CREATE TABLE mg.schema_migrations (
     applied_at_utc timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE FUNCTION mg.reject_immutable_record_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+    RAISE EXCEPTION '% rows are immutable', TG_TABLE_NAME;
+END;
+$;
+
 CREATE TABLE mg.tenant_identity (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
     tenant_id uuid NOT NULL UNIQUE,
@@ -30,6 +39,10 @@ $$;
 CREATE TRIGGER trg_tenant_identity_immutable
 BEFORE UPDATE OR DELETE ON mg.tenant_identity
 FOR EACH ROW EXECUTE FUNCTION mg.reject_tenant_identity_mutation();
+
+CREATE TRIGGER trg_schema_migrations_immutable
+BEFORE UPDATE OR DELETE ON mg.schema_migrations
+FOR EACH ROW EXECUTE FUNCTION mg.reject_immutable_record_mutation();
 
 CREATE TABLE mg.business_settings (
     setting_key varchar(120) PRIMARY KEY,
@@ -122,6 +135,10 @@ CREATE INDEX ix_mg_audit_events_time
 
 CREATE INDEX ix_mg_audit_events_subject
     ON mg.audit_events (subject_type, subject_id, occurred_at_utc DESC);
+
+CREATE TRIGGER trg_mg_audit_events_immutable
+BEFORE UPDATE OR DELETE ON mg.audit_events
+FOR EACH ROW EXECUTE FUNCTION mg.reject_immutable_record_mutation();
 
 CREATE TABLE mg.outbox_messages (
     id uuid PRIMARY KEY,
