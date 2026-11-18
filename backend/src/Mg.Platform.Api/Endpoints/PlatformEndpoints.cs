@@ -8,7 +8,8 @@ public static class PlatformEndpoints
     public static IEndpointRouteBuilder MapPlatformEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/platform/businesses")
-            .WithTags("MG Creator — Business Registry");
+            .WithTags("MG Creator — Business Registry")
+            .RequireRateLimiting("creator-bootstrap");
 
         group.MapGet("/", async (HttpRequest request, PlatformKeyAuthenticator auth,
             BusinessRegistryService registry, CancellationToken ct) =>
