@@ -12,17 +12,20 @@ const initialProducts = [
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const isFiniteNonNegative = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-const isValidProducts = value => Array.isArray(value) && value.every(p => isRecord(p)
+const isSafeNonNegativeInteger = value => Number.isSafeInteger(value) && value >= 0;
+const isValidProducts = value => Array.isArray(value)
+  && new Set(value.map(p => p?.id)).size === value.length
+  && value.every(p => isRecord(p)
   && (typeof p.id === 'string' || (typeof p.id === 'number' && Number.isFinite(p.id)))
   && isText(p.name) && p.name.trim().length > 0 && isText(p.category)
   && isFiniteNonNegative(p.price) && isFiniteNonNegative(p.stock)
-  && isFiniteNonNegative(p.sold));
+  && isSafeNonNegativeInteger(p.sold));
 const isValidCustomers = value => Array.isArray(value) && value.every(c => isRecord(c)
   && (typeof c.id === 'string' || (typeof c.id === 'number' && Number.isFinite(c.id)))
   && isText(c.name) && c.name.trim().length > 0 && isText(c.phone)
   && isFiniteNonNegative(c.credit) && isFiniteNonNegative(c.visits));
 const isValidOrders = value => Array.isArray(value) && value.every(o => isRecord(o)
-  && (typeof o.id === 'string' || (typeof o.id === 'number' && Number.isFinite(o.id)))
+  && isSafeNonNegativeInteger(Number(o.id))
   && isText(o.customer) && isFiniteNonNegative(o.items) && isFiniteNonNegative(o.total)
   && isText(o.status) && isText(o.time));
 const initialCustomers = [
