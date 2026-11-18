@@ -9,7 +9,12 @@ var hostOptions = AgentHostOptions.From(builder.Configuration);
 var provisioningHandler = NpgsqlAgentProvisioningHandler.TryCreate(
     builder.Configuration, AppContext.BaseDirectory);
 if (provisioningHandler is not null)
-    builder.Services.AddSingleton<IAgentProvisioningHandler>(provisioningHandler);
+{
+    builder.Services.AddSingleton(provisioningHandler);
+    builder.Services.AddSingleton<IAgentProvisioningHandler>(
+        services => services.GetRequiredService<NpgsqlAgentProvisioningHandler>());
+    builder.Services.AddHostedService<AgentCredentialRewrapWorker>();
+}
 
 builder.WebHost.ConfigureKestrel(server =>
 {
