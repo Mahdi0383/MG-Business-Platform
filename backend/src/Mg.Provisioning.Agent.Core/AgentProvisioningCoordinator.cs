@@ -24,11 +24,11 @@ public sealed class AgentProvisioningCoordinator
 
     public async Task<string> ProvisionAsync(
         AgentProvisioningRequest request,
-        Func<CancellationToken, ValueTask<string>> applicationCredentialFactory,
+        Func<CancellationToken, ValueTask<AgentProvisioningCredentials>> credentialFactory,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(applicationCredentialFactory);
+        ArgumentNullException.ThrowIfNull(credentialFactory);
         if (request.TenantId == Guid.Empty || request.IdempotencyKey == Guid.Empty)
             throw new ArgumentException("Tenant and idempotency identifiers must be non-empty.");
 
@@ -37,9 +37,9 @@ public sealed class AgentProvisioningCoordinator
             request.TenantId,
             async token =>
             {
-                var connectionString = await operationStore.GetOrCreatePreparedCredentialAsync(
+                var credentials = await operationStore.GetOrCreatePreparedCredentialsAsync(
                     request.TenantId, request.IdempotencyKey, databaseName,
-                    applicationCredentialFactory, token);
+                    credentialFactory, token);
 
                 var phase = await operationStore.GetPhaseAsync(
                     request.TenantId, request.IdempotencyKey, token);
@@ -47,7 +47,7 @@ public sealed class AgentProvisioningCoordinator
                 if (phase == "Prepared")
                 {
                     await provisioner.EnsureDatabaseAndRolesAsync(
-                        request.TenantId, request.IdempotencyKey, databaseName, connectionString, token);
+                        request.TenantId, request.IdempotencyKey, databaseName, credentials, token);
                     await operationStore.AdvancePhaseAsync(
                         request.TenantId, request.IdempotencyKey, "Prepared", "DatabaseCreated", token);
                     phase = "DatabaseCreated";
@@ -56,7 +56,7 @@ public sealed class AgentProvisioningCoordinator
                 if (phase == "DatabaseCreated")
                 {
                     await provisioner.ApplyTenantSchemaAsync(
-                        request.TenantId, connectionString, migration, token);
+                        request.TenantId, credentials, migration, token);
                     await operationStore.AdvancePhaseAsync(
                         request.TenantId, request.IdempotencyKey, "DatabaseCreated", "SchemaApplied", token);
                     phase = "SchemaApplied";
@@ -65,7 +65,7 @@ public sealed class AgentProvisioningCoordinator
                 if (phase == "SchemaApplied")
                 {
                     var verified = await provisioner.VerifyRuntimeAsync(
-                        request.TenantId, databaseName, connectionString,
+                        request.TenantId, databaseName, credentials.ApplicationConnectionString,
                         migration.Version, migration.Sha256, token);
                     if (!verified)
                         throw new InvalidOperationException(
@@ -79,7 +79,7 @@ public sealed class AgentProvisioningCoordinator
                 if (!string.Equals(phase, "Verified", StringComparison.Ordinal))
                     throw new InvalidOperationException("Tenant provisioning stopped in an unexpected durable phase.");
 
-                return connectionString;
+                return credentials.ApplicationConnectionString;
             },
             cancellationToken);
 
