@@ -6,6 +6,16 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="../Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql">
+      <Link>agent-database/migrations/001_agent_provisioning_ledger.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="../../tenant-database/migrations/001_tenant_core_baseline.sql">
+      <Link>tenant-database/migrations/001_tenant_core_baseline.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Mg.Provisioning.Agent.Core/Mg.Provisioning.Agent.Core.csproj" />
   </ItemGroup>
 </Project>
