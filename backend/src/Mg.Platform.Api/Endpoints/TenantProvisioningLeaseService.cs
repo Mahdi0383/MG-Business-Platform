@@ -44,13 +44,15 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 SET status = 'Running',
                     attempts = job.attempts + 1,
                     lease_owner = @workerId,
+                    lease_token = gen_random_uuid(),
                     lease_expires_at_utc = now() + (@leaseSeconds * interval '1 second'),
                     started_at_utc = COALESCE(job.started_at_utc, now())
                 FROM candidate
                 WHERE job.id = candidate.id
                 RETURNING job.id, job.business_id, job.status, job.attempts, job.idempotency_key,
                     job.lease_owner, job.lease_expires_at_utc, job.created_at_utc,
-                    job.next_attempt_at_utc, job.started_at_utc, job.completed_at_utc, job.last_error_code
+                    job.next_attempt_at_utc, job.started_at_utc, job.completed_at_utc, job.last_error_code,
+                    job.lease_token
                 """, connection);
             command.Parameters.AddWithValue("maxAttempts", MaxAttempts);
             command.Parameters.AddWithValue("workerId", workerId);
@@ -71,7 +73,8 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 NextAttemptAtUtc = reader.GetFieldValue<DateTimeOffset>(8),
                 StartedAtUtc = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
                 CompletedAtUtc = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
-                LastErrorCode = reader.IsDBNull(11) ? null : reader.GetString(11)
+                LastErrorCode = reader.IsDBNull(11) ? null : reader.GetString(11),
+                LeaseToken = reader.IsDBNull(12) ? null : reader.GetGuid(12)
             };
         }
         finally
@@ -93,11 +96,12 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 .SetProperty(job => job.Status, TenantProvisioningStatus.DeadLetter)
                 .SetProperty(job => job.LastErrorCode, "LEASE_EXHAUSTED")
                 .SetProperty(job => job.LeaseOwner, (string?)null)
+                .SetProperty(job => job.LeaseToken, (Guid?)null)
                 .SetProperty(job => job.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
     }
 
     public async Task<bool> RenewAsync(
-        Guid jobId, string workerId, TimeSpan leaseDuration, CancellationToken cancellationToken)
+        Guid jobId, string workerId, Guid leaseToken, TimeSpan leaseDuration, CancellationToken cancellationToken)
     {
         ValidateLease(workerId, leaseDuration);
         var expiry = DateTimeOffset.UtcNow.Add(leaseDuration);
@@ -105,6 +109,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             .Where(job => job.Id == jobId
                 && job.Status == TenantProvisioningStatus.Running
                 && job.LeaseOwner == workerId
+                && job.LeaseToken == leaseToken
                 && job.LeaseExpiresAtUtc > DateTimeOffset.UtcNow)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(job => job.LeaseExpiresAtUtc, expiry), cancellationToken);
@@ -112,7 +117,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
     }
 
     public async Task<bool> MarkSucceededAsync(
-        Guid jobId, string workerId, CancellationToken cancellationToken)
+        Guid jobId, string workerId, Guid leaseToken, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(workerId) || workerId.Length > MaxWorkerIdLength)
             throw new ArgumentException("Worker identifier is invalid.", nameof(workerId));
@@ -123,11 +128,13 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             .Where(job => job.Id == jobId
                 && job.Status == TenantProvisioningStatus.Running
                 && job.LeaseOwner == workerId
+                && job.LeaseToken == leaseToken
                 && job.LeaseExpiresAtUtc > now)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(job => job.Status, TenantProvisioningStatus.Succeeded)
                 .SetProperty(job => job.CompletedAtUtc, now)
                 .SetProperty(job => job.LeaseOwner, (string?)null)
+                .SetProperty(job => job.LeaseToken, (Guid?)null)
                 .SetProperty(job => job.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
 
         if (updated == 1)
@@ -151,7 +158,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
     }
 
     public async Task<bool> MarkFailedAsync(
-        Guid jobId, string workerId, string safeErrorCode, bool permanent,
+        Guid jobId, string workerId, Guid leaseToken, string safeErrorCode, bool permanent,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(workerId) || workerId.Length > MaxWorkerIdLength)
@@ -167,6 +174,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             .Where(item => item.Id == jobId
                 && item.Status == TenantProvisioningStatus.Running
                 && item.LeaseOwner == workerId
+                && item.LeaseToken == leaseToken
                 && item.LeaseExpiresAtUtc > now)
             .Select(item => new { item.Attempts, item.Id })
             .SingleOrDefaultAsync(cancellationToken);
@@ -181,6 +189,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             .Where(item => item.Id == jobId
                 && item.Status == TenantProvisioningStatus.Running
                 && item.LeaseOwner == workerId
+                && item.LeaseToken == leaseToken
                 && item.LeaseExpiresAtUtc > now)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.Status, deadLetter
@@ -188,6 +197,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 .SetProperty(item => item.NextAttemptAtUtc, nextAttempt)
                 .SetProperty(item => item.LastErrorCode, safeErrorCode)
                 .SetProperty(item => item.LeaseOwner, (string?)null)
+                .SetProperty(item => item.LeaseToken, (Guid?)null)
                 .SetProperty(item => item.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
         return updated == 1;
     }
