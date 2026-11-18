@@ -131,8 +131,14 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE'),
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE'),
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE'),
-                       has_database_privilege(current_user, current_database(), 'CREATE')
+                       has_database_privilege(current_user, current_database(), 'CREATE'),
+                       pg_get_userbyid(database.datdba),
+                       pg_get_userbyid(schema.nspowner),
+                       pg_get_userbyid(ledger.relowner)
                 FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+                JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
                 WHERE role.rolname = current_user;
                 """, connection);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -154,7 +160,10 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                 && reader.GetBoolean(12)
                 && !reader.GetBoolean(13)
                 && !reader.GetBoolean(14)
-                && !reader.GetBoolean(15);
+                && !reader.GetBoolean(15)
+                && !string.Equals(reader.GetString(16), reader.GetString(3), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(17), reader.GetString(3), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(18), reader.GetString(3), StringComparison.Ordinal);
         }
         catch (NpgsqlException)
         {
