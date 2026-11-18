@@ -298,6 +298,8 @@ Progress percentages must reflect the whole product's verified production-readin
 - Exact CI head `a7fd64bbaafbb60f244102dec67b433a8b905411`: backend build and backend unit tests passed; frontend dependency install/audit/tests/build were still running at this update.
 - Important remaining gates: PostgreSQL concurrency/integration tests, abandoned max-attempt lease reconciliation, hosted worker, secret-manager adapter, least-privilege provisioning credentials, tenant DB creator and migration runner. Do not expose provisioning as operational or activate a tenant until the external provisioner has verified DB connectivity, schema version, baseline and isolation.
 
+
+- PR #154 follow-up: removed the obsolete Security__BootstrapPlatformKey Compose setting and replaced it with required MG_OIDC_AUTHORITY / MG_OIDC_AUDIENCE inputs; added .env.web.example with placeholders only and refreshed backend deployment/migration documentation. Never use the example issuer as a real identity provider. This change is included in the current PR #154 head and must pass its new CI run.
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
