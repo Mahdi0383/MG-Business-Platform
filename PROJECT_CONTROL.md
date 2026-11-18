@@ -320,6 +320,14 @@ Progress percentages must reflect the whole product's verified production-readin
 - Added HTTP-stub tests for KV v2 writes, reads and path traversal rejection. Added optional `MG_VAULT_*` deployment variables and documented that the adapter has not been tested against a live Vault instance. A narrowly scoped Vault policy and real deployment credentials remain unconfigured.
 - Current PR #154 head: `0ebd3e01e460f114067743b1b6472886a1c02221`; workflow run `44378484810` was still initializing at the time of this update. Previous exact-head run `44377815900` passed all backend and frontend checks before the Vault adapter was added; that result does not validate the new adapter.
 
+
+### Opt-in provisioning worker skeleton — 2026-11-18
+
+- Draft PR #154 now contains `ITenantProvisioningHandler`, `TenantProvisioningException` and `TenantProvisioningWorker`. The worker is registered only when `Provisioning:WorkerEnabled=true`; default is false. Startup fails closed unless a concrete handler is registered and a worker ID is configured. It resolves the handler before claiming a job, uses two-minute leases with 30-second renewals on an independent scope, invokes dead-letter reconciliation, and stops/does not complete work after lease loss. Provider exception messages are not logged.
+- Added tests for safe provisioning error codes and Vault HTTPS-origin/token configuration validation. Worker remains disabled because no concrete tenant database provisioner is implemented or registered. No tenant DBs are created by this code.
+- PR #154 current head: `ca3e37414885444b8d04e4825a7b4425556ad122`; exact-head workflow run `44379348342` was pending at ledger update. Earlier run `44377815900` passed before Vault and worker additions and is not evidence for this head. PR #105 remains open/Draft at `8c574cd1d625566785f0a5a7e8236ad339c399ff`; PR #154 remains open/Draft and mergeable.
+- Next: validate exact-head CI; add worker orchestration tests with a deterministic fake handler/lease boundary; then implement a concrete PostgreSQL tenant provisioner with per-tenant least-privilege roles, Vault secret write/readback, idempotent database/schema creation, and migration verification. Keep worker disabled until that end-to-end path is tested against disposable infrastructure.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
