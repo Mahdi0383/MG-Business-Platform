@@ -6,6 +6,10 @@ using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var hostOptions = AgentHostOptions.From(builder.Configuration);
+var provisioningHandler = NpgsqlAgentProvisioningHandler.TryCreate(
+    builder.Configuration, AppContext.BaseDirectory);
+if (provisioningHandler is not null)
+    builder.Services.AddSingleton<IAgentProvisioningHandler>(provisioningHandler);
 
 builder.WebHost.ConfigureKestrel(server =>
 {
@@ -40,14 +44,37 @@ builder.Services.AddRateLimiter(rateLimiter =>
 
 var app = builder.Build();
 app.Lifetime.ApplicationStopping.Register(hostOptions.Dispose);
+if (provisioningHandler is not null)
+    app.Lifetime.ApplicationStopping.Register(provisioningHandler.Dispose);
 app.UseRateLimiter();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
-app.MapGet("/health/ready", (IServiceProvider services) =>
-    services.GetService<IAgentProvisioningHandler>() is null
-        ? Results.Json(new { status = "not-ready", code = "PROVISIONER_NOT_CONFIGURED" },
-            statusCode: StatusCodes.Status503ServiceUnavailable)
-        : Results.Ok(new { status = "ready" }));
+app.MapGet("/health/ready", async (HttpContext context, ILoggerFactory loggerFactory) =>
+{
+    var handler = context.RequestServices.GetService<IAgentProvisioningHandler>();
+    if (handler is null)
+        return Results.Json(new { status = "not-ready", code = "PROVISIONER_NOT_CONFIGURED" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    try
+    {
+        return await handler.IsReadyAsync(context.RequestAborted)
+            ? Results.Ok(new { status = "ready" })
+            : Results.Json(new { status = "not-ready", code = "AGENT_DEPENDENCIES_NOT_READY" },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception exception)
+    {
+        loggerFactory.CreateLogger("AgentReadiness").LogError(
+            "Agent readiness check failed. ExceptionType={ExceptionType}", exception.GetType().Name);
+        return Results.Json(new { status = "not-ready", code = "AGENT_DEPENDENCIES_NOT_READY" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
 
 app.MapPost("/internal/v1/tenant-databases", async (HttpContext context, ILoggerFactory loggerFactory) =>
 {
