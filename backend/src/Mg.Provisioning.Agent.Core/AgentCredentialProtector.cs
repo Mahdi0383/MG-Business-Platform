@@ -112,7 +112,7 @@ public sealed class AgentCredentialProtector : IDisposable
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(encrypted);
-        ValidateContext("credential-placeholder", tenantId, idempotencyKey, databaseName);
+        ValidateTenantContext(tenantId, idempotencyKey, databaseName);
 
         if (string.IsNullOrEmpty(encrypted.KeyId)
             || !KeyIdPattern.IsMatch(encrypted.KeyId)
@@ -164,14 +164,20 @@ public sealed class AgentCredentialProtector : IDisposable
     private static void ValidateContext(
         string connectionString, Guid tenantId, Guid idempotencyKey, string databaseName)
     {
+        ValidateTenantContext(tenantId, idempotencyKey, databaseName);
+        if (string.IsNullOrWhiteSpace(connectionString)
+            || connectionString.Length > MaxConnectionStringLength)
+            throw new ArgumentException("Tenant connection string is invalid.");
+    }
+
+    private static void ValidateTenantContext(
+        Guid tenantId, Guid idempotencyKey, string databaseName)
+    {
         if (tenantId == Guid.Empty || idempotencyKey == Guid.Empty)
             throw new ArgumentException("Tenant and idempotency identifiers must be non-empty.");
         var expectedDatabase = $"mg_tenant_{tenantId:N}";
         if (!string.Equals(databaseName, expectedDatabase, StringComparison.Ordinal))
             throw new ArgumentException("Tenant database name does not match its immutable tenant ID.");
-        if (string.IsNullOrWhiteSpace(connectionString)
-            || connectionString.Length > MaxConnectionStringLength)
-            throw new ArgumentException("Tenant connection string is invalid.");
     }
 
     private static byte[] BuildAssociatedData(
