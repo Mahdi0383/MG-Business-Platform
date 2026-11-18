@@ -18,7 +18,7 @@ public sealed class PlatformKeyAuthenticator(IConfiguration configuration)
         if (!IsStronglyConfigured(expected) || string.IsNullOrWhiteSpace(suppliedKey))
             return false;
 
-        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        var expectedBytes = Encoding.UTF8.GetBytes(expected!);
         var suppliedBytes = Encoding.UTF8.GetBytes(suppliedKey);
         return expectedBytes.Length == suppliedBytes.Length
             && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes);
