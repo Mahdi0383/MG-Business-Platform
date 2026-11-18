@@ -35,6 +35,10 @@ Only a verified successful provisioning operation may move the business from `Pe
 - Keep tenant database creation and migrations separate from HTTP request handling. The API only enqueues durable work.
 - Provide operator-visible retry, cancel and dead-letter review actions with an immutable audit event before production rollout.
 
+## Lease service boundary
+
+The API code now contains an atomic PostgreSQL lease-claim operation using `FOR UPDATE SKIP LOCKED`, a lease renewal guarded by owner and unexpired lease, and a completion operation that updates the job and business registry in one central-database transaction. Completion is the final step only after an external provisioner has independently verified the tenant database, migrations and baseline. The lease service is registered for dependency injection but no hosted worker invokes it yet. The current claim operation skips jobs at the retry limit; an operator/reaper process must move exhausted jobs to `DeadLetter` before production use. This slice deliberately does not create databases, secrets or schemas.
+
 ## Manual deployment sequence
 
 Apply central migrations in order:
