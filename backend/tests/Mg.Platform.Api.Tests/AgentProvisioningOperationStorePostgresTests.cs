@@ -14,7 +14,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var tenantId = Guid.NewGuid();
         var idempotencyKey = Guid.NewGuid();
         var provisioner = new FakeResourceProvisioner();
-        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('a', 64));
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
         var generated = 0;
         ValueTask<string> CredentialFactory(CancellationToken _) 
         {
@@ -40,7 +40,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var tenantId = Guid.NewGuid();
         var idempotencyKey = Guid.NewGuid();
         var provisioner = new FakeResourceProvisioner { FailMigrationOnce = true };
-        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('b', 64));
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
         ValueTask<string> CredentialFactory(CancellationToken _) =>
             ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "replay-secret"));
 
@@ -74,7 +74,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 await releaseProvisioning.Task.WaitAsync(token);
             }
         };
-        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, new string('c', 64));
+        var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
         ValueTask<string> CredentialFactory(CancellationToken _) =>
             ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "exclusive-secret"));
 
@@ -94,20 +94,15 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
-    public void CoordinatorRejectsInvalidMigrationChecksum()
+    public void MigrationLoaderRejectsMissingPackagedArtifact()
     {
-        using var dataSource = NpgsqlDataSource.Create(
-            "Host=localhost;Database=mg_agent_test;Username=mg_agent_test");
-        using var protector = new AgentCredentialProtector(
-            "key-v1", new Dictionary<string, string>
-            {
-                ["key-v1"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
-            });
-        var store = new AgentProvisioningOperationStore(dataSource, protector);
-
-        Assert.Throws<ArgumentException>(() =>
-            new AgentProvisioningCoordinator(store, new FakeResourceProvisioner(), "not-a-checksum"));
+        var missingDirectory = Path.Combine(Path.GetTempPath(), "mg-agent-missing-" + Guid.NewGuid().ToString("N"));
+        Assert.Throws<FileNotFoundException>(() =>
+            TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(missingDirectory));
     }
+
+    private static TenantSchemaMigrationArtifact LoadMigration() =>
+        TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
 
     [Fact]
     public async Task SameRequestReplaysStableCredentialAndAllowsOnlyForwardPhaseTransitions()
@@ -275,12 +270,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         }
 
         public Task ApplyTenantSchemaAsync(
-            Guid tenantId, string applicationConnectionString, int migrationVersion,
-            string migrationSha256, CancellationToken cancellationToken)
+            Guid tenantId, string applicationConnectionString, TenantSchemaMigrationArtifact migration,
+            CancellationToken cancellationToken)
         {
             MigrationCalls++;
-            Assert.Equal(1, migrationVersion);
-            Assert.Matches("^[a-f0-9]{64}$", migrationSha256);
+            Assert.Equal(1, migration.Version);
+            Assert.Equal("tenant_core_baseline", migration.Name);
+            Assert.Matches("^[a-f0-9]{64}$", migration.Sha256);
+            Assert.Contains("CREATE TABLE mg.tenant_identity", System.Text.Encoding.UTF8.GetString(migration.GetSqlBytes().Span), StringComparison.Ordinal);
             if (FailMigrationOnce && !migrationFailureConsumed)
             {
                 migrationFailureConsumed = true;
