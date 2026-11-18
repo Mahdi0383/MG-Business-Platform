@@ -22,7 +22,7 @@ public sealed class PlatformKeyAuthenticatorTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Security:BootstrapPlatformKey"] = "a-long-test-only-key"
+                ["Security:BootstrapPlatformKey"] = "a-long-test-only-key-with-32-bytes-minimum-123"
             })
             .Build();
         var authenticator = new PlatformKeyAuthenticator(configuration);
