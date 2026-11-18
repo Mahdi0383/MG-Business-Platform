@@ -105,6 +105,47 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
 
     [Fact]
+    public void PackagedMigrationArtifactReturnsDefensiveSqlCopies()
+    {
+        var artifact = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var original = artifact.GetSqlBytes().ToArray();
+        var expectedHash = Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant();
+        original[0] ^= 0x20;
+
+        Assert.Equal(expectedHash, artifact.Sha256);
+        Assert.NotEqual(original[0], artifact.GetSqlBytes().Span[0]);
+    }
+
+    [Fact]
+    public async Task ConcurrentCrossTenantIdempotencyReuseAllowsExactlyOneReservation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var idempotencyKey = Guid.NewGuid();
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+
+        async Task<bool> Reserve(Guid tenantId)
+        {
+            var databaseName = $"mg_tenant_{tenantId:N}";
+            try
+            {
+                await fixture.Store.GetOrCreatePreparedCredentialAsync(
+                    tenantId, idempotencyKey, databaseName,
+                    _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "one-winner-secret")));
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        var results = await Task.WhenAll(Reserve(tenantA), Reserve(tenantB));
+        Assert.Single(results.Where(value => value));
+        Assert.Single(results.Where(value => !value));
+    }
+
+    [Fact]
     public async Task SameRequestReplaysStableCredentialAndAllowsOnlyForwardPhaseTransitions()
     {
         await using var fixture = await Fixture.CreateAsync();
