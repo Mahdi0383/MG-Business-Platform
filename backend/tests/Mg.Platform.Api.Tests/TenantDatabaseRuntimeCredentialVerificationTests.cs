@@ -117,6 +117,26 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
 
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var grantAuditDelete = new NpgsqlCommand(
+                    $"GRANT DELETE ON mg.audit_events TO {quotedRole}", owner);
+                await grantAuditDelete.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokeAuditDelete = new NpgsqlCommand(
+                    $"REVOKE DELETE ON mg.audit_events FROM {quotedRole}", owner);
+                await revokeAuditDelete.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
             await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
