@@ -41,3 +41,7 @@ Apply the reviewed SQL migrations in order: `database/migrations/001_create_busi
 POST body: `{"name":"Example business","slug":"example-business"}`
 
 The new record starts as `PendingProvisioning` and receives a durable queue item in `Pending` state in the same central-database save transaction. Queue lifecycle states are `Pending`, `Running`, `Retry`, `Succeeded` and `DeadLetter`. The record is not marked active until database provisioning and baseline initialization have been implemented and verified.
+
+## PostgreSQL integration tests
+
+The backend test suite includes a real PostgreSQL concurrency test for two independent workers claiming distinct provisioning jobs. CI provisions an ephemeral PostgreSQL 17 service and sets `MG_TEST_POSTGRES` automatically. To run the complete suite locally, set `MG_TEST_POSTGRES` to a disposable PostgreSQL database connection string; the test creates and drops an isolated temporary schema. Never point this variable at production or customer data.
