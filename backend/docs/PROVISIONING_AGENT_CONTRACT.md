@@ -51,6 +51,21 @@ The connection string is an application-role credential, not an owner or provisi
 - Grant only required runtime privileges after migration. Set default privileges for future approved migrations deliberately; never grant ownership or broad ALL privileges to the runtime role.
 - Verify from the runtime application connection that tenant identity matches, baseline migration version is present, and the runtime role has none of the prohibited capabilities. The API independently repeats this verification before activation.
 
+
+### Durable idempotency ledger and credential replay
+
+A successful agent response can be lost after the database side effects complete. Therefore the agent must not generate a new application password on every retry and must not return a different connection string for the same operation.
+
+- Before creating any PostgreSQL role or database, create or lock a durable operation row keyed by `idempotency_key` with unique constraints on both `idempotency_key` and `tenant_id`. Persist the normalized tenant UUID/database name and reject any mismatch with an existing row.
+- Serialize operations per tenant with a PostgreSQL advisory lock. This prevents concurrent requests from racing while creating roles, migrating the schema or changing credentials.
+- Generate the application password once. Persist the full application connection string only as authenticated ciphertext using AES-256-GCM (or an equivalently reviewed AEAD). Bind tenant UUID, idempotency key, database name and encryption-key ID as associated authenticated data. Store nonce, tag, key ID and ciphertext; never persist plaintext in the operation ledger.
+- Keep encryption keys outside the agent database in a runtime secret manager. Support key IDs and a controlled key-rotation process: retain prior decryption keys until every operation encrypted with them has been re-encrypted and verified.
+- Commit the encrypted credential record before the first external side effect. On retries, decrypt and reuse that exact credential; re-apply the matching role password if an earlier attempt stopped between ledger persistence and role setup.
+- Record safe, monotonic operation phases (for example `Prepared`, `DatabaseCreated`, `SchemaApplied`, `Verified`). Each phase transition must be durable and idempotent. On restart, reconcile actual PostgreSQL state against the immutable tenant marker and phase; never trust the phase record alone.
+- Mark the operation complete only after the tenant marker, migration checksum/version, database owner, owner/runtime role attributes, schema/table grants and runtime connection have all been independently verified.
+- A duplicate request with the same key and payload must return the same decrypted connection string. A different payload for the same key, or a second idempotency key for an already provisioned tenant, must return a safe conflict and must not rotate credentials or mutate resources.
+- If the API loses its response, it retries the same key and receives the same credential. The API then performs its Vault CAS write/readback and its own independent tenant/runtime-role verification before the central job can complete.
+
 ## Safe HTTP error mapping
 
 - 400, 401, 403, 404: rejected request/identity/configuration; return no sensitive details.
