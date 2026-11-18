@@ -48,9 +48,9 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                     started_at_utc = COALESCE(job.started_at_utc, now())
                 FROM candidate
                 WHERE job.id = candidate.id
-                RETURNING id, business_id, status, attempts, idempotency_key,
-                    lease_owner, lease_expires_at_utc, created_at_utc,
-                    next_attempt_at_utc, started_at_utc, completed_at_utc, last_error_code
+                RETURNING job.id, job.business_id, job.status, job.attempts, job.idempotency_key,
+                    job.lease_owner, job.lease_expires_at_utc, job.created_at_utc,
+                    job.next_attempt_at_utc, job.started_at_utc, job.completed_at_utc, job.last_error_code
                 """, connection);
             command.Parameters.AddWithValue("maxAttempts", MaxAttempts);
             command.Parameters.AddWithValue("workerId", workerId);
