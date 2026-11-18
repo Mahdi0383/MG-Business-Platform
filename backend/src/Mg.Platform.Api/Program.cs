@@ -23,7 +23,6 @@ builder.Services.AddSingleton<PlatformKeyAuthenticator>();
 var app = builder.Build();
 
 app.UseExceptionHandler();
-app.UseHttpsRedirection();
 app.MapOpenApi();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live", service = "mg-platform-api" }))
