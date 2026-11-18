@@ -289,6 +289,15 @@ Progress percentages must reflect the whole product's verified production-readin
 - No provisioning worker, tenant database creator, secret-manager adapter or tenant migration runner has been implemented yet. Do not activate tenants or claim automatic tenant provisioning works.
 - Next task: validate PR #154 CI and schema migration against a real disposable PostgreSQL instance; then implement atomic queue claiming with `FOR UPDATE SKIP LOCKED`, lease ownership checks, renewal/recovery, bounded retry and tests. Before external database creation, implement a secret-manager abstraction and provisioner credentials with least privilege. Do not create real customer databases until those controls are in place.
 
+
+### Provisioning lease implementation update — 2026-11-18
+
+- Draft PR #154 now includes the first atomic queue lease service in addition to migration 003: PostgreSQL `FOR UPDATE SKIP LOCKED` claim, owner-checked lease renewal, owner-checked completion, and bounded retry/dead-letter handling with safe error-code validation.
+- Completion updates the queue row and business activation in one transaction; activation is rejected and rolled back unless the business is still `PendingProvisioning`.
+- Queue claim uses a direct Npgsql command because a data-modifying CTE with `UPDATE ... RETURNING` cannot safely be composed as an EF `FromSql` subquery.
+- Exact CI head `a7fd64bbaafbb60f244102dec67b433a8b905411`: backend build and backend unit tests passed; frontend dependency install/audit/tests/build were still running at this update.
+- Important remaining gates: PostgreSQL concurrency/integration tests, abandoned max-attempt lease reconciliation, hosted worker, secret-manager adapter, least-privilege provisioning credentials, tenant DB creator and migration runner. Do not expose provisioning as operational or activate a tenant until the external provisioner has verified DB connectivity, schema version, baseline and isolation.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
