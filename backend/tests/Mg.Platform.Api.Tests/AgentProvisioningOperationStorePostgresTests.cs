@@ -141,8 +141,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         }
 
         var results = await Task.WhenAll(Reserve(tenantA), Reserve(tenantB));
-        Assert.Single(results.Where(value => value));
-        Assert.Single(results.Where(value => !value));
+        Assert.Single(results, value => value);
+        Assert.Single(results, value => !value);
     }
 
     [Fact]
