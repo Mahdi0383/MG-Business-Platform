@@ -121,6 +121,9 @@ app.MapPost("/internal/v1/tenant-databases", async (HttpContext context, ILogger
             return Results.Json(new { code = "PROVISIONING_RESULT_INVALID" },
                 statusCode: StatusCodes.Status500InternalServerError);
 
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.Pragma = "no-cache";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
         return Results.Json(new { connectionString });
     }
     catch (AgentProvisioningBusyException)
