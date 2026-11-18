@@ -2,10 +2,21 @@ using System.Text.RegularExpressions;
 
 namespace Mg.Platform.Api.Secrets;
 
-public sealed record VaultSecretStoreOptions(Uri Address, string Token, string Mount)
+public sealed class VaultSecretStoreOptions
 {
     private static readonly Regex MountPattern = new("^[A-Za-z0-9_-]{1,64}$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private VaultSecretStoreOptions(Uri address, string token, string mount)
+    {
+        Address = address;
+        Token = token;
+        Mount = mount;
+    }
+
+    public Uri Address { get; }
+    public string Token { get; }
+    public string Mount { get; }
 
     public static VaultSecretStoreOptions From(IConfiguration configuration)
     {
