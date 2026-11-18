@@ -36,6 +36,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             migration.Version, migration.Sha256, CancellationToken.None);
 
         Assert.True(verified);
+        await fixture.AssertOwnerRoleIsRestrictedAsync();
         await fixture.AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync();
     }
 
@@ -87,6 +88,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public string DatabaseName { get; }
         public AgentProvisioningCredentials Credentials { get; }
         public string ApplicationConnectionString => Credentials.ApplicationConnectionString;
+        private string OwnerConnectionString => Credentials.OwnerConnectionString;
         public NpgsqlTenantResourceProvisioner Provisioner { get; }
 
         public static async Task<Fixture> CreateAsync()
