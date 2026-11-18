@@ -47,12 +47,16 @@ public sealed class TenantProvisioningAgentOptions : IDisposable
             .Any(extension => extension.EnhancedKeyUsages
                 .Cast<Oid>()
                 .Any(oid => oid.Value == "1.3.6.1.5.5.7.3.2"));
+        var hasNonCaBasicConstraints = certificate.Extensions
+            .OfType<X509BasicConstraintsExtension>()
+            .Any(extension => !extension.CertificateAuthority);
         var allowsDigitalSignature = certificate.Extensions
             .OfType<X509KeyUsageExtension>()
             .Any(extension => extension.KeyUsages.HasFlag(X509KeyUsageFlags.DigitalSignature));
 
         if (!certificate.HasPrivateKey
             || !hasClientAuthenticationEku
+            || !hasNonCaBasicConstraints
             || !allowsDigitalSignature
             || certificate.NotBefore > DateTime.UtcNow
             || certificate.NotAfter <= DateTime.UtcNow)
