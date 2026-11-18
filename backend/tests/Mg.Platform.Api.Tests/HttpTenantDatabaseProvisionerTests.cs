@@ -13,17 +13,21 @@ public sealed class HttpTenantDatabaseProvisionerTests
     {
         var tenantId = Guid.NewGuid();
         var idempotencyKey = Guid.NewGuid();
-        HttpRequestMessage? captured = null;
-        var handler = new StubHandler(request =>
+        HttpMethod? capturedMethod = null;
+        Uri? capturedUri = null;
+        string? capturedBody = null;
+        var handler = new StubHandler(async request =>
         {
-            captured = request;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            capturedMethod = request.Method;
+            capturedUri = request.RequestUri;
+            capturedBody = await request.Content!.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
                     connectionString = $"Host=tenant-db.internal;Database=mg_tenant_{tenantId:N};Username=tenant_app;Password=secret;SSL Mode=VerifyFull"
                 })
-            });
+            };
         });
         using var client = new HttpClient(handler)
         {
@@ -37,9 +41,9 @@ public sealed class HttpTenantDatabaseProvisionerTests
             CancellationToken.None);
 
         Assert.Contains($"Database=mg_tenant_{tenantId:N}", result, StringComparison.Ordinal);
-        Assert.Equal(HttpMethod.Post, captured!.Method);
-        Assert.Equal("/internal/v1/tenant-databases", captured.RequestUri!.AbsolutePath);
-        using var body = await JsonDocument.ParseAsync(await captured.Content!.ReadAsStreamAsync());
+        Assert.Equal(HttpMethod.Post, capturedMethod);
+        Assert.Equal("/internal/v1/tenant-databases", capturedUri!.AbsolutePath);
+        using var body = JsonDocument.Parse(capturedBody!);
         Assert.Equal(tenantId, body.RootElement.GetProperty("tenantId").GetGuid());
         Assert.Equal(idempotencyKey, body.RootElement.GetProperty("idempotencyKey").GetGuid());
         Assert.Equal($"mg_tenant_{tenantId:N}", body.RootElement.GetProperty("databaseName").GetString());
