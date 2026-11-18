@@ -183,8 +183,7 @@ public sealed class AgentProvisioningOperationStore(
             || string.IsNullOrWhiteSpace(parsed.Host)
             || string.IsNullOrWhiteSpace(parsed.Username)
             || string.IsNullOrWhiteSpace(parsed.Password)
-            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || parsed.TrustServerCertificate)
+            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException(
                 "Provisioning agent application credential does not meet tenant database identity and TLS requirements.");
     }
