@@ -29,7 +29,7 @@ dotnet restore
 dotnet run
 ```
 
-Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql`, then `database/migrations/003_add_provisioning_job_leases.sql` to the MG central database before using registry endpoints. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
+Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql`, then `database/migrations/003_add_provisioning_job_leases.sql`, then `database/migrations/004_uuid_tenant_secret_references.sql` to the MG central database before using provisioning. Migration 004 converts only pending tenant rows to immutable UUID-based Vault paths; active tenant references require a separate controlled secret migration. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
 
 ## Initial endpoints
 
