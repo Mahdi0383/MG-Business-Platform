@@ -68,9 +68,11 @@ public sealed class TenantProvisioningWorker(
             return;
         }
 
+        var leaseToken = job.LeaseToken
+            ?? throw new InvalidOperationException("Claimed provisioning job has no fencing token.");
         using var handlerCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         using var heartbeatStop = new CancellationTokenSource();
-        var heartbeat = MaintainLeaseAsync(job.Id, workerId, handlerCancellation,
+        var heartbeat = MaintainLeaseAsync(job.Id, workerId, leaseToken, handlerCancellation,
             heartbeatStop.Token, stoppingToken);
 
         try
@@ -80,7 +82,7 @@ public sealed class TenantProvisioningWorker(
             var leaseHealthy = await heartbeat;
             if (leaseHealthy)
             {
-                var completed = await leases.MarkSucceededAsync(job.Id, workerId, stoppingToken);
+                var completed = await leases.MarkSucceededAsync(job.Id, workerId, leaseToken, stoppingToken);
                 if (!completed)
                     logger.LogWarning("Provisioning job {JobId} lost its lease before completion.", job.Id);
             }
@@ -96,7 +98,7 @@ public sealed class TenantProvisioningWorker(
             heartbeatStop.Cancel();
             _ = await heartbeat;
             if (!stoppingToken.IsCancellationRequested && !handlerCancellation.IsCancellationRequested)
-                _ = await leases.MarkFailedAsync(job.Id, workerId, exception.SafeErrorCode,
+                _ = await leases.MarkFailedAsync(job.Id, workerId, leaseToken, exception.SafeErrorCode,
                     exception.Permanent, stoppingToken);
         }
         catch (Exception exception)
@@ -107,7 +109,7 @@ public sealed class TenantProvisioningWorker(
             {
                 logger.LogError("Provisioning job {JobId} failed ({ExceptionType}).",
                     job.Id, exception.GetType().Name);
-                _ = await leases.MarkFailedAsync(job.Id, workerId,
+                _ = await leases.MarkFailedAsync(job.Id, workerId, leaseToken,
                     "PROVISIONING_FAILED", permanent: false, stoppingToken);
             }
         }
@@ -120,6 +122,7 @@ public sealed class TenantProvisioningWorker(
     private async Task<bool> MaintainLeaseAsync(
         Guid jobId,
         string workerId,
+        Guid leaseToken,
         CancellationTokenSource handlerCancellation,
         CancellationToken heartbeatStop,
         CancellationToken stoppingToken)
@@ -134,7 +137,7 @@ public sealed class TenantProvisioningWorker(
                 await using var heartbeatScope = scopeFactory.CreateAsyncScope();
                 var leases = heartbeatScope.ServiceProvider
                     .GetRequiredService<TenantProvisioningLeaseService>();
-                if (!await leases.RenewAsync(jobId, workerId, LeaseDuration, linked.Token))
+                if (!await leases.RenewAsync(jobId, workerId, leaseToken, LeaseDuration, linked.Token))
                 {
                     handlerCancellation.Cancel();
                     return false;
