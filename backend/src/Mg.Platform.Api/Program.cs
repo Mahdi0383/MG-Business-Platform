@@ -52,6 +52,27 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddScoped<BusinessRegistryService>();
 builder.Services.AddScoped<TenantProvisioningLeaseService>();
 builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>();
+var provisioningAgentOptions = TenantProvisioningAgentOptions.From(builder.Configuration);
+if (provisioningAgentOptions is not null)
+{
+    builder.Services.AddSingleton(provisioningAgentOptions);
+    builder.Services.AddHttpClient<ITenantDatabaseProvisioner, HttpTenantDatabaseProvisioner>(client =>
+        {
+            client.BaseAddress = provisioningAgentOptions.Address;
+            client.Timeout = TimeSpan.FromSeconds(90);
+        })
+        .ConfigurePrimaryHttpMessageHandler(services =>
+        {
+            var options = services.GetRequiredService<TenantProvisioningAgentOptions>();
+            var handler = new HttpClientHandler
+            {
+                ClientCertificateOptions = ClientCertificateOption.Manual
+            };
+            handler.ClientCertificates.Add(options.ClientCertificate);
+            return handler;
+        });
+    builder.Services.AddScoped<ITenantProvisioningHandler, TenantProvisioningHandler>();
+}
 if (builder.Configuration.GetValue<bool>("Provisioning:WorkerEnabled"))
 {
     if (!builder.Services.Any(descriptor => descriptor.ServiceType == typeof(ITenantProvisioningHandler)))
