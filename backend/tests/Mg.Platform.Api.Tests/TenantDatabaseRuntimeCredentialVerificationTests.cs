@@ -36,13 +36,10 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
-                await using (var createRole = new NpgsqlCommand(
-                    $"CREATE ROLE {quotedRole} LOGIN PASSWORD @password", admin))
-                {
-                    createRole.Parameters.AddWithValue("password", password);
-                    await createRole.ExecuteNonQueryAsync();
-                    roleCreated = true;
-                }
+                await using var createRole = new NpgsqlCommand(
+                    $"CREATE ROLE {quotedRole} LOGIN PASSWORD '{password}'", admin);
+                await createRole.ExecuteNonQueryAsync();
+                roleCreated = true;
                 await using var createDatabase = new NpgsqlCommand(
                     $"CREATE DATABASE {quotedDatabase} OWNER postgres", admin);
                 await createDatabase.ExecuteNonQueryAsync();
