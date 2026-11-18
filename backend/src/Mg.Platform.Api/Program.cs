@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Security;
+using Mg.Platform.Api.Secrets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -49,6 +50,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddScoped<BusinessRegistryService>();
 builder.Services.AddScoped<TenantProvisioningLeaseService>();
+builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>();
 
 var app = builder.Build();
 
