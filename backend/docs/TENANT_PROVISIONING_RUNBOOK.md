@@ -9,7 +9,7 @@ Business registration creates two records in the MG central PostgreSQL database:
 
 Both are added to the same EF Core unit of work and saved together. The relational provider wraps the multi-command save in a transaction. A tenant must never be reported as active merely because its registry row exists.
 
-The queue schema and enqueue path are implemented. Migration 003 adds a stable idempotency key and paired lease-owner/expiry fields, plus indexes for lease recovery. **There is not yet a worker, tenant database creator, secret-manager adapter, or tenant migration runner.** Do not advertise automated provisioning as available.
+The queue schema and enqueue path are implemented. Migration 003 adds a stable idempotency key and paired lease-owner/expiry fields, plus indexes for lease recovery. **There is not yet a worker, tenant database creator, least-privilege Vault policy deployment, or tenant migration runner. An optional Vault KV v2 adapter now provides secret storage by reference; it has only been tested with HTTP stubs, not a live Vault server.** Do not advertise automated provisioning as available.
 
 ## Required worker state machine
 
@@ -21,7 +21,7 @@ Pending ──claim──> Running ──success──> Succeeded
                        └──permanent / retry limit──> DeadLetter
 ```
 
-Only a verified successful provisioning operation may move the business from `PendingProvisioning` (or `Provisioning`) to `Active`. The worker must not infer success from database existence alone.
+Only a verified successful provisioning operation may move the business from `PendingProvisioning` (or `Provisioning`) to `Active`. The worker must not infer success from database existence alone. The optional Vault adapter must be configured with an HTTPS endpoint and a narrowly scoped token; root tokens are prohibited.
 
 ## Worker requirements before implementation
 
@@ -59,3 +59,7 @@ The API intentionally does not run schema migrations automatically at startup. C
 - Repeated delivery does not create duplicate databases, users, secrets or baseline records.
 - No business becomes `Active` before all provisioning checks pass.
 - Backup/restore drills include the central queue and tenant databases.
+
+## Tenant secret storage
+
+An optional `ITenantSecretStore` adapter targets HashiCorp Vault KV v2. Configure `Secrets:Vault:Address` as an HTTPS origin, `Secrets:Vault:Token` from deployment secret injection, and `Secrets:Vault:Mount` (defaults to `secret`). The API container receives these through the optional `MG_VAULT_*` environment variables. The central registry stores only the secret reference. The Vault token must be scoped to the tenant-secret prefix only; do not use a root token. No Vault server, token, policy or tenant database provisioning is configured by this repository. The adapter has not been exercised against a live Vault deployment.
