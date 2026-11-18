@@ -77,7 +77,7 @@ The provisioner implementation must make repeated requests with the same tenant 
 
 Vault KV v2 writes must use create-only compare-and-set (`options.cas=0`). If another worker creates the tenant secret after this worker's initial read, the write must fail rather than overwrite the existing credential; the job then retries and reads/verifies the already-created secret. Never change this to an unconditional overwrite for provisioning retries.
 
-Tenant PostgreSQL connection strings returned by a provisioner must use `SslMode=VerifyCA` or `SslMode=VerifyFull`; `Require` is rejected because encryption without server-certificate validation is insufficient against endpoint impersonation. Prefer `VerifyFull` with a trusted CA and matching DNS hostname. Do not set `Trust Server Certificate=true`.
+Tenant PostgreSQL connection strings returned by a provisioner must use `SslMode=VerifyCA` or `SslMode=VerifyFull`; `Require` is rejected because encryption without server-certificate validation is insufficient against endpoint impersonation. Prefer `VerifyFull` with a trusted CA and matching DNS hostname. Npgsql's `Trust Server Certificate` option is obsolete and has no effect in the pinned provider; do not include this deprecated parameter.
 
 ## Tenant database baseline migration
 
