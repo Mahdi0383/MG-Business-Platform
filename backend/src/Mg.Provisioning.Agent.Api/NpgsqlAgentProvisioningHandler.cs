@@ -15,18 +15,21 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
     private readonly NpgsqlDataSource dataSource;
     private readonly AgentCredentialProtector credentialProtector;
     private readonly AgentProvisioningCoordinator coordinator;
+    private readonly AgentProvisioningOperationStore operationStore;
     private bool disposed;
 
     private NpgsqlAgentProvisioningHandler(
         string controlConnectionString,
         NpgsqlDataSource dataSource,
         AgentCredentialProtector credentialProtector,
-        AgentProvisioningCoordinator coordinator)
+        AgentProvisioningCoordinator coordinator,
+        AgentProvisioningOperationStore operationStore)
     {
         this.controlConnectionString = controlConnectionString;
         this.dataSource = dataSource;
         this.credentialProtector = credentialProtector;
         this.coordinator = coordinator;
+        this.operationStore = operationStore;
     }
 
     public static NpgsqlAgentProvisioningHandler? TryCreate(
@@ -75,7 +78,7 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
             var provisioner = new NpgsqlTenantResourceProvisioner(normalizedControlConnectionString);
             var coordinator = new AgentProvisioningCoordinator(store, provisioner, migration);
             return new NpgsqlAgentProvisioningHandler(
-                normalizedControlConnectionString, dataSource, protector, coordinator);
+                normalizedControlConnectionString, dataSource, protector, coordinator, store);
         }
         catch
         {
@@ -115,6 +118,10 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
             },
             cancellationToken);
     }
+
+    public Task<int> RewrapStoredCredentialsAsync(
+        int batchSize, CancellationToken cancellationToken) =>
+        operationStore.RewrapStoredCredentialsAsync(batchSize, cancellationToken);
 
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
