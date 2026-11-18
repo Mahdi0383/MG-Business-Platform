@@ -190,7 +190,7 @@ public sealed class TenantProvisioningLeasePostgresTests
             string? leaseOwner = null,
             DateTimeOffset? leaseExpiry = null)
         {
-            var (business, job) = await AddBusinessAndJobAsync(
+            var (_, job) = await AddBusinessAndJobAsync(
                 slug, status, attempts, leaseOwner, leaseExpiry);
             return job;
         }
