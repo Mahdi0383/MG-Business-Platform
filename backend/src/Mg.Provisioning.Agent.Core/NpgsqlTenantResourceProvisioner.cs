@@ -440,20 +440,38 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using var check = new NpgsqlCommand(
             """
             SELECT EXISTS (
-                SELECT 1
-                FROM pg_auth_members membership
-                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-                JOIN pg_roles member_role ON member_role.oid = membership.member
-                WHERE granted_role.rolname = @owner_role
-                  AND member_role.rolname = @control_role
-                  AND membership.set_option
-                  AND NOT membership.inherit_option
-                  AND NOT membership.admin_option
-            );
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                       JOIN pg_roles member_role ON member_role.oid = membership.member
+                       WHERE granted_role.rolname = @owner_role
+                         AND member_role.rolname = @control_role
+                         AND membership.set_option
+                         AND NOT membership.inherit_option
+                         AND NOT membership.admin_option
+                   ),
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                       JOIN pg_roles member_role ON member_role.oid = membership.member
+                       WHERE granted_role.rolname = @owner_role
+                         AND member_role.rolname = @control_role
+                         AND (membership.inherit_option
+                              OR (membership.set_option AND membership.admin_option)
+                              OR (NOT membership.set_option AND NOT membership.admin_option))
+                   );
             """, connection, transaction);
         check.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
         check.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
-        if (await check.ExecuteScalarAsync(cancellationToken) is true)
+        await using var checkReader = await check.ExecuteReaderAsync(cancellationToken);
+        await checkReader.ReadAsync(cancellationToken);
+        var hasSetOnlyMembership = checkReader.GetBoolean(0);
+        var hasUnsafeMembership = checkReader.GetBoolean(1);
+        await checkReader.CloseAsync();
+        if (hasUnsafeMembership)
+            throw new InvalidOperationException("Tenant owner role control membership has unsafe INHERIT, SET or ADMIN options.");
+        if (hasSetOnlyMembership)
             return;
 
         var grantSql = await FormatSqlAsync(connection, transaction,
@@ -464,20 +482,36 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using var verify = new NpgsqlCommand(
             """
             SELECT EXISTS (
-                SELECT 1
-                FROM pg_auth_members membership
-                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-                JOIN pg_roles member_role ON member_role.oid = membership.member
-                WHERE granted_role.rolname = @owner_role
-                  AND member_role.rolname = @control_role
-                  AND membership.set_option
-                  AND NOT membership.inherit_option
-                  AND NOT membership.admin_option
-            );
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                       JOIN pg_roles member_role ON member_role.oid = membership.member
+                       WHERE granted_role.rolname = @owner_role
+                         AND member_role.rolname = @control_role
+                         AND membership.set_option
+                         AND NOT membership.inherit_option
+                         AND NOT membership.admin_option
+                   ),
+                   EXISTS (
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                       JOIN pg_roles member_role ON member_role.oid = membership.member
+                       WHERE granted_role.rolname = @owner_role
+                         AND member_role.rolname = @control_role
+                         AND (membership.inherit_option
+                              OR (membership.set_option AND membership.admin_option)
+                              OR (NOT membership.set_option AND NOT membership.admin_option))
+                   );
             """, connection, transaction);
         verify.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
         verify.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
-        if (await verify.ExecuteScalarAsync(cancellationToken) is not true)
+        await using var verifyReader = await verify.ExecuteReaderAsync(cancellationToken);
+        await verifyReader.ReadAsync(cancellationToken);
+        var verifiedSetOnlyMembership = verifyReader.GetBoolean(0);
+        var verifiedUnsafeMembership = verifyReader.GetBoolean(1);
+        await verifyReader.CloseAsync();
+        if (!verifiedSetOnlyMembership || verifiedUnsafeMembership)
             throw new InvalidOperationException("Tenant owner role lacks the required isolated SET-only membership path.");
     }
 
