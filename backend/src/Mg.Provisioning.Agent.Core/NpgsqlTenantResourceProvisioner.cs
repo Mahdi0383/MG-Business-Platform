@@ -317,7 +317,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                    EXISTS (SELECT 1 FROM pg_auth_members membership
                            JOIN pg_roles control_role ON control_role.oid = membership.member
                            WHERE membership.roleid = role.oid
-                             AND control_role.rolname = @control_role),
+                             AND control_role.rolname = @control_role
+                             AND membership.set_option
+                             AND NOT membership.inherit_option
+                             AND NOT membership.admin_option),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
                    COALESCE(shobj_description(database.oid, 'pg_database'), '')
             FROM pg_roles role
