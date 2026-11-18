@@ -67,7 +67,7 @@ public sealed class TenantProvisioningHandler(
             if (!string.Equals(parsed.Database, expectedDatabase, StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(parsed.Host)
                 || string.IsNullOrWhiteSpace(parsed.Username)
-                || parsed.Password.Length == 0
+                || string.IsNullOrWhiteSpace(parsed.Password)
                 || parsed.SslMode is not (SslMode.Require or SslMode.VerifyCA or SslMode.VerifyFull)
                 || parsed.Pooling == false)
                 throw new TenantProvisioningException("TENANT_CONNECTION_STRING_INVALID", permanent: true);
