@@ -55,7 +55,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using (var roleTransaction = await connection.BeginTransactionAsync(cancellationToken))
         {
             await EnsureRoleAsync(connection, roleTransaction, ownerRole, RoleMarker(tenantId, "owner"),
-                login: true, password: owner.Password, cancellationToken, allowControlMember: true);
+                login: true, password: owner.Password, cancellationToken);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
             await EnsureOwnerRoleMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
@@ -140,7 +140,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        role.rolbypassrls,
                        role.rolinherit,
                        EXISTS (SELECT 1 FROM pg_auth_members membership
-                               WHERE membership.member = role.oid OR membership.roleid = role.oid),
+                               WHERE membership.member = role.oid
+                                  OR (membership.roleid = role.oid
+                                      AND (pg_get_userbyid(membership.member) <> @control_role
+                                           OR membership.set_option
+                                           OR membership.inherit_option
+                                           OR NOT membership.admin_option))),
                        has_schema_privilege(current_user, 'mg', 'USAGE'),
                        has_schema_privilege(current_user, 'mg', 'CREATE'),
                        has_database_privilege(current_user, current_database(), 'CREATE'),
@@ -180,6 +185,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 WHERE identity.singleton = TRUE;
                 """, connection);
             command.Parameters.AddWithValue("version", NpgsqlDbType.Integer, expectedMigrationVersion);
+            command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
@@ -376,8 +382,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         string marker,
         bool login,
         string? password,
-        CancellationToken cancellationToken,
-        bool allowControlMember = false)
+        CancellationToken cancellationToken)
     {
         var state = await GetRoleStateAsync(connection, roleName, cancellationToken, transaction);
         if (state is null)
@@ -405,9 +410,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || state.CanReplicate
             || state.CanBypassRls
             || state.Inherit
-            || (login && (state.MemberOfAnyRole
-                || (state.HasAnyMembers && !allowControlMember)
-                || state.MemberOfUnexpectedRole))
+            || (login && (state.MemberOfAnyRole || state.MemberOfUnexpectedRole))
             || (!login && state.MemberOfUnexpectedRole))
             throw new InvalidOperationException("Existing tenant role has an unexpected identity, privilege or membership state.");
 
