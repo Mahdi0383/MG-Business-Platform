@@ -73,7 +73,7 @@ Each business gets a separate logical database and separate credentials/secret b
 - Industry-pack data, bookings, game sessions, tables/tabs, recipes and operational events.
 - Business audit trail, document metadata and synchronization/idempotency records.
 
-Tenant databases are provisioned, migrated, backed up and restored independently. A tenant ID is still included and checked in relevant records/events as defense in depth. Cross-tenant reporting uses explicit, minimized, aggregated pipelines—not direct access from one tenant database to another.
+Tenant databases are provisioned, migrated, backed up and restored independently. Tenant registration and its provisioning work item are committed atomically to the MG central database; a durable queue is present, while the worker and actual database creation remain release blockers. A tenant ID is still included and checked in relevant records/events as defense in depth. Cross-tenant reporting uses explicit, minimized, aggregated pipelines—not direct access from one tenant database to another.
 
 ### Device-local data — local replica, never a competing authority
 
