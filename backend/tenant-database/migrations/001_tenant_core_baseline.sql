@@ -15,11 +15,11 @@ CREATE TABLE mg.schema_migrations (
 CREATE FUNCTION mg.reject_immutable_record_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
     RAISE EXCEPTION '% rows are immutable', TG_TABLE_NAME;
 END;
-$;
+$$;
 
 CREATE TABLE mg.tenant_identity (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
