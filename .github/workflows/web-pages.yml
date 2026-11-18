@@ -55,6 +55,8 @@ jobs:
         uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
+      - name: Enable PostgreSQL TLS for strict certificate validation tests
+        run: bash backend/tests/scripts/enable-postgres-tls.sh
       - name: Restore and build backend
         run: dotnet build backend/src/Mg.Platform.Api/Mg.Platform.Api.csproj --configuration Release
         working-directory: .
