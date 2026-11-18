@@ -24,6 +24,8 @@ npm install
 npm run dev
 npm test
 npm run build
+
+For a production deployment at a custom domain root, set `VITE_BASE_PATH=/` before building (see `.env.production.example`). The GitHub Pages preview keeps the repository subpath by default.
 ```
 
 ## وضعیت فعلی
