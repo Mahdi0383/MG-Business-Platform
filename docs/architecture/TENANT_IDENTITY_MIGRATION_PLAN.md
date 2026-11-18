@@ -28,6 +28,14 @@ Use a stable `BusinessId` as the tenant boundary and a `BranchId` for branch-sco
 
 Identity records must use restrictive foreign keys and unique indexes. User IDs supplied in a request are never proof of identity or membership.
 
+### Boundary with the local staff-administration foundation
+
+- The in-flight staff-administration work in PR #148 introduces business-scoped `StaffUser` and persisted `StaffSession` records for the local desktop/business workflow. If merged, treat those records as a single-business staff foundation, not as the completed multi-tenant identity model described here.
+- A business-scoped staff account is not equivalent to a cross-business `ApplicationUser` plus `BusinessMembership`. The PR #148 role map is also a local fixed-role policy, not the target persisted role/permission/membership model.
+- Before enabling multi-tenant browser operations, explicitly decide whether to evolve/migrate local staff identities into shared application identities and memberships, or retain separate desktop principals behind a documented trust boundary. Do not silently merge the two models or infer web authorization from a desktop staff session.
+- The staff service alone does not provide browser authentication middleware, secure cookie/CSRF handling, public-host-to-tenant resolution, or authorization on operator HTTP endpoints. Those remain release blockers under issue #120.
+
+
 ## 3. Operational data ownership inventory
 
 Add non-null `BusinessId` to all tenant-owned operational records. Add `BranchId` where the operation is branch-specific; do not assume a branch GUID alone proves ownership.
