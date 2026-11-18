@@ -23,9 +23,10 @@ public sealed class PlatformDbContextModelTests
 
         Assert.NotNull(entity);
         Assert.Equal("business_tenants", entity!.GetTableName());
-        Assert.Equal("slug", entity.FindProperty(nameof(BusinessTenant.Slug))!.GetColumnName());
+        var table = StoreObjectIdentifier.Table("business_tenants", null);
+        Assert.Equal("slug", entity.FindProperty(nameof(BusinessTenant.Slug))!.GetColumnName(table));
         Assert.Equal("database_secret_reference",
-            entity.FindProperty(nameof(BusinessTenant.DatabaseSecretReference))!.GetColumnName());
+            entity.FindProperty(nameof(BusinessTenant.DatabaseSecretReference))!.GetColumnName(table));
         Assert.Contains(entity.GetIndexes(), index =>
             index.IsUnique && index.Properties.Any(property => property.Name == nameof(BusinessTenant.Slug)));
     }
@@ -38,8 +39,9 @@ public sealed class PlatformDbContextModelTests
 
         Assert.NotNull(entity);
         Assert.Equal("tenant_provisioning_jobs", entity!.GetTableName());
+        var table = StoreObjectIdentifier.Table("tenant_provisioning_jobs", null);
         Assert.Equal("business_id",
-            entity.FindProperty(nameof(TenantProvisioningJob.BusinessId))!.GetColumnName());
+            entity.FindProperty(nameof(TenantProvisioningJob.BusinessId))!.GetColumnName(table));
 
         var foreignKey = Assert.Single(entity.GetForeignKeys());
         Assert.Equal(typeof(BusinessTenant), foreignKey.PrincipalEntityType.ClrType);
