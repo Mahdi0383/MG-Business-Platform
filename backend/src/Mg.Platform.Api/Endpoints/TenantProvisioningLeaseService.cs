@@ -89,15 +89,59 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 .Where(job => job.Id == jobId)
                 .Select(job => job.BusinessId)
                 .SingleAsync(cancellationToken);
-            await db.Businesses
+            var activated = await db.Businesses
                 .Where(business => business.Id == businessId
                     && business.Status == "PendingProvisioning")
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(business => business.Status, "Active")
                     .SetProperty(business => business.ActivatedAtUtc, now), cancellationToken);
+            if (activated != 1)
+                throw new InvalidOperationException("Business state was not eligible for activation; provisioning completion was rolled back.");
         }
 
         await transaction.CommitAsync(cancellationToken);
+        return updated == 1;
+    }
+
+    public async Task<bool> MarkFailedAsync(
+        Guid jobId, string workerId, string safeErrorCode, bool permanent,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workerId) || workerId.Length > MaxWorkerIdLength)
+            throw new ArgumentException("Worker identifier is invalid.", nameof(workerId));
+        if (string.IsNullOrWhiteSpace(safeErrorCode)
+            || safeErrorCode.Length > 80
+            || safeErrorCode.Any(character => !(char.IsAsciiLetterUpper(character)
+                || char.IsAsciiDigit(character) || character == '_')))
+            throw new ArgumentException("Error code must be a safe uppercase identifier.", nameof(safeErrorCode));
+
+        var now = DateTimeOffset.UtcNow;
+        var job = await db.TenantProvisioningJobs.AsNoTracking()
+            .Where(item => item.Id == jobId
+                && item.Status == TenantProvisioningStatus.Running
+                && item.LeaseOwner == workerId
+                && item.LeaseExpiresAtUtc > now)
+            .Select(item => new { item.Attempts, item.Id })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (job is null) return false;
+
+        var deadLetter = permanent || job.Attempts >= MaxAttempts;
+        var backoffSeconds = Math.Min(3600, 15 * Math.Pow(2, Math.Max(0, job.Attempts - 1)));
+        var jitterSeconds = (job.Id.GetHashCode() & 0x7fffffff) % 13;
+        var nextAttempt = now.AddSeconds(backoffSeconds + jitterSeconds);
+
+        var updated = await db.TenantProvisioningJobs
+            .Where(item => item.Id == jobId
+                && item.Status == TenantProvisioningStatus.Running
+                && item.LeaseOwner == workerId
+                && item.LeaseExpiresAtUtc > now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Status, deadLetter
+                    ? TenantProvisioningStatus.DeadLetter : TenantProvisioningStatus.Retry)
+                .SetProperty(item => item.NextAttemptAtUtc, nextAttempt)
+                .SetProperty(item => item.LastErrorCode, safeErrorCode)
+                .SetProperty(item => item.LeaseOwner, (string?)null)
+                .SetProperty(item => item.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
         return updated == 1;
     }
 
