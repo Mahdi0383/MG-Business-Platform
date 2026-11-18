@@ -98,6 +98,25 @@ public sealed class TenantProvisioningHandlerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsConnectionUsingNonDeterministicRuntimeRole()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenant = await fixture.AddTenantAsync();
+        var secretStore = new FakeSecretStore();
+        var wrongRole = $"Host=localhost;Database=mg_tenant_{tenant.Id:N};Username=tenant;Password=secret;SSL Mode=VerifyFull";
+        var provisioner = new FakeProvisioner(wrongRole);
+        await using var db = fixture.CreateContext();
+
+        var exception = await Assert.ThrowsAsync<TenantProvisioningException>(() =>
+            new TenantProvisioningHandler(db, provisioner, secretStore)
+                .ProvisionAsync(Job(tenant.Id), CancellationToken.None));
+
+        Assert.Equal("TENANT_CONNECTION_STRING_INVALID", exception.SafeErrorCode);
+        Assert.Empty(secretStore.Values);
+        Assert.Equal(0, provisioner.VerifyCalls);
+    }
+
+    [Fact]
     public async Task RejectsEncryptedConnectionWithoutServerCertificateValidation()
     {
         await using var fixture = await Fixture.CreateAsync();
