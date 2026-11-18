@@ -12,6 +12,7 @@ public sealed class TenantProvisioningJob
     public int Attempts { get; set; }
     public Guid IdempotencyKey { get; set; } = Guid.NewGuid();
     public string? LeaseOwner { get; set; }
+    public Guid? LeaseToken { get; set; }
     public DateTimeOffset? LeaseExpiresAtUtc { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset NextAttemptAtUtc { get; set; } = DateTimeOffset.UtcNow;
