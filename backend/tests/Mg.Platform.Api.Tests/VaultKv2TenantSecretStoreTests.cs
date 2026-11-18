@@ -28,7 +28,7 @@ public sealed class VaultKv2TenantSecretStoreTests
         Assert.Equal(HttpMethod.Post, captured!.Method);
         Assert.Equal("/v1/secret/data/tenants/cafe-01/postgres", captured.RequestUri!.AbsolutePath);
         Assert.Equal("vault-test-token", Assert.Single(captured.Headers.GetValues("X-Vault-Token")));
-        Assert.Contains("sensitive-connection-string", body);
+        Assert.Contains("sensitive-connection-string", body ?? string.Empty);
     }
 
     [Fact]
