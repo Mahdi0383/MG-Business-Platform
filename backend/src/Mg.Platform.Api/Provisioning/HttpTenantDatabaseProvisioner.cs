@@ -74,8 +74,7 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 || !string.Equals(parsed.Username, $"{expectedDatabase}_app", StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(parsed.Host)
                 || string.IsNullOrWhiteSpace(parsed.Password)
-                || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-                || parsed.TrustServerCertificate)
+                || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
                 return false;
 
             await using var connection = new NpgsqlConnection(parsed.ConnectionString);
