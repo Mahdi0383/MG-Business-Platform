@@ -145,5 +145,11 @@ public sealed class TenantProvisioningWorker(
         {
             return !stoppingToken.IsCancellationRequested && !handlerCancellation.IsCancellationRequested;
         }
+        catch (Exception exception)
+        {
+            logger.LogError("Lease heartbeat failed ({ExceptionType}).", exception.GetType().Name);
+            handlerCancellation.Cancel();
+            return false;
+        }
     }
 }
