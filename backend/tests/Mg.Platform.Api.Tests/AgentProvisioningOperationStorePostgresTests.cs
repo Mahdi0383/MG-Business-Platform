@@ -5,6 +5,10 @@ using Xunit;
 
 namespace Mg.Platform.Api.Tests;
 
+[CollectionDefinition("AgentProvisioningPostgres", DisableParallelization = true)]
+public sealed class AgentProvisioningPostgresCollection;
+
+[Collection("AgentProvisioningPostgres")]
 public sealed class AgentProvisioningOperationStorePostgresTests
 {
     [Fact]
@@ -443,12 +447,12 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var key = RandomNumberGenerator.GetBytes(32);
-            var keyMaterial = Convert.ToBase64String(key);
+            // All tests share the same stable key ID/material because the disposable
+            // integration database retains operation rows between test cases.
+            const string keyMaterial = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
             var protector = new AgentCredentialProtector(
                 "test-key-v1",
                 new Dictionary<string, string> { ["test-key-v1"] = keyMaterial });
-            CryptographicOperations.ZeroMemory(key);
             var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
             return new Fixture(dataSource, protector,
                 new AgentProvisioningOperationStore(dataSource, protector), keyMaterial);
