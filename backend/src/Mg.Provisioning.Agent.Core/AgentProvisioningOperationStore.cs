@@ -34,10 +34,13 @@ public sealed class AgentProvisioningOperationStore(
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             await using (var advisoryLock = new NpgsqlCommand(
-                "SELECT pg_advisory_xact_lock(hashtextextended(@tenant_id::text, 0));",
-                connection, transaction))
+                """
+                SELECT pg_advisory_xact_lock(hashtextextended('tenant:' || @tenant_id::text, 0));
+                SELECT pg_advisory_xact_lock(hashtextextended('idempotency:' || @idempotency_key::text, 0));
+                """, connection, transaction))
             {
                 advisoryLock.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                advisoryLock.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
                 await advisoryLock.ExecuteNonQueryAsync(cancellationToken);
             }
 
