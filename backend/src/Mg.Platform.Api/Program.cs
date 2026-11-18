@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Security;
@@ -33,4 +31,4 @@ app.MapPlatformEndpoints();
 
 app.Run();
 
-public partial class Program;
+public partial class Program { }
