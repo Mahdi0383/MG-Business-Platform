@@ -30,8 +30,9 @@ public sealed class AgentCredentialRewrapWorker(
                 }
                 while (rewrapped == batchSize && !stoppingToken.IsCancellationRequested);
 
-                if (totalRewrapped > 0)
-                    logger.LogInformation("Rewrapped {CredentialCount} stored tenant credential bundles with the active key.", totalRewrapped);
+                logger.LogInformation(
+                    "Credential key rewrap sweep completed. Rewrapped {CredentialCount} stored tenant bundles with the active key.",
+                    totalRewrapped);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
