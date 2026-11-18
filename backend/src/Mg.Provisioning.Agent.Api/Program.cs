@@ -52,7 +52,7 @@ builder.Services.AddRateLimiter(rateLimiter =>
 var app = builder.Build();
 app.Lifetime.ApplicationStopping.Register(hostOptions.Dispose);
 if (provisioningHandler is not null)
-    app.Lifetime.ApplicationStopping.Register(provisioningHandler.Dispose);
+    app.Lifetime.ApplicationStopped.Register(provisioningHandler.Dispose);
 app.UseRateLimiter();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
