@@ -270,7 +270,17 @@ Every future request such as “ادامه بده / continue” means:
 ### Progress accounting
 Progress percentages must reflect the whole product's verified production-readiness, not the amount of code or documents. Architecture notes and UI prototypes contribute only a small amount. Increase progress only when substantial end-to-end functionality, tests and release gates are verified. Do not use 100% until production deployment, operational recovery and user acceptance are complete.
 
+
+## 13. Latest continuation update — 2026-11-18
+
+- Governance PR: [#152](https://github.com/Mahdi0383/MG-Business-Platform/pull/152), still Draft and not merged at the time of this update. It contains `AGENTS.md`, this ledger and README links; the durable rules become part of the implementation branch only after the PR is reviewed and merged.
+- Creator OIDC hardening: [Draft PR #153](https://github.com/Mahdi0383/MG-Business-Platform/pull/153), branch `feature/mg-creator-oidc-authentication`, currently targets `feature/mg-business-web-foundation`. It removes the shared static bootstrap key and requires HTTPS OIDC issuer, API audience and explicit `mg_platform_role` claims for Creator registry endpoints; it adds configuration validation tests and updates the API contract/runbook.
+- Exact PR #153 head at this ledger update: `c152c1dd2430a74d0df752ff0cb6a7a974c6e189`. Only the MG Business Web workflow had appeared and was pending at the time of observation. Do not report this change as CI-verified until all applicable jobs complete successfully on the latest head.
+- This OIDC slice is not complete identity: MFA, creator identity lifecycle, fine-grained creator permissions, privileged access grants/audit, business user identity/membership and tenant authorization remain blockers.
+- Next engineering priority after PR #153 validation/review: implement a durable tenant provisioning worker with lease/claim semantics, idempotency and bounded retry/dead-letter behavior; do not create tenant databases until a secret-manager adapter and least-privilege PostgreSQL provisioning credentials are designed and tested.
+- Latest verified base snapshot before PR #153: PR #105 head `8c574cd1d625566785f0a5a7e8236ad339c399ff` had five associated workflows completed successfully (MG Web build, .NET formatting, dependency audit, CodeQL, and .NET CI/Windows Release). This evidence applies only to that exact SHA, not subsequent commits.
+
 ## 12. Change log
 
-- 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
+- 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening and its pending exact-head CI state. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
 - Future sessions must append dated entries with PR/commit, concrete changes, tests/results, blockers and next task. Never erase historical verification; mark superseded evidence clearly.
