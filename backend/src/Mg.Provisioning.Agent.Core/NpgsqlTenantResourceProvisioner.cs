@@ -39,11 +39,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Guid tenantId,
         Guid idempotencyKey,
         string databaseName,
-        string applicationConnectionString,
+        AgentProvisioningCredentials credentials,
         CancellationToken cancellationToken)
     {
         ValidateTenant(tenantId, idempotencyKey, databaseName);
-        var app = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
+        ArgumentNullException.ThrowIfNull(credentials);
+        var app = ValidateApplicationConnection(credentials.ApplicationConnectionString, tenantId, databaseName);
+        var owner = ValidateOwnerConnection(credentials.OwnerConnectionString, tenantId, databaseName);
         await using var connection = new NpgsqlConnection(controlConnectionString);
         await connection.OpenAsync(cancellationToken);
         await VerifyControlRoleAsync(connection, cancellationToken);
@@ -53,38 +55,35 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using (var roleTransaction = await connection.BeginTransactionAsync(cancellationToken))
         {
             await EnsureRoleAsync(connection, roleTransaction, ownerRole, RoleMarker(tenantId, "owner"),
-                login: false, password: null, cancellationToken);
+                login: true, password: owner.Password, cancellationToken);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
-            await EnsureOwnerMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
             await roleTransaction.CommitAsync(cancellationToken);
         }
-        await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole, cancellationToken);
-        await ConfigureDatabaseAccessAsync(connection, databaseName, appRole, cancellationToken);
+        await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole,
+            credentials.OwnerConnectionString, appRole, cancellationToken);
     }
 
     public async Task ApplyTenantSchemaAsync(
         Guid tenantId,
-        string applicationConnectionString,
+        AgentProvisioningCredentials credentials,
         TenantSchemaMigrationArtifact migration,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(migration);
         if (migration.Version != 1 || migration.Name != "tenant_core_baseline")
             throw new InvalidOperationException("Only the reviewed tenant core baseline migration is supported.");
 
         var databaseName = $"mg_tenant_{tenantId:N}";
-        _ = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
+        _ = ValidateApplicationConnection(credentials.ApplicationConnectionString, tenantId, databaseName);
+        var owner = ValidateOwnerConnection(credentials.OwnerConnectionString, tenantId, databaseName);
         var appRole = ApplicationRoleName(tenantId);
 
-        var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
-        {
-            Database = databaseName,
-            Pooling = false
-        };
-        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        owner.Pooling = false;
+        await using var connection = new NpgsqlConnection(owner.ConnectionString);
         await connection.OpenAsync(cancellationToken);
-        await VerifyControlRoleAsync(connection, cancellationToken);
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await SetTenantMigrationContextAsync(connection, tenantId, migration.Sha256, cancellationToken);
 
         var ledgerExists = await SchemaMigrationLedgerExistsAsync(connection, cancellationToken);
