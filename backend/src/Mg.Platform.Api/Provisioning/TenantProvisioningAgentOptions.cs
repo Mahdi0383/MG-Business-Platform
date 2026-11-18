@@ -29,6 +29,7 @@ public sealed class TenantProvisioningAgentOptions : IDisposable
         if (!Uri.TryCreate(addressValue, UriKind.Absolute, out var address)
             || address.Scheme != Uri.UriSchemeHttps
             || !string.IsNullOrEmpty(address.UserInfo)
+            || address.AbsolutePath != "/"
             || !string.IsNullOrEmpty(address.Query)
             || !string.IsNullOrEmpty(address.Fragment)
             || string.IsNullOrWhiteSpace(certificatePath)
