@@ -17,13 +17,16 @@ try {
 const vulnerabilities = report.vulnerabilities ?? {};
 const suppressed = new Set();
 const advisoryUrl = 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf';
+const exceptionExpiresAt = Date.parse('2026-12-02T00:00:00Z');
+const exceptionIsActive = Date.now() < exceptionExpiresAt;
 
 // This unreviewed advisory currently has no published patched picomatch release.
+// The narrow exception expires on 2026-12-02 and must be reviewed before renewal.
 // Suppress only this exact advisory when it is transitive, then only packages
 // whose entire audit finding is caused by an already-suppressed dependency.
 // All other high/critical findings remain release blockers.
 for (const [name, vulnerability] of Object.entries(vulnerabilities)) {
-  const onlyKnownPicomatchAdvisory = name === 'picomatch'
+  const onlyKnownPicomatchAdvisory = exceptionIsActive && name === 'picomatch'
     && vulnerability.isDirect === false
     && Array.isArray(vulnerability.via)
     && vulnerability.via.length > 0
