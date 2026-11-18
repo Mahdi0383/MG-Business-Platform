@@ -16,6 +16,12 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="../../tenant-database/migrations/001_tenant_core_baseline.sql">
+      <Link>tenant-database/migrations/001_tenant_core_baseline.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../src/Mg.Platform.Api/Mg.Platform.Api.csproj" />
   </ItemGroup>
