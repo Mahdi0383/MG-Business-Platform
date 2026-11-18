@@ -13,7 +13,7 @@ public sealed class AgentCredentialProtector : IDisposable
     private const int KeySize = 32;
     private const int NonceSize = 12;
     private const int TagSize = 16;
-    private const int MaxConnectionStringLength = 4096;
+    private const int MaxProtectedPayloadLength = 12 * 1024;
     private static readonly Regex KeyIdPattern = new(
         "^[A-Za-z0-9_-]{1,80}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -122,7 +122,7 @@ public sealed class AgentCredentialProtector : IDisposable
             || encrypted.Ciphertext is null
             || encrypted.Nonce.Length != NonceSize
             || encrypted.Tag.Length != TagSize
-            || encrypted.Ciphertext.Length is < 1 or > MaxConnectionStringLength * 4)
+            || encrypted.Ciphertext.Length is < 1 or > MaxProtectedPayloadLength * 4)
             throw new InvalidOperationException("Stored tenant credential envelope is invalid.");
 
         var plaintext = new byte[encrypted.Ciphertext.Length];
@@ -133,7 +133,7 @@ public sealed class AgentCredentialProtector : IDisposable
             using var aes = new AesGcm(key, TagSize);
             aes.Decrypt(encrypted.Nonce, encrypted.Ciphertext, encrypted.Tag, plaintext, associatedData);
             var connectionString = StrictUtf8.GetString(plaintext);
-            if (connectionString.Length is < 1 or > MaxConnectionStringLength)
+            if (connectionString.Length is < 1 or > MaxProtectedPayloadLength)
                 throw new InvalidOperationException("Decrypted tenant credential has an invalid length.");
             return connectionString;
         }
@@ -166,7 +166,7 @@ public sealed class AgentCredentialProtector : IDisposable
     {
         ValidateTenantContext(tenantId, idempotencyKey, databaseName);
         if (string.IsNullOrWhiteSpace(connectionString)
-            || connectionString.Length > MaxConnectionStringLength)
+            || connectionString.Length > MaxProtectedPayloadLength)
             throw new ArgumentException("Tenant connection string is invalid.");
     }
 
