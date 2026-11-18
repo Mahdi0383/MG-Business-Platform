@@ -44,9 +44,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         var ownerRole = OwnerRoleName(tenantId);
         var appRole = ApplicationRoleName(tenantId);
-        await EnsureRoleAsync(connection, ownerRole, RoleMarker(tenantId, "owner"), login: false, password: null, cancellationToken);
-        await EnsureRoleAsync(connection, appRole, RoleMarker(tenantId, "application"), login: true, password: app.Password, cancellationToken);
-        await EnsureOwnerMembershipAsync(connection, ownerRole, cancellationToken);
+        await using (var roleTransaction = await connection.BeginTransactionAsync(cancellationToken))
+        {
+            await EnsureRoleAsync(connection, roleTransaction, ownerRole, RoleMarker(tenantId, "owner"),
+                login: false, password: null, cancellationToken);
+            await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
+                login: true, password: app.Password, cancellationToken);
+            await EnsureOwnerMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
+            await roleTransaction.CommitAsync(cancellationToken);
+        }
         await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole, cancellationToken);
         await ConfigureDatabaseAccessAsync(connection, databaseName, appRole, cancellationToken);
     }
@@ -273,27 +279,28 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
     private async Task EnsureRoleAsync(
         NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         string roleName,
         string marker,
         bool login,
         string? password,
         CancellationToken cancellationToken)
     {
-        var state = await GetRoleStateAsync(connection, roleName, cancellationToken);
+        var state = await GetRoleStateAsync(connection, roleName, cancellationToken, transaction);
         if (state is null)
         {
             var sql = login
-                ? await FormatSqlAsync(connection,
+                ? await FormatSqlAsync(connection, transaction,
                     "SELECT format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role, @password);",
                     cancellationToken, ("role", roleName), ("password", password!))
                 : await FormatSqlAsync(connection,
                     "SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role);",
                     cancellationToken, ("role", roleName));
-            await ExecuteDdlAsync(connection, sql, cancellationToken);
-            var commentSql = await FormatSqlAsync(connection,
+            await ExecuteDdlAsync(connection, sql, cancellationToken, transaction);
+            var commentSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('COMMENT ON ROLE %I IS %L', @role, @comment);",
                 cancellationToken, ("role", roleName), ("comment", marker));
-            await ExecuteDdlAsync(connection, commentSql, cancellationToken);
+            await ExecuteDdlAsync(connection, commentSql, cancellationToken, transaction);
             return;
         }
 
@@ -311,15 +318,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         if (login)
         {
-            var alterSql = await FormatSqlAsync(connection,
+            var alterSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('ALTER ROLE %I WITH PASSWORD %L', @role, @password);",
                 cancellationToken, ("role", roleName), ("password", password!));
-            await ExecuteDdlAsync(connection, alterSql, cancellationToken);
+            await ExecuteDdlAsync(connection, alterSql, cancellationToken, transaction);
         }
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
-        NpgsqlConnection connection, string roleName, CancellationToken cancellationToken)
+        NpgsqlConnection connection, string roleName, CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
     {
         await using var command = new NpgsqlCommand(
             """
@@ -332,7 +340,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                            WHERE m.roleid = role.oid AND pg_get_userbyid(m.member) <> @control_role)
             FROM pg_roles role
             WHERE role.rolname = @role_name;
-            """, connection);
+            """, connection, transaction);
         command.Parameters.AddWithValue("role_name", NpgsqlDbType.Text, roleName);
         command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -346,30 +354,31 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task EnsureOwnerMembershipAsync(
-        NpgsqlConnection connection, string ownerRole, CancellationToken cancellationToken)
+        NpgsqlConnection connection, NpgsqlTransaction transaction, string ownerRole, CancellationToken cancellationToken)
     {
-        var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken)
+        var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken, transaction)
             ?? throw new InvalidOperationException("Tenant owner role was not created.");
         if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
             throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
 
         if (!state.HasAnyMembers)
         {
-            var grantSql = await FormatSqlAsync(connection,
+            var grantSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('GRANT %I TO %I', @role, @member);",
                 cancellationToken, ("role", ownerRole), ("member", controlRoleName));
-            await ExecuteDdlAsync(connection, grantSql, cancellationToken);
+            await ExecuteDdlAsync(connection, grantSql, cancellationToken, transaction);
         }
         else
         {
-            var controlMembership = await RoleMembershipExistsAsync(connection, ownerRole, controlRoleName, cancellationToken);
+            var controlMembership = await RoleMembershipExistsAsync(connection, ownerRole, controlRoleName, cancellationToken, transaction);
             if (!controlMembership)
                 throw new InvalidOperationException("Tenant owner role membership is not held by the isolated agent control identity.");
         }
     }
 
     private async Task<bool> RoleMembershipExistsAsync(
-        NpgsqlConnection connection, string roleName, string memberName, CancellationToken cancellationToken)
+        NpgsqlConnection connection, string roleName, string memberName, CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
     {
         await using var command = new NpgsqlCommand(
             """
@@ -379,7 +388,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 JOIN pg_roles member_role ON member_role.oid = membership.member
                 WHERE granted_role.rolname = @role AND member_role.rolname = @member
             );
-            """, connection);
+            """, connection, transaction);
         command.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
         command.Parameters.AddWithValue("member", NpgsqlDbType.Text, memberName);
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
@@ -564,13 +573,21 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await ExecuteDdlAsync(connection, grantSql, cancellationToken);
     }
 
+    private static Task<string> FormatSqlAsync(
+        NpgsqlConnection connection,
+        string formatCommand,
+        CancellationToken cancellationToken,
+        params (string Name, string Value)[] parameters) =>
+        FormatSqlAsync(connection, null, formatCommand, cancellationToken, parameters);
+
     private static async Task<string> FormatSqlAsync(
         NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
         string formatCommand,
         CancellationToken cancellationToken,
         params (string Name, string Value)[] parameters)
     {
-        await using var command = new NpgsqlCommand(formatCommand, connection);
+        await using var command = new NpgsqlCommand(formatCommand, connection, transaction);
         foreach (var (name, value) in parameters)
             command.Parameters.AddWithValue(name, NpgsqlDbType.Text, value);
 
@@ -578,10 +595,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         return sql ?? throw new InvalidOperationException("Unable to format a safe PostgreSQL provisioning command.");
     }
 
+    private static Task ExecuteDdlAsync(
+        NpgsqlConnection connection, string sql, CancellationToken cancellationToken) =>
+        ExecuteDdlAsync(connection, sql, cancellationToken, null);
+
     private static async Task ExecuteDdlAsync(
-        NpgsqlConnection connection, string sql, CancellationToken cancellationToken)
+        NpgsqlConnection connection, string sql, CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction)
     {
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
