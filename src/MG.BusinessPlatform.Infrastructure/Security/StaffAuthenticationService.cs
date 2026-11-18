@@ -119,7 +119,8 @@ public sealed class StaffAuthenticationService(
         string? clientLabel = null,
         CancellationToken cancellationToken = default)
     {
-        if (businessId == Guid.Empty || string.IsNullOrEmpty(userName) || password is null)
+        if (businessId == Guid.Empty || string.IsNullOrEmpty(userName) || password is null
+            || !await IsConfiguredLocalBusinessAsync(businessId, cancellationToken))
         {
             _ = passwordHasher.Verify(password ?? string.Empty, DummyPasswordHash.Value);
             return null;
@@ -222,7 +223,8 @@ public sealed class StaffAuthenticationService(
         string? token,
         CancellationToken cancellationToken = default)
     {
-        if (businessId == Guid.Empty || !TryHashSessionToken(token, out var tokenHash))
+        if (businessId == Guid.Empty || !TryHashSessionToken(token, out var tokenHash)
+            || !await IsConfiguredLocalBusinessAsync(businessId, cancellationToken))
             return null;
 
         var now = DateTimeOffset.UtcNow;
@@ -264,7 +266,8 @@ public sealed class StaffAuthenticationService(
         string? token,
         CancellationToken cancellationToken = default)
     {
-        if (businessId == Guid.Empty || !TryHashSessionToken(token, out var tokenHash))
+        if (businessId == Guid.Empty || !TryHashSessionToken(token, out var tokenHash)
+            || !await IsConfiguredLocalBusinessAsync(businessId, cancellationToken))
             return false;
 
         var now = DateTimeOffset.UtcNow;
@@ -284,7 +287,8 @@ public sealed class StaffAuthenticationService(
         Guid staffUserId,
         CancellationToken cancellationToken = default)
     {
-        if (businessId == Guid.Empty || staffUserId == Guid.Empty)
+        if (businessId == Guid.Empty || staffUserId == Guid.Empty
+            || !await IsConfiguredLocalBusinessAsync(businessId, cancellationToken))
             return 0;
 
         var now = DateTimeOffset.UtcNow;
@@ -300,6 +304,12 @@ public sealed class StaffAuthenticationService(
             await db.SaveChangesAsync(cancellationToken);
         return sessions.Count;
     }
+
+    private async Task<bool> IsConfiguredLocalBusinessAsync(
+        Guid businessId,
+        CancellationToken cancellationToken) =>
+        await db.StoreSettings.AsNoTracking()
+            .AnyAsync(x => x.Id == 1 && x.BusinessId == businessId, cancellationToken);
 
     private async Task<bool> IsBusinessActiveAsync(Guid businessId, CancellationToken cancellationToken) =>
         await db.Businesses.AsNoTracking()
