@@ -60,7 +60,6 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
         private readonly string applicationRoleName;
-        private readonly string controlPassword;
 
         private Fixture(
             string adminConnectionString,
@@ -69,12 +68,10 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             Guid tenantId,
             Guid idempotencyKey,
             string databaseName,
-            string applicationConnectionString,
-            string controlPassword)
+            string applicationConnectionString)
         {
             this.adminConnectionString = adminConnectionString;
             this.controlRoleName = controlRoleName;
-            this.controlPassword = controlPassword;
             TenantId = tenantId;
             IdempotencyKey = idempotencyKey;
             DatabaseName = databaseName;
@@ -144,8 +141,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 tenantId,
                 Guid.NewGuid(),
                 databaseName,
-                app.ConnectionString,
-                controlPassword);
+                app.ConnectionString);
         }
 
         public async Task SetDatabaseCommentAsync(string? comment)
