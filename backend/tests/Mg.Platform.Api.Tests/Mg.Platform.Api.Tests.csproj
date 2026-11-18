@@ -20,6 +20,10 @@
       <Link>tenant-database/migrations/001_tenant_core_baseline.sql</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="../../database/migrations/005_add_provisioning_lease_fencing_token.sql">
+      <Link>database/migrations/005_add_provisioning_lease_fencing_token.sql</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
