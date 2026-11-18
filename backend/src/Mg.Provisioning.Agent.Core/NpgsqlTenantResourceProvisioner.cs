@@ -14,6 +14,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 {
     private readonly string controlConnectionString;
     private readonly string controlRoleName;
+    private readonly string controlHost;
+    private readonly int controlPort;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
     {
@@ -22,11 +24,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (string.IsNullOrWhiteSpace(parsed.Host)
             || string.IsNullOrWhiteSpace(parsed.Database)
             || string.IsNullOrWhiteSpace(parsed.Username)
-            || string.IsNullOrWhiteSpace(parsed.Password))
-            throw new ArgumentException("Agent PostgreSQL control connection is incomplete.", nameof(controlConnectionString));
+            || string.IsNullOrWhiteSpace(parsed.Password)
+            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
+            throw new ArgumentException("Agent PostgreSQL control connection must be complete and use strict TLS certificate validation.", nameof(controlConnectionString));
 
+        parsed.Pooling = false;
         this.controlConnectionString = parsed.ConnectionString;
         controlRoleName = parsed.Username;
+        controlHost = parsed.Host;
+        controlPort = parsed.Port;
     }
 
     public async Task EnsureDatabaseAndRolesAsync(
@@ -234,7 +240,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         }
     }
 
-    private static NpgsqlConnectionStringBuilder ValidateApplicationConnection(
+    private NpgsqlConnectionStringBuilder ValidateApplicationConnection(
         string applicationString, Guid tenantId, string databaseName)
     {
         NpgsqlConnectionStringBuilder app;
@@ -249,7 +255,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         if (!string.Equals(app.Database, databaseName, StringComparison.Ordinal)
             || !string.Equals(app.Username, ApplicationRoleName(tenantId), StringComparison.Ordinal)
-            || string.IsNullOrWhiteSpace(app.Host)
+            || !string.Equals(app.Host, controlHost, StringComparison.OrdinalIgnoreCase)
+            || app.Port != controlPort
             || string.IsNullOrWhiteSpace(app.Password)
             || app.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException("Application database credential does not match the tenant identity or strict TLS policy.");
