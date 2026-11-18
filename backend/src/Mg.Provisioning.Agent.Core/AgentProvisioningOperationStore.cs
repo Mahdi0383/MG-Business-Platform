@@ -133,6 +133,70 @@ public sealed class AgentProvisioningOperationStore(
         }
     }
 
+    public async Task<string> GetPhaseAsync(
+        Guid tenantId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || idempotencyKey == Guid.Empty)
+            throw new ArgumentException("Tenant and idempotency identifiers must be non-empty.");
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT phase
+            FROM mg_agent.provisioning_operations
+            WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;
+            """, connection);
+        command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+        command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
+        var phase = await command.ExecuteScalarAsync(cancellationToken);
+        return phase as string
+            ?? throw new InvalidOperationException("Provisioning operation does not exist for the requested tenant and idempotency key.");
+    }
+
+    public async Task<AgentExclusiveExecutionResult<T>> TryExecuteTenantExclusiveAsync<T>(
+        Guid tenantId,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty)
+            throw new ArgumentException("Tenant identifier must be non-empty.", nameof(tenantId));
+        ArgumentNullException.ThrowIfNull(action);
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        const string lockSql = "SELECT pg_try_advisory_lock(hashtextextended(@tenant_id::text, 0));";
+        await using (var acquire = new NpgsqlCommand(lockSql, connection))
+        {
+            acquire.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+            var acquired = await acquire.ExecuteScalarAsync(cancellationToken);
+            if (acquired is not true)
+                return new AgentExclusiveExecutionResult<T>(false, default);
+        }
+
+        try
+        {
+            var value = await action(cancellationToken);
+            return new AgentExclusiveExecutionResult<T>(true, value);
+        }
+        finally
+        {
+            // If cancellation or a connection failure prevents unlock, disposing the session
+            // releases PostgreSQL's session-level advisory lock.
+            try
+            {
+                await using var release = new NpgsqlCommand(
+                    "SELECT pg_advisory_unlock(hashtextextended(@tenant_id::text, 0));", connection);
+                release.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                await release.ExecuteScalarAsync(CancellationToken.None);
+            }
+            catch (NpgsqlException)
+            {
+                // Connection disposal below is the final lock-release guarantee.
+            }
+        }
+    }
+
     public async Task AdvancePhaseAsync(
         Guid tenantId,
         Guid idempotencyKey,
@@ -200,3 +264,5 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Database name must be derived from the immutable tenant UUID.");
     }
 }
+
+public sealed record AgentExclusiveExecutionResult<T>(bool Acquired, T? Value);
