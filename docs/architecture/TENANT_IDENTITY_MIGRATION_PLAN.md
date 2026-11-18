@@ -102,7 +102,7 @@ Migration must be restart-safe and transactional where SQLite permits. Backup re
 
 ## 7. Implementation sequence
 
-1. Introduce persistence records and model configuration for Business, Branch and membership/role primitives, with isolated unit/model tests. Do not yet expose operator routes.
+1. Reconcile the existing Business, Branch and local StaffUser/StaffSession persistence with the target tenant identity boundary; add shared ApplicationUser, BusinessMembership and persisted role/permission primitives only after deciding how local desktop identities relate to shared users. Add isolated model and constraint tests. Do not yet expose operator routes.
 2. Implement migration preflight/backfill and populated-database integration tests; require an explicit legacy mapping decision for ambiguous rows.
 3. Add authenticated principal and membership resolution, secure session lifecycle and permission policies.
 4. Add tenant/branch scope services and enforce them in each application service/repository; convert all record families and relationships.
