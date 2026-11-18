@@ -28,7 +28,7 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
             Slug = slug,
             Status = "PendingProvisioning",
             // Only a secret-manager reference is stored here, never a connection string/password.
-            DatabaseSecretReference = $"tenants/{slug}/postgres"
+            DatabaseSecretReference = $"tenants/{tenant.Id:N}/postgres"
         };
 
         var provisioningJob = new TenantProvisioningJob
