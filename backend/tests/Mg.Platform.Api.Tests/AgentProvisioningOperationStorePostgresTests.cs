@@ -255,8 +255,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
-                _ => ValueTask.FromResult(
-                    "Host=localhost;Database=another_db;Username=tenant_app;Password=secret;SSL Mode=VerifyFull")));
+                _ => ValueTask.FromResult(Fixture.Credentials("another_db", "secret")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
