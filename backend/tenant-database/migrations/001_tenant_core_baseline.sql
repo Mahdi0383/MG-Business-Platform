@@ -56,6 +56,10 @@ CREATE UNIQUE INDEX ux_mg_users_email_lower
     ON mg.users (lower(email))
     WHERE email IS NOT NULL;
 
+ALTER TABLE mg.business_settings
+    ADD CONSTRAINT fk_mg_business_settings_updated_by
+    FOREIGN KEY (updated_by_user_id) REFERENCES mg.users(id) ON DELETE SET NULL;
+
 CREATE TABLE mg.roles (
     id uuid PRIMARY KEY,
     role_key varchar(80) NOT NULL UNIQUE,
@@ -136,7 +140,7 @@ CREATE INDEX ix_mg_outbox_ready
     WHERE processed_at_utc IS NULL;
 
 INSERT INTO mg.tenant_identity (singleton, tenant_id)
-VALUES (true, :'mg_tenant_id'::uuid);
+VALUES (true, current_setting('mg.tenant_id')::uuid);
 
 INSERT INTO mg.roles (id, role_key, display_name, is_system_role)
 VALUES
@@ -165,6 +169,6 @@ INSERT INTO mg.role_permissions (role_id, permission_key)
 VALUES ('00000000-0000-4000-8000-000000000003', 'platform.access');
 
 INSERT INTO mg.schema_migrations (version, name, checksum_sha256)
-VALUES (1, 'tenant_core_baseline', repeat('0', 64));
+VALUES (1, 'tenant_core_baseline', current_setting('mg.migration_checksum'));
 
 COMMIT;
