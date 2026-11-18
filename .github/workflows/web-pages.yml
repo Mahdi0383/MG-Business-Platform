@@ -11,6 +11,8 @@ on:
   pull_request:
     paths:
       - 'web/**'
+      - 'backend/**'
+      - 'docker-compose.web.yml'
       - '.github/workflows/web-pages.yml'
   workflow_dispatch:
 
@@ -41,6 +43,9 @@ jobs:
           dotnet-version: 10.0.x
       - name: Restore and build backend
         run: dotnet build backend/src/Mg.Platform.Api/Mg.Platform.Api.csproj --configuration Release
+        working-directory: .
+      - name: Run backend unit tests
+        run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
         working-directory: .
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
