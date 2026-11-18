@@ -51,7 +51,7 @@ test('rejects arithmetic overflow instead of producing invalid totals or invento
   const expensiveCatalog = [{ id: 3, price: Number.MAX_VALUE, stock: 3, sold: 0 }];
   assert.equal(calculateCartTotal([{ id: 3, qty: 2 }], expensiveCatalog), null);
 
-  const overflowSoldCatalog = [{ id: 4, price: 10, stock: 3, sold: Number.MAX_VALUE }];
+  const overflowSoldCatalog = [{ id: 4, price: 10, stock: 3, sold: Number.MAX_SAFE_INTEGER }];
   assert.equal(applySaleToInventory([{ id: 4, qty: 1 }], overflowSoldCatalog), null);
 });
 
