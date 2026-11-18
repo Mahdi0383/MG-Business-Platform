@@ -47,6 +47,35 @@ public sealed class VaultKv2TenantSecretStoreTests
     }
 
     [Fact]
+    public async Task ReadReturnsNullForMissingSecret()
+    {
+        var handler = new StubHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)));
+        using var client = new HttpClient(handler);
+        var store = new VaultKv2TenantSecretStore(client, CreateConfiguration());
+
+        Assert.Null(await store.ReadAsync("tenants/cafe-01/postgres", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteUsesKvV2MetadataEndpointAndIgnoresMissingSecret()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        });
+        using var client = new HttpClient(handler);
+        var store = new VaultKv2TenantSecretStore(client, CreateConfiguration());
+
+        await store.DeleteAsync("tenants/cafe-01/postgres", CancellationToken.None);
+
+        Assert.Equal(HttpMethod.Delete, captured!.Method);
+        Assert.Equal("/v1/secret/metadata/tenants/cafe-01/postgres", captured.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
     public async Task RejectsPathTraversalBeforeMakingRequest()
     {
         var handler = new StubHandler(_ => throw new InvalidOperationException("Request must not be sent."));
