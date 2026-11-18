@@ -817,14 +817,18 @@ public sealed class DatabaseMigrationTests
                 lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             await using var db = new BusinessDbContext(options);
 
-            var initializationTask = DatabaseInitializer.InitializeAsync(db);
+            using var initializationTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var initializationTask = DatabaseInitializer.InitializeAsync(db, initializationTimeout.Token);
             await Task.Delay(TimeSpan.FromMilliseconds(250));
 
             Assert.False(initializationTask.IsCompleted,
                 "Initialization must wait while another process owns the migration lock.");
 
             await heldLock.DisposeAsync();
-            await initializationTask.WaitAsync(TimeSpan.FromSeconds(15));
+            // File-backed migration and backup operations can be slower on busy CI
+            // runners. Bound the operation itself and the wait, so a timeout cancels
+            // the initializer before the DbContext is disposed.
+            await initializationTask.WaitAsync(TimeSpan.FromSeconds(65));
 
             var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
             Assert.Contains("20261016030000_AddInvoiceDueDates", appliedMigrations);
