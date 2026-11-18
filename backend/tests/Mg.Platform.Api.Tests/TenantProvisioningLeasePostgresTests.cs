@@ -61,6 +61,36 @@ public sealed class TenantProvisioningLeasePostgresTests
     }
 
     [Fact]
+    public async Task FencingTokenRejectsStaleAttemptEvenWhenWorkerIdIsReused()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var job = await fixture.AddJobAsync("same-worker", TenantProvisioningStatus.Running,
+            attempts: 1, leaseOwner: "reused-worker",
+            leaseExpiry: DateTimeOffset.UtcNow.AddMinutes(-1));
+        var staleToken = job.LeaseToken!.Value;
+
+        await using var context = fixture.CreateContext();
+        var service = new TenantProvisioningLeaseService(context);
+        var reclaimed = await service.ClaimNextAsync(
+            "reused-worker", TimeSpan.FromMinutes(1), CancellationToken.None);
+
+        Assert.NotNull(reclaimed);
+        Assert.Equal(job.Id, reclaimed.Id);
+        Assert.NotNull(reclaimed.LeaseToken);
+        Assert.NotEqual(staleToken, reclaimed.LeaseToken);
+
+        Assert.False(await service.RenewAsync(job.Id, "reused-worker", staleToken,
+            TimeSpan.FromMinutes(1), CancellationToken.None));
+        Assert.False(await service.MarkSucceededAsync(job.Id, "reused-worker", staleToken,
+            CancellationToken.None));
+        Assert.False(await service.MarkFailedAsync(job.Id, "reused-worker", staleToken,
+            "STALE_ATTEMPT", permanent: true, CancellationToken.None));
+
+        Assert.True(await service.RenewAsync(job.Id, "reused-worker", reclaimed.LeaseToken.Value,
+            TimeSpan.FromMinutes(1), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ExpiredLeaseAtAttemptLimitIsReconciledToDeadLetter()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
