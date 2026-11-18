@@ -25,8 +25,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || string.IsNullOrWhiteSpace(parsed.Database)
             || string.IsNullOrWhiteSpace(parsed.Username)
             || string.IsNullOrWhiteSpace(parsed.Password)
-            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || parsed.TrustServerCertificate)
+            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new ArgumentException("Agent PostgreSQL control connection must be complete and use strict TLS certificate validation.", nameof(controlConnectionString));
 
         parsed.Pooling = false;
@@ -278,8 +277,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(app.Host, controlHost, StringComparison.OrdinalIgnoreCase)
             || app.Port != controlPort
             || string.IsNullOrWhiteSpace(app.Password)
-            || app.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || app.TrustServerCertificate)
+            || app.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException("Application database credential does not match the tenant identity or strict TLS policy.");
 
         return app;
@@ -303,8 +301,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(owner.Host, controlHost, StringComparison.OrdinalIgnoreCase)
             || owner.Port != controlPort
             || string.IsNullOrWhiteSpace(owner.Password)
-            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
-            || owner.TrustServerCertificate)
+            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException("Tenant owner credential does not match its immutable identity or strict TLS policy.");
 
         return owner;
