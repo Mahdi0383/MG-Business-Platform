@@ -83,36 +83,36 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
         }
     }
 
-    public Task<int> DeadLetterExhaustedAsync(CancellationToken cancellationToken)
-    {
-        var now = DateTimeOffset.UtcNow;
-        return db.TenantProvisioningJobs
-            .Where(job => job.Attempts >= MaxAttempts
-                && (job.Status == TenantProvisioningStatus.Pending
-                    || job.Status == TenantProvisioningStatus.Retry
-                    || (job.Status == TenantProvisioningStatus.Running
-                        && job.LeaseExpiresAtUtc <= now)))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(job => job.Status, TenantProvisioningStatus.DeadLetter)
-                .SetProperty(job => job.LastErrorCode, "LEASE_EXHAUSTED")
-                .SetProperty(job => job.LeaseOwner, (string?)null)
-                .SetProperty(job => job.LeaseToken, (Guid?)null)
-                .SetProperty(job => job.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
-    }
+    public Task<int> DeadLetterExhaustedAsync(CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE tenant_provisioning_jobs
+            SET status = {TenantProvisioningStatus.DeadLetter},
+                last_error_code = {"LEASE_EXHAUSTED"},
+                lease_owner = NULL,
+                lease_token = NULL,
+                lease_expires_at_utc = NULL
+            WHERE attempts >= {MaxAttempts}
+              AND (
+                  status IN ({TenantProvisioningStatus.Pending}, {TenantProvisioningStatus.Retry})
+                  OR (status = {TenantProvisioningStatus.Running}
+                      AND lease_expires_at_utc <= now())
+              )
+            """, cancellationToken);
 
     public async Task<bool> RenewAsync(
         Guid jobId, string workerId, Guid leaseToken, TimeSpan leaseDuration, CancellationToken cancellationToken)
     {
         ValidateLease(workerId, leaseDuration);
-        var expiry = DateTimeOffset.UtcNow.Add(leaseDuration);
-        var updated = await db.TenantProvisioningJobs
-            .Where(job => job.Id == jobId
-                && job.Status == TenantProvisioningStatus.Running
-                && job.LeaseOwner == workerId
-                && job.LeaseToken == leaseToken
-                && job.LeaseExpiresAtUtc > DateTimeOffset.UtcNow)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(job => job.LeaseExpiresAtUtc, expiry), cancellationToken);
+        var leaseSeconds = (int)leaseDuration.TotalSeconds;
+        var updated = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE tenant_provisioning_jobs
+            SET lease_expires_at_utc = now() + ({leaseSeconds} * interval '1 second')
+            WHERE id = {jobId}
+              AND status = {TenantProvisioningStatus.Running}
+              AND lease_owner = {workerId}
+              AND lease_token = {leaseToken}
+              AND lease_expires_at_utc > now()
+            """, cancellationToken);
         return updated == 1;
     }
 
@@ -123,19 +123,19 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             throw new ArgumentException("Worker identifier is invalid.", nameof(workerId));
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var now = DateTimeOffset.UtcNow;
-        var updated = await db.TenantProvisioningJobs
-            .Where(job => job.Id == jobId
-                && job.Status == TenantProvisioningStatus.Running
-                && job.LeaseOwner == workerId
-                && job.LeaseToken == leaseToken
-                && job.LeaseExpiresAtUtc > now)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(job => job.Status, TenantProvisioningStatus.Succeeded)
-                .SetProperty(job => job.CompletedAtUtc, now)
-                .SetProperty(job => job.LeaseOwner, (string?)null)
-                .SetProperty(job => job.LeaseToken, (Guid?)null)
-                .SetProperty(job => job.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
+        var updated = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE tenant_provisioning_jobs
+            SET status = {TenantProvisioningStatus.Succeeded},
+                completed_at_utc = now(),
+                lease_owner = NULL,
+                lease_token = NULL,
+                lease_expires_at_utc = NULL
+            WHERE id = {jobId}
+              AND status = {TenantProvisioningStatus.Running}
+              AND lease_owner = {workerId}
+              AND lease_token = {leaseToken}
+              AND lease_expires_at_utc > now()
+            """, cancellationToken);
 
         if (updated == 1)
         {
@@ -143,12 +143,12 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 .Where(job => job.Id == jobId)
                 .Select(job => job.BusinessId)
                 .SingleAsync(cancellationToken);
-            var activated = await db.Businesses
-                .Where(business => business.Id == businessId
-                    && business.Status == "PendingProvisioning")
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(business => business.Status, "Active")
-                    .SetProperty(business => business.ActivatedAtUtc, now), cancellationToken);
+            var activated = await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE business_tenants
+                SET status = {"Active"}, activated_at_utc = now()
+                WHERE id = {businessId}
+                  AND status = {"PendingProvisioning"}
+                """, cancellationToken);
             if (activated != 1)
                 throw new InvalidOperationException("Business state was not eligible for activation; provisioning completion was rolled back.");
         }
@@ -174,8 +174,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
             .Where(item => item.Id == jobId
                 && item.Status == TenantProvisioningStatus.Running
                 && item.LeaseOwner == workerId
-                && item.LeaseToken == leaseToken
-                && item.LeaseExpiresAtUtc > now)
+                && item.LeaseToken == leaseToken)
             .Select(item => new { item.Attempts, item.Id })
             .SingleOrDefaultAsync(cancellationToken);
         if (job is null) return false;
@@ -183,22 +182,23 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
         var deadLetter = permanent || job.Attempts >= MaxAttempts;
         var backoffSeconds = Math.Min(3600, 15 * Math.Pow(2, Math.Max(0, job.Attempts - 1)));
         var jitterSeconds = (job.Id.GetHashCode() & 0x7fffffff) % 13;
-        var nextAttempt = now.AddSeconds(backoffSeconds + jitterSeconds);
+        var delaySeconds = (int)(backoffSeconds + jitterSeconds);
+        var nextStatus = deadLetter ? TenantProvisioningStatus.DeadLetter : TenantProvisioningStatus.Retry;
 
-        var updated = await db.TenantProvisioningJobs
-            .Where(item => item.Id == jobId
-                && item.Status == TenantProvisioningStatus.Running
-                && item.LeaseOwner == workerId
-                && item.LeaseToken == leaseToken
-                && item.LeaseExpiresAtUtc > now)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.Status, deadLetter
-                    ? TenantProvisioningStatus.DeadLetter : TenantProvisioningStatus.Retry)
-                .SetProperty(item => item.NextAttemptAtUtc, nextAttempt)
-                .SetProperty(item => item.LastErrorCode, safeErrorCode)
-                .SetProperty(item => item.LeaseOwner, (string?)null)
-                .SetProperty(item => item.LeaseToken, (Guid?)null)
-                .SetProperty(item => item.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
+        var updated = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE tenant_provisioning_jobs
+            SET status = {nextStatus},
+                next_attempt_at_utc = now() + ({delaySeconds} * interval '1 second'),
+                last_error_code = {safeErrorCode},
+                lease_owner = NULL,
+                lease_token = NULL,
+                lease_expires_at_utc = NULL
+            WHERE id = {jobId}
+              AND status = {TenantProvisioningStatus.Running}
+              AND lease_owner = {workerId}
+              AND lease_token = {leaseToken}
+              AND lease_expires_at_utc > now()
+            """, cancellationToken);
         return updated == 1;
     }
 
