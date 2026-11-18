@@ -224,12 +224,14 @@ public sealed class TenantProvisioningLeasePostgresTests
             string? leaseOwner = null,
             DateTimeOffset? leaseExpiry = null)
         {
+            var businessId = Guid.NewGuid();
             var business = new BusinessTenant
             {
+                Id = businessId,
                 Name = slug,
                 Slug = slug,
                 Status = "PendingProvisioning",
-                DatabaseSecretReference = $"tenants/{business.Id:N}/postgres"
+                DatabaseSecretReference = $"tenants/{businessId:N}/postgres"
             };
             var job = new TenantProvisioningJob
             {
