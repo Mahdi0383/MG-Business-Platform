@@ -22,7 +22,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__Platform: Host=mg-platform-db;Port=5432;Database=mg_platform;Username=mg_platform;Password=${MG_PLATFORM_DB_PASSWORD:?Set MG_PLATFORM_DB_PASSWORD in the environment}
-      Security__BootstrapPlatformKey: ${MG_PLATFORM_BOOTSTRAP_KEY:?Set MG_PLATFORM_BOOTSTRAP_KEY in the environment}
+      Authentication__Authority: ${MG_OIDC_AUTHORITY:?Set MG_OIDC_AUTHORITY to an HTTPS OIDC issuer URL}\n      Authentication__Audience: ${MG_OIDC_AUDIENCE:?Set MG_OIDC_AUDIENCE for the MG Platform API}
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
