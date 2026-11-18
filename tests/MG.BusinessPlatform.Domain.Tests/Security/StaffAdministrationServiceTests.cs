@@ -234,6 +234,61 @@ public sealed class StaffAdministrationServiceTests
     }
 
     [Fact]
+    public async Task RevokedStaffContext_CannotReadCreateOrChangePassword()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(ownerContext);
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        Guid managerId;
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            managerId = await administration.CreateStaffAsync(
+                "manager", "Store Manager", "Manager-Passphrase-2026!",
+                "Manager", [store.MainBranchId]);
+        }
+
+        var managerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "manager", "Manager-Passphrase-2026!");
+        Assert.NotNull(managerLogin);
+        var staleManagerContext = await resolver.ResolveAsync(managerLogin.Token);
+        Assert.NotNull(staleManagerContext);
+
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            await administration.UpdateStaffAccessAsync(
+                managerId, "Manager", false, [store.MainBranchId]);
+        }
+
+        using (StaffRequestContextScope.Push(staleManagerContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ListStaffAsync());
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-user", "Blocked User", "Blocked-Passphrase-2026!",
+                    "ReadOnly", [store.MainBranchId]));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ChangeOwnPasswordAsync(
+                    "Manager-Passphrase-2026!", "New-Manager-Passphrase-2026!"));
+        }
+
+        Assert.False((await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == managerId)).IsActive);
+        Assert.DoesNotContain(await store.Db.StaffUsers.AsNoTracking().ToListAsync(),
+            x => x.UserNameNormalized == "BLOCKED-USER");
+    }
+
+    [Fact]
     public async Task ChangeOwnPassword_RequiresCurrentCredentialAndRevokesAllSessions()
     {
         await using var store = await TestStore.CreateAsync();
