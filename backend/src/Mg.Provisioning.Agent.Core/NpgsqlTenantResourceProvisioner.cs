@@ -448,9 +448,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
             throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
 
-        // PostgreSQL 17 creates an immutable bootstrap-grantor ADMIN membership for the
-        // CREATEROLE identity that creates a role (INHERIT FALSE, SET FALSE). It cannot
-        // be downgraded by that identity. Add a separate grantor-scoped SET-only path.
+        // PostgreSQL 17 creates an immutable bootstrap-superuser ADMIN membership for
+        // the CREATEROLE identity that creates a role (INHERIT FALSE, SET FALSE).
+        // Add a separate grantor-scoped SET-only path; never inherit owner privileges.
         await using var check = new NpgsqlCommand(
             """
             SELECT EXISTS (
@@ -458,8 +458,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM pg_auth_members membership
                        JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
                        JOIN pg_roles member_role ON member_role.oid = membership.member
+                       JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                        WHERE granted_role.rolname = @owner_role
                          AND member_role.rolname = @control_role
+                         AND grantor_role.rolname = @control_role
                          AND membership.set_option
                          AND NOT membership.inherit_option
                          AND NOT membership.admin_option
@@ -469,11 +471,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM pg_auth_members membership
                        JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
                        JOIN pg_roles member_role ON member_role.oid = membership.member
+                       JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                        WHERE granted_role.rolname = @owner_role
                          AND member_role.rolname = @control_role
-                         AND (membership.inherit_option
-                              OR (membership.set_option AND membership.admin_option)
-                              OR (NOT membership.set_option AND NOT membership.admin_option))
+                         AND NOT (
+                             (grantor_role.rolsuper AND membership.admin_option
+                              AND NOT membership.inherit_option AND NOT membership.set_option)
+                             OR (grantor_role.rolname = @control_role AND membership.set_option
+                                 AND NOT membership.inherit_option AND NOT membership.admin_option)
+                         )
                    );
             """, connection, transaction);
         check.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
@@ -484,7 +490,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var hasUnsafeMembership = checkReader.GetBoolean(1);
         await checkReader.CloseAsync();
         if (hasUnsafeMembership)
-            throw new InvalidOperationException("Tenant owner role control membership has unsafe INHERIT, SET or ADMIN options.");
+            throw new InvalidOperationException("Tenant owner role control membership has unsafe INHERIT, SET, ADMIN or grantor options.");
         if (hasSetOnlyMembership)
             return;
 
@@ -500,8 +506,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM pg_auth_members membership
                        JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
                        JOIN pg_roles member_role ON member_role.oid = membership.member
+                       JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                        WHERE granted_role.rolname = @owner_role
                          AND member_role.rolname = @control_role
+                         AND grantor_role.rolname = @control_role
                          AND membership.set_option
                          AND NOT membership.inherit_option
                          AND NOT membership.admin_option
@@ -511,11 +519,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM pg_auth_members membership
                        JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
                        JOIN pg_roles member_role ON member_role.oid = membership.member
+                       JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                        WHERE granted_role.rolname = @owner_role
                          AND member_role.rolname = @control_role
-                         AND (membership.inherit_option
-                              OR (membership.set_option AND membership.admin_option)
-                              OR (NOT membership.set_option AND NOT membership.admin_option))
+                         AND NOT (
+                             (grantor_role.rolsuper AND membership.admin_option
+                              AND NOT membership.inherit_option AND NOT membership.set_option)
+                             OR (grantor_role.rolname = @control_role AND membership.set_option
+                                 AND NOT membership.inherit_option AND NOT membership.admin_option)
+                         )
                    );
             """, connection, transaction);
         verify.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
