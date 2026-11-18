@@ -14,7 +14,7 @@ This document defines the first server contract. It is a design baseline; endpoi
 
 ## Core A — MG Creator / Control Plane
 
-Platform-owner-only endpoints, protected by distinct creator roles and policies:
+Platform-owner-only endpoints, protected by OIDC JWT validation (HTTPS issuer + API audience) and the `mg_platform_role` claim. The initial registry slice accepts `PlatformOwner` and `PlatformAdministrator`; fine-grained creator policies and MFA enforcement remain required before production:
 - `GET /platform/overview` — platform health and aggregate tenant/service metrics.
 - `GET|POST /platform/businesses` — list and onboard businesses.
 - `GET|PATCH /platform/businesses/{businessId}` — lifecycle and platform metadata.
@@ -27,7 +27,7 @@ Platform-owner-only endpoints, protected by distinct creator roles and policies:
 - `GET /platform/audit`; `GET /platform/security-events`.
 - `POST /platform/support-access-grants` — create narrowly scoped, expiring, audited support access.
 
-Creator APIs must never become a shortcut around business authorization. Tenant-content access is denied by default.
+Creator APIs must never become a shortcut around business authorization. A shared static bootstrap key is not accepted as production authentication. Creator identity lifecycle, MFA, fine-grained permissions, privileged support grants and audit are separate release gates. Tenant-content access is denied by default.
 
 ## Identity and business membership
 
