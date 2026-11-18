@@ -8,7 +8,7 @@ Status: API client adapter implemented; agent service is not implemented or depl
 - Keep the endpoint on a private network. Do not publish it through the customer-facing reverse proxy.
 - Rate-limit requests by authenticated client identity and tenant. Enforce a small request body limit and strict JSON schema.
 - Never log request bodies, passwords, connection strings, certificate private material or raw provider exceptions.
-- Agent server TLS certificates must be trusted by the API container. The API's PKCS#12 client certificate is mounted read-only and its password is injected as a runtime secret.
+- Agent server TLS certificates must be trusted by the API container. The API's PKCS#12 client certificate is mounted read-only and its password is injected as a runtime secret. The API accepts only a currently valid certificate with a private key, a non-CA Basic Constraints extension, Client Authentication EKU and Digital Signature key usage. The agent must additionally enforce its explicit client identity allowlist and revocation policy.
 
 ## Request and response
 
