@@ -33,6 +33,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@d4c94342e560b349a5e0a110c9f8a5f7665c1ec3 # v5.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore and build backend
+        run: dotnet build backend/src/Mg.Platform.Api/Mg.Platform.Api.csproj --configuration Release
+        working-directory: .
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
