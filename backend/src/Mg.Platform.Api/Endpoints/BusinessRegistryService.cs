@@ -31,7 +31,15 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
             DatabaseSecretReference = $"tenants/{slug}/postgres"
         };
 
+        var provisioningJob = new TenantProvisioningJob
+        {
+            BusinessId = tenant.Id,
+            Status = "Pending"
+        };
+
+        // Persist both rows in one EF Core transaction so no tenant is left without work.
         db.Businesses.Add(tenant);
+        db.TenantProvisioningJobs.Add(provisioningJob);
         try
         {
             await db.SaveChangesAsync(cancellationToken);
