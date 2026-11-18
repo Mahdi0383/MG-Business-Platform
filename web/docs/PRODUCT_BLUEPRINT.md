@@ -54,7 +54,7 @@ See [Two-Core and Data-Isolation Architecture](TWO_CORE_DATA_ARCHITECTURE.md) fo
 - MG creator console: platform operations and tenant lifecycle.
 - Business workspace: authenticated daily operations for each business.
 - Public tenant storefront/customer portal: configurable catalog, services, opening hours, online ordering, booking, customer account and loyalty.
-- PWA shell: installability, update lifecycle, push-ready notification architecture and carefully scoped offline support.
+- PWA shell: initial manifest, install metadata and a service worker that caches only the static app shell/assets; API responses and business records are never cached by this worker. Installability/update lifecycle and carefully scoped offline command sync still require device testing and implementation.
 
 ## Initial industry packs
 
