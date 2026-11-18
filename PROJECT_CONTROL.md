@@ -300,6 +300,8 @@ Progress percentages must reflect the whole product's verified production-readin
 
 
 - PR #154 follow-up: removed the obsolete Security__BootstrapPlatformKey Compose setting and replaced it with required MG_OIDC_AUTHORITY / MG_OIDC_AUDIENCE inputs; added .env.web.example with placeholders only and refreshed backend deployment/migration documentation. Never use the example issuer as a real identity provider. This change is included in the current PR #154 head and must pass its new CI run.
+
+- PR #154 added a PostgreSQL-backed concurrency integration test using an isolated schema and two independent EF contexts; the GitHub Actions workflow now starts an ephemeral PostgreSQL 17 service and supplies MG_TEST_POSTGRES. The latest test/workflow/documentation head is 1b5e83f24e2e6813d2a58df8f3b0464d20073251; its exact-head workflow was queued at this ledger update. Do not treat earlier successful CI for a different SHA as validation of this latest change.
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
