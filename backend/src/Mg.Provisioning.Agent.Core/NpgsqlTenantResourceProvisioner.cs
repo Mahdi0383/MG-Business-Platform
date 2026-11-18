@@ -399,17 +399,81 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 "SELECT format('CREATE DATABASE %I OWNER %I', @database, @owner);",
                 cancellationToken, ("database", databaseName), ("owner", ownerRole));
             await ExecuteDdlAsync(connection, createSql, cancellationToken);
-            var commentSql = await FormatSqlAsync(connection,
-                "SELECT format('COMMENT ON DATABASE %I IS %L', @database, @comment);",
-                cancellationToken, ("database", databaseName), ("comment", DatabaseMarker(tenantId)));
-            await ExecuteDdlAsync(connection, commentSql, cancellationToken);
+            await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
+            await SetDatabaseMarkerAsync(connection, tenantId, databaseName, cancellationToken);
             state = await GetDatabaseStateAsync(connection, databaseName, cancellationToken);
+        }
+        else
+        {
+            if (!string.Equals(state.Owner, ownerRole, StringComparison.Ordinal))
+                throw new InvalidOperationException("Existing tenant database owner does not match the immutable tenant owner role.");
+
+            if (string.IsNullOrEmpty(state.Comment))
+            {
+                // Recover the narrow crash window after CREATE DATABASE but before COMMENT.
+                // Adopt only a completely empty database whose owner role already has this tenant's marker.
+                if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
+                    throw new InvalidOperationException("Unmarked tenant database is not empty and cannot be safely adopted.");
+                await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
+                await SetDatabaseMarkerAsync(connection, tenantId, databaseName, cancellationToken);
+                state = await GetDatabaseStateAsync(connection, databaseName, cancellationToken);
+            }
+            else
+            {
+                if (!string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
+                    throw new InvalidOperationException("Existing tenant database immutable marker does not match.");
+                await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
+            }
         }
 
         if (state is null
             || !string.Equals(state.Owner, ownerRole, StringComparison.Ordinal)
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
-            throw new InvalidOperationException("Existing tenant database owner or immutable database marker does not match.");
+            throw new InvalidOperationException("Tenant database owner or immutable database marker verification failed.");
+    }
+
+    private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+        {
+            Database = databaseName,
+            Pooling = false
+        };
+        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT
+                NOT EXISTS (
+                    SELECT 1 FROM pg_namespace
+                    WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'public')
+                      AND nspname NOT LIKE 'pg_toast%'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_class relation
+                    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+                );
+            """, connection);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+    }
+
+    private async Task SwitchToOwnerRoleAsync(
+        NpgsqlConnection connection, string ownerRole, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand($"SET ROLE {QuoteIdentifier(ownerRole)};", connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private async Task SetDatabaseMarkerAsync(
+        NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
+    {
+        var commentSql = await FormatSqlAsync(connection,
+            "SELECT format('COMMENT ON DATABASE %I IS %L', @database, @comment);",
+            cancellationToken, ("database", databaseName), ("comment", DatabaseMarker(tenantId)));
+        await ExecuteDdlAsync(connection, commentSql, cancellationToken);
     }
 
     private async Task<DatabaseState?> GetDatabaseStateAsync(
