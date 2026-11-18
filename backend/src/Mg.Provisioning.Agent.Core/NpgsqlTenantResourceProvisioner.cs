@@ -37,7 +37,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         CancellationToken cancellationToken)
     {
         ValidateTenant(tenantId, idempotencyKey, databaseName);
-        _ = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
+        var app = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
         await using var connection = new NpgsqlConnection(controlConnectionString);
         await connection.OpenAsync(cancellationToken);
         await VerifyControlRoleAsync(connection, cancellationToken);
@@ -62,7 +62,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             throw new InvalidOperationException("Only the reviewed tenant core baseline migration is supported.");
 
         var databaseName = $"mg_tenant_{tenantId:N}";
-        var app = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
+        _ = ValidateApplicationConnection(applicationConnectionString, tenantId, databaseName);
         var ownerRole = OwnerRoleName(tenantId);
         var appRole = ApplicationRoleName(tenantId);
 
@@ -119,7 +119,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        migration.checksum_sha256,
                        current_user,
                        pg_get_userbyid(database.datdba),
-                       pg_get_userbyid(schema.nspowner),
+                       pg_get_userbyid(tenant_schema.nspowner),
                        COALESCE(shobj_description(database.oid, 'pg_database'), ''),
                        COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
                        role.rolcanlogin,
@@ -160,7 +160,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 JOIN mg.schema_migrations migration ON migration.version = @version
                 JOIN pg_roles role ON role.rolname = current_user
                 JOIN pg_database database ON database.datname = current_database()
-                JOIN pg_namespace schema ON schema.nspname = 'mg'
+                JOIN pg_namespace tenant_schema ON tenant_schema.nspname = 'mg'
                 WHERE identity.singleton = TRUE;
                 """, connection);
             command.Parameters.AddWithValue("version", NpgsqlDbType.Integer, expectedMigrationVersion);
@@ -211,11 +211,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 && !reader.GetBoolean(34)
                 && !reader.GetBoolean(35)
                 && !reader.GetBoolean(36)
-                && !reader.GetBoolean(37)
+                && reader.GetBoolean(37)
                 && reader.GetBoolean(38)
                 && reader.GetBoolean(39)
-                && reader.GetBoolean(40)
-                && reader.GetBoolean(41);
+                && reader.GetBoolean(40);
         }
         catch (NpgsqlException)
         {
@@ -524,15 +523,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task SetRoleAsync(
-        NpgsqlConnection connection, string roleName, CancellationToken cancellationToken)
-    {
-        await using var command = new NpgsqlCommand($"SET ROLE {QuoteIdentifier(roleName)};", connection);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     private static string QuoteIdentifier(string value) =>
-        """ + value.Replace(""", """", StringComparison.Ordinal) + """;
+        "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 
     private static string OwnerRoleName(Guid tenantId) => $"mg_tenant_{tenantId:N}_owner";
     private static string ApplicationRoleName(Guid tenantId) => $"mg_tenant_{tenantId:N}_app";
