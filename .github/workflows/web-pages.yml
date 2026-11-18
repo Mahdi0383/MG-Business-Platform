@@ -36,7 +36,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@d4c94342e560b349a5e0a110c9f8a5f7665c1ec3 # v5.0.0
+        uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
       - name: Restore and build backend
