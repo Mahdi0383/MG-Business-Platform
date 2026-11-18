@@ -10,7 +10,7 @@ public sealed record CreatorAuthenticationConfiguration(Uri Authority, string Au
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var authorityValue = configuration["Authentication:Authority"];
-        var audience = configuration["Authentication:Audience"];
+        var audience = configuration["Authentication:Audience"]?.Trim();
 
         if (!Uri.TryCreate(authorityValue, UriKind.Absolute, out var authority)
             || authority.Scheme != Uri.UriSchemeHttps
@@ -31,6 +31,6 @@ public sealed record CreatorAuthenticationConfiguration(Uri Authority, string Au
                 "Authentication:Audience must be configured and contain no more than 200 characters.");
         }
 
-        return new CreatorAuthenticationConfiguration(authority, audience.Trim());
+        return new CreatorAuthenticationConfiguration(authority, audience);
     }
 }
