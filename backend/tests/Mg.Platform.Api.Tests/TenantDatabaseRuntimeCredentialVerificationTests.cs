@@ -26,8 +26,8 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             Database = "postgres",
             Pooling = false
         };
-        var quotedDatabase = NpgsqlCommandBuilder.QuoteIdentifier(databaseName);
-        var quotedRole = NpgsqlCommandBuilder.QuoteIdentifier(roleName);
+        var quotedDatabase = $"\"{databaseName}\"";
+        var quotedRole = $"\"{roleName}\"";
         var databaseCreated = false;
         var roleCreated = false;
 
