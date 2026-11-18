@@ -209,7 +209,7 @@ public sealed class AgentProvisioningOperationStore(
             WHERE credential_key_id <> @current_key_id
             ORDER BY updated_at
             LIMIT @batch_size
-            FOR UPDATE SKIP LOCKED;
+            FOR UPDATE;
             """, connection, transaction))
         {
             select.Parameters.AddWithValue("current_key_id", NpgsqlDbType.Text, credentialProtector.CurrentKeyId);
