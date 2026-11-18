@@ -52,6 +52,11 @@ GRANT SELECT, INSERT, UPDATE
 
 Do not grant DELETE, TRUNCATE, schema CREATE, database ownership or table ownership. Readiness stays 503 until the ledger exists and the live control role/privilege checks pass. The tenant baseline migration is packaged at `tenant-database/migrations/001_tenant_core_baseline.sql` and is applied by the agent provisioner only after the tenant database and owner/runtime roles have been safely created.
 
+
+### PostgreSQL 17 role-creation semantics
+
+PostgreSQL 17 automatically creates a bootstrap-grantor ADMIN membership for the CREATEROLE identity that creates a role. That membership is INHERIT FALSE and SET FALSE, and the creating CREATEROLE identity cannot revoke or alter the bootstrap grant. The agent adds a separate grantor-scoped membership to the tenant owner role with ADMIN FALSE, INHERIT FALSE and SET TRUE so it can assign the database owner without inheriting owner privileges. The application role receives no SET or INHERIT membership path. The bootstrap ADMIN capability remains a powerful control-plane permission; keep the control credential only in this isolated service, audit it, and never place it in the Platform API.
+
 The API host does not auto-run either agent or tenant migrations. Provisioning configuration being present is not sufficient by itself: readiness verifies the agent control database, required ledger grants, strict control-role attributes and that the control identity does not own the control database, agent schema or operation ledger table. Provisioning responses are explicitly marked no-store. Production rollout still requires a live TLS-enabled PostgreSQL integration environment, crash injection at database/role/migration/grant boundaries, key rotation and backup/restore drills.
 
 ## Remaining production rollout gates
