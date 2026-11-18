@@ -4,58 +4,95 @@ This document defines the first server contract. It is a design baseline; endpoi
 
 ## Conventions
 
-- Base path: `/api/v1`.
-- JSON request/response; UTF-8; RFC 3339 timestamps in UTC.
-- Money: decimal strings plus ISO 4217 currency code (example: `{"amount":"125000.00","currency":"IRR"}`); never accept client-calculated totals as authoritative.
-- Pagination: cursor-based for large collections; bounded page size.
-- Errors: RFC 9457 Problem Details with stable application error codes.
-- Mutating requests: `Idempotency-Key` required for checkout, payment, order submission, inventory posting and journal posting.
+- Control-plane base: `/api/v1/platform`; business base: `/api/v1/businesses/{businessId}`; customer-public base: `/api/v1/storefront/{storefrontKey}`.
+- JSON, UTF-8, RFC 3339 timestamps in UTC.
+- Money is decimal strings plus ISO 4217 currency code; never accept client-calculated totals as authoritative.
+- Cursor pagination for large collections with bounded page size.
+- Errors use RFC 9457 Problem Details with stable application error codes.
+- Critical mutations require an `Idempotency-Key`.
 - Every response includes a correlation ID; sensitive values are never echoed.
 
-## Identity and workspace
+## Core A — MG Creator / Control Plane
 
-- `GET /auth/session` — current identity and memberships.
-- `POST /auth/login`, `POST /auth/logout`, `POST /auth/refresh` — secure session lifecycle.
-- `POST /auth/mfa/challenge`, `POST /auth/mfa/verify` — MFA-ready flow.
-- `GET /workspaces` — memberships accessible to the signed-in user.
-- `POST /workspaces` — create tenant/workspace subject to platform policy.
-- `GET /workspaces/{workspaceId}/branches` — branches within authorized workspace.
-- `GET /workspaces/{workspaceId}/members` — members and roles.
+Platform-owner-only endpoints, protected by distinct creator roles and policies:
+- `GET /platform/overview` — platform health and aggregate tenant/service metrics.
+- `GET|POST /platform/businesses` — list and onboard businesses.
+- `GET|PATCH /platform/businesses/{businessId}` — lifecycle and platform metadata.
+- `POST /platform/businesses/{businessId}/suspend`, `/reactivate`, `/offboard`.
+- `GET|POST /platform/plans`; `GET|PATCH /platform/plans/{planId}`.
+- `GET|POST /platform/modules`; `GET|PATCH /platform/modules/{moduleId}`.
+- `GET|PUT /platform/businesses/{businessId}/entitlements`.
+- `GET /platform/businesses/{businessId}/database-status`.
+- `POST /platform/businesses/{businessId}/provision`; `POST /platform/businesses/{businessId}/migrations`.
+- `GET /platform/audit`; `GET /platform/security-events`.
+- `POST /platform/support-access-grants` — create narrowly scoped, expiring, audited support access.
 
-Workspace identifiers in routes are selectors only; server authorization must verify membership and scope on every request.
+Creator APIs must never become a shortcut around business authorization. Tenant-content access is denied by default.
 
-## Core resources
+## Identity and business membership
 
-- `GET|POST /workspaces/{workspaceId}/products`
-- `GET|PATCH|DELETE /workspaces/{workspaceId}/products/{productId}` (delete means archive where referenced)
-- `GET|POST /workspaces/{workspaceId}/customers`
-- `GET|POST /workspaces/{workspaceId}/suppliers`
-- `GET /workspaces/{workspaceId}/inventory/balances`
-- `GET|POST /workspaces/{workspaceId}/inventory/movements`
-- `GET|POST /workspaces/{workspaceId}/sales`
-- `POST /workspaces/{workspaceId}/sales/{saleId}/payments`
-- `GET|POST /workspaces/{workspaceId}/orders`
-- `POST /workspaces/{workspaceId}/orders/{orderId}/transitions`
-- `GET /workspaces/{workspaceId}/accounting/accounts`
-- `GET|POST /workspaces/{workspaceId}/accounting/journals`
-- `POST /workspaces/{workspaceId}/accounting/journals/{journalId}/post`
-- `GET /workspaces/{workspaceId}/reports/{reportKey}`
+- `GET /auth/session` — current identity and authorized memberships.
+- `POST /auth/login`, `POST /auth/logout`, `POST /auth/refresh`.
+- `POST /auth/mfa/challenge`, `POST /auth/mfa/verify`.
+- `GET /businesses` — businesses accessible to the signed-in identity.
+- `POST /businesses/{businessId}/accept-invitation`.
+- `GET /businesses/{businessId}/branches`.
+- `GET|POST /businesses/{businessId}/users`; `PATCH /businesses/{businessId}/users/{userId}/roles`.
+- `GET|POST /businesses/{businessId}/invitations`.
+
+Business IDs in routes are selectors only; server authorization must verify active membership and scope on every request. Customer identities and CRM records are separate concepts from staff membership.
+
+## Core B — Business resources
+
+- `GET|POST /businesses/{businessId}/products`
+- `GET|PATCH /businesses/{businessId}/products/{productId}` (archive where referenced)
+- `GET|POST /businesses/{businessId}/customers`
+- `GET|POST /businesses/{businessId}/suppliers`
+- `GET /businesses/{businessId}/inventory/balances`
+- `GET|POST /businesses/{businessId}/inventory/movements`
+- `GET|POST /businesses/{businessId}/sales`
+- `POST /businesses/{businessId}/sales/{saleId}/payments`
+- `GET|POST /businesses/{businessId}/orders`
+- `POST /businesses/{businessId}/orders/{orderId}/transitions`
+- `GET /businesses/{businessId}/accounting/accounts`
+- `GET|POST /businesses/{businessId}/accounting/journals`
+- `POST /businesses/{businessId}/accounting/journals/{journalId}/post`
+- `GET /businesses/{businessId}/reports/{reportKey}`
+- `GET|PUT /businesses/{businessId}/devices/{deviceId}/sync-state`
+- `POST /businesses/{businessId}/sync/commands` — submit queued offline commands for server-side validation/replay.
+
+## Customer storefront and portal
+
+- `GET /storefront/{storefrontKey}/public-profile`
+- `GET /storefront/{storefrontKey}/catalog`
+- `GET /storefront/{storefrontKey}/availability`
+- `POST /storefront/{storefrontKey}/orders` and `/bookings` (guest or authenticated according to business policy).
+- `GET /storefront/{storefrontKey}/me/orders`, `/me/bookings`, `/me/loyalty` — authenticated customer may access only their own records.
+
+Public storefront APIs expose only explicitly published content. Customer accounts never grant staff or creator permissions.
+
+## Database routing and authority
+
+- The MG central database stores platform registry, creator identities/roles, global identity references, plans, subscriptions, licenses, entitlements, tenant database secret references, provisioning/migration/health metadata and platform audit.
+- Each business has its own authoritative business database for branches, memberships, catalog, inventory, sales, orders, CRM, accounting, industry data and business audit.
+- Each device may maintain a local cache and durable offline command outbox. Local data is a replica, not an independent authority. Never trust locally stored totals, stock, role claims or entitlement state.
+- Client-supplied business IDs never select a raw database connection. The server resolves authorized membership to a tenant database secret reference and applies role/permission/branch/module checks before executing the request.
+- Database-per-business is the logical isolation boundary. Multiple isolated databases may share a PostgreSQL cluster initially; selected tenants can move to dedicated clusters.
 
 ## Transaction rules
 
-Checkout is one server transaction: re-read active prices and tax rules, validate permissions and stock, reserve/decrement stock using concurrency control, create sale/order and line snapshots, record payment intent or payment, post configured accounting entries, append audit event, and persist idempotency result. External payment capture is coordinated through a payment state machine/outbox; never hold a database transaction open across a network call.
+Checkout is one server transaction: re-read active prices and tax rules, validate permissions and stock, reserve/decrement stock with concurrency control, create sale/order and line snapshots, record payment intent or payment, post configured accounting entries, append audit event, and persist idempotency result. External payment capture is coordinated through a payment state machine/outbox; never hold a database transaction open across a network call.
 
-A journal can be posted only if debits equal credits and the period is open. Posted journals cannot be edited or deleted; use reversal and replacement entries.
-
-Inventory movements are append-only. Stock counts create adjustment movements with reason and actor. Negative stock behavior is an explicit tenant policy, checked server-side.
+A journal can be posted only if debits equal credits and the period is open. Posted journals cannot be edited or deleted; use reversal and replacement entries. Inventory movements are append-only. Negative stock is an explicit business policy checked server-side.
 
 ## Security requirements
 
+- Creator console and business APIs have separate authentication policies, roles, scopes and audit categories.
 - Authentication and authorization are server-side; no role claims from localStorage.
-- Tenant membership and branch access are checked for every request and every object reference.
+- Membership, branch access, object ownership and module entitlement are checked for every request and referenced object.
 - CSRF protection for cookie-authenticated mutations; strict CORS allowlist; secure cookies.
 - Rate limits on authentication, public storefront, booking and checkout endpoints.
 - Validate payload size, content type, schema, file type and ownership.
-- Audit privileged changes and financial postings.
+- Audit privileged changes, support grants, database lifecycle actions and financial postings.
 - No card PAN/CVV or terminal PIN stored or proxied through the browser.
-- Public endpoints expose only explicitly published catalog and availability.
+- Device revocation invalidates sessions and scoped cached data; offline commands are revalidated on replay.
