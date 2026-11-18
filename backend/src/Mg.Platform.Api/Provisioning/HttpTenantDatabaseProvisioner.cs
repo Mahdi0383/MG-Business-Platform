@@ -79,15 +79,24 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        role.rolcreaterole,
                        role.rolreplication,
                        role.rolbypassrls,
+                       has_schema_privilege(current_user, 'mg', 'USAGE'),
                        has_schema_privilege(current_user, 'mg', 'CREATE'),
                        has_database_privilege(current_user, current_database(), 'CREATE'),
                        database.datdba = role.oid,
+                       role.rolcanlogin,
+                       EXISTS (SELECT 1 FROM pg_auth_members membership WHERE membership.member = role.oid),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'INSERT'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'INSERT'),
                        has_table_privilege(current_user, 'mg.schema_migrations', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.schema_migrations', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'INSERT'),
                        has_table_privilege(current_user, 'mg.audit_events', 'UPDATE'),
-                       has_table_privilege(current_user, 'mg.audit_events', 'DELETE')
+                       has_table_privilege(current_user, 'mg.audit_events', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRUNCATE')
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
                 JOIN pg_roles AS role ON role.rolname = current_user
@@ -95,7 +104,7 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 WHERE identity.singleton = TRUE
                 GROUP BY identity.tenant_id, role.oid, role.rolsuper, role.rolcreatedb,
                          role.rolcreaterole, role.rolreplication, role.rolbypassrls,
-                         database.datdba
+                         role.rolcanlogin, database.datdba
                 """,
                 connection);
 
@@ -110,15 +119,22 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(4)
                 && !reader.GetBoolean(5)
                 && !reader.GetBoolean(6)
-                && !reader.GetBoolean(7)
+                && reader.GetBoolean(7)
                 && !reader.GetBoolean(8)
                 && !reader.GetBoolean(9)
-                && !reader.GetBoolean(10)
+                && reader.GetBoolean(10)
                 && !reader.GetBoolean(11)
                 && !reader.GetBoolean(12)
                 && !reader.GetBoolean(13)
                 && !reader.GetBoolean(14)
-                && !reader.GetBoolean(15);
+                && !reader.GetBoolean(15)
+                && !reader.GetBoolean(16)
+                && !reader.GetBoolean(17)
+                && !reader.GetBoolean(18)
+                && !reader.GetBoolean(19)
+                && !reader.GetBoolean(20)
+                && !reader.GetBoolean(21)
+                && !reader.GetBoolean(22);
         }
         catch (NpgsqlException)
         {
