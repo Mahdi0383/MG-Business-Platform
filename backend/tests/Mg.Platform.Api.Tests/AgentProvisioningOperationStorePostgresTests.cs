@@ -211,7 +211,16 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             });
         var rotatedStore = fixture.CreateStore(rotatedProtector);
 
-        Assert.True(await rotatedStore.RewrapStoredCredentialsAsync(10) >= 1);
+        var totalRewrapped = 0;
+        int batchRewrapped;
+        do
+        {
+            batchRewrapped = await rotatedStore.RewrapStoredCredentialsAsync(10);
+            totalRewrapped += batchRewrapped;
+        }
+        while (batchRewrapped == 10);
+
+        Assert.True(totalRewrapped >= 1);
         Assert.Equal(0, await rotatedStore.RewrapStoredCredentialsAsync(10));
 
         using var currentOnlyProtector = new AgentCredentialProtector(
