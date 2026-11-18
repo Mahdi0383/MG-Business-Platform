@@ -66,6 +66,8 @@ if (provisioningAgentOptions is not null)
             var options = services.GetRequiredService<TenantProvisioningAgentOptions>();
             var handler = new HttpClientHandler
             {
+                AllowAutoRedirect = false,
+                UseCookies = false,
                 ClientCertificateOptions = ClientCertificateOption.Manual
             };
             handler.ClientCertificates.Add(options.ClientCertificate);
