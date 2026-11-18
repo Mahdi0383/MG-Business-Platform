@@ -28,8 +28,8 @@ public sealed class PlatformKeyAuthenticatorTests
         var authenticator = new PlatformKeyAuthenticator(configuration);
 
         Assert.True(authenticator.IsConfigured);
-        Assert.True(authenticator.IsAuthorized("a-long-test-only-key"));
-        Assert.False(authenticator.IsAuthorized("a-long-test-only-key "));
+        Assert.True(authenticator.IsAuthorized("a-long-test-only-key-with-32-bytes-minimum-123"));
+        Assert.False(authenticator.IsAuthorized("a-long-test-only-key-with-32-bytes-minimum-123 "));
         Assert.False(authenticator.IsAuthorized(null));
         Assert.False(authenticator.IsAuthorized("wrong"));
     }
