@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace Mg.Provisioning.Agent.Core;
 
 /// <summary>
-/// Authenticated encrypted storage for an agent's stable per-tenant application credential.
+/// Authenticated encrypted storage for an agent's stable per-tenant owner/application credential bundle.
 /// The agent database stores only the ciphertext, nonce, tag and key ID.
 /// </summary>
 public sealed class AgentCredentialProtector : IDisposable
@@ -21,6 +21,8 @@ public sealed class AgentCredentialProtector : IDisposable
     private readonly Dictionary<string, byte[]> keys;
     private readonly string currentKeyId;
     private bool disposed;
+
+    public string CurrentKeyId => currentKeyId;
 
     public AgentCredentialProtector(
         string currentKeyId,
