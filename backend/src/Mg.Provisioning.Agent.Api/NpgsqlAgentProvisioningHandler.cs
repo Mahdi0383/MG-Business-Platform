@@ -96,14 +96,22 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
             {
                 token.ThrowIfCancellationRequested();
                 var databaseName = $"mg_tenant_{request.TenantId:N}";
-                var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+                var appBuilder = new NpgsqlConnectionStringBuilder(controlConnectionString)
                 {
                     Database = databaseName,
                     Username = $"{databaseName}_app",
-                    Password = GenerateApplicationPassword(),
+                    Password = GenerateCredentialPassword(),
                     Pooling = true
                 };
-                return ValueTask.FromResult(builder.ConnectionString);
+                var ownerBuilder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+                {
+                    Database = databaseName,
+                    Username = $"{databaseName}_owner",
+                    Password = GenerateCredentialPassword(),
+                    Pooling = false
+                };
+                return ValueTask.FromResult(new AgentProvisioningCredentials(
+                    appBuilder.ConnectionString, ownerBuilder.ConnectionString));
             },
             cancellationToken);
     }
@@ -184,7 +192,7 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
         disposed = true;
     }
 
-    private static string GenerateApplicationPassword() =>
+    private static string GenerateCredentialPassword() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     private void ThrowIfDisposed()
