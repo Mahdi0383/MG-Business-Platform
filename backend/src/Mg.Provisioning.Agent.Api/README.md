@@ -28,7 +28,7 @@ The API now conditionally registers `NpgsqlAgentProvisioningHandler` only when a
 - `Agent__CredentialEncryption__CurrentKeyId`: active encryption key ID.
 - `Agent__CredentialEncryption__Keys__<key-id>`: base64-encoded 32-byte AES-256 key for each active/retained key ID. Inject from a runtime secret manager; never commit or bake into images.
 
-The handler constructs the PostgreSQL operation ledger, AES-GCM protector, exact packaged tenant migration artifact, coordinator and Npgsql tenant provisioner. It generates the application password once, stores the complete app connection string only in the encrypted agent ledger, and returns it only over mTLS after database/schema/runtime verification.
+The handler constructs the PostgreSQL operation ledger, AES-GCM protector, exact packaged tenant migration artifact, coordinator and Npgsql tenant provisioner. It generates separate random owner and application passwords once, stores both connection strings together in one authenticated encrypted agent-ledger payload, and returns only the least-privilege application connection string over mTLS after database/schema/runtime verification. The owner login is used only inside the isolated agent for database marking, schema migration and grants.
 
 ### Agent control database bootstrap
 
