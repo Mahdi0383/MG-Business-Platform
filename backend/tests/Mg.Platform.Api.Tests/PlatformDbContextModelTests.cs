@@ -1,6 +1,7 @@
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Xunit;
 
 namespace Mg.Platform.Api.Tests;
