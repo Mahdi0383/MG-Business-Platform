@@ -27,6 +27,8 @@ services:
       Secrets__Vault__Address: ${MG_VAULT_ADDRESS:-}
       Secrets__Vault__Token: ${MG_VAULT_TOKEN:-}
       Secrets__Vault__Mount: ${MG_VAULT_MOUNT:-secret}
+      Provisioning__WorkerEnabled: ${MG_PROVISIONING_WORKER_ENABLED:-false}
+      Provisioning__WorkerId: ${MG_PROVISIONING_WORKER_ID:-}
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
