@@ -46,7 +46,7 @@ const number=n=>new Intl.NumberFormat('fa-IR').format(n);
 function Icon({children}){return <span className="icon">{children}</span>}
 function Modal({title,onClose,children}){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="modal"><header><h3>{title}</h3><button className="icon-btn" onClick={onClose}>×</button></header>{children}</section></div>}
 function App(){
- return window.location.pathname.startsWith('/creator') ? <CreatorConsole/> : <BusinessWorkspace/>;
+ return window.location.hash.startsWith('#/creator') ? <CreatorConsole/> : <BusinessWorkspace/>;
 }
 
 function BusinessWorkspace(){
