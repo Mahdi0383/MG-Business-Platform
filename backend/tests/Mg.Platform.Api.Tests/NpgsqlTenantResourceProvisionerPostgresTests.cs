@@ -184,7 +184,16 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                        role.rolcreaterole,
                        role.rolreplication,
                        role.rolbypassrls,
-                       role.rolinherit
+                       role.rolinherit,
+                       EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = role.oid),
+                       EXISTS (SELECT 1 FROM pg_auth_members m
+                               JOIN pg_roles member_role ON member_role.oid = m.member
+                               WHERE m.roleid = role.oid
+                                 AND member_role.rolname = @control_role
+                                 AND m.set_option AND NOT m.inherit_option AND NOT m.admin_option),
+                       EXISTS (SELECT 1 FROM pg_auth_members m
+                               WHERE m.roleid = role.oid
+                                 AND pg_get_userbyid(m.member) <> @control_role)
                 FROM pg_roles role
                 JOIN pg_database database ON database.datname = current_database()
                 WHERE role.rolname = current_user;
@@ -197,6 +206,9 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             Assert.True(reader.GetBoolean(2));
             for (var index = 3; index <= 8; index++)
                 Assert.False(reader.GetBoolean(index));
+            Assert.False(reader.GetBoolean(9));
+            Assert.True(reader.GetBoolean(10));
+            Assert.False(reader.GetBoolean(11));
         }
 
         public async Task AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync()
