@@ -143,6 +143,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                                WHERE membership.member = role.oid
                                   OR (membership.roleid = role.oid
                                       AND (pg_get_userbyid(membership.member) <> @control_role
+                                           OR NOT EXISTS (
+                                               SELECT 1 FROM pg_roles grantor_role
+                                               WHERE grantor_role.oid = membership.grantor
+                                                 AND grantor_role.rolsuper
+                                           )
                                            OR membership.set_option
                                            OR membership.inherit_option
                                            OR NOT membership.admin_option))),
