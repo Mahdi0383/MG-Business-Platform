@@ -38,7 +38,7 @@ function CreatorConsole() {
       <div className="creator-sidebar-foot"><span className="creator-avatar">MG</span><div><b>مالک پلتفرم</b><small>Creator Owner</small></div><span className="creator-online">●</span></div>
     </aside>
     <main className="creator-main">
-      <header className="creator-topbar"><div><span>MG PLATFORM</span><b> / </b><strong>{title[0]}</strong></div><div className="creator-top-actions"><span className="creator-preview">پیش‌نمایش رابط</span><a href="/">ورود به فضای کسب‌وکار ↗</a></div></header>
+      <header className="creator-topbar"><div><span>MG PLATFORM</span><b> / </b><strong>{title[0]}</strong></div><div className="creator-top-actions"><span className="creator-preview">پیش‌نمایش رابط</span><a href={import.meta.env.BASE_URL + '#/'}>ورود به فضای کسب‌وکار ↗</a></div></header>
       <section className="creator-content">
         <div className="creator-heading"><div><small>MG CREATOR CONTROL CENTER</small><h1>{title[0]}</h1><p>{title[1]}</p></div><div className="creator-date">وضعیت نمایشی · نسخه توسعه</div></div>
         {page==='overview' ? <>
