@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Mg.Platform.Api.Provisioning;
@@ -41,7 +42,18 @@ public sealed class TenantProvisioningAgentOptions : IDisposable
 
         var certificate = X509CertificateLoader.LoadPkcs12FromFile(
             fullPath, certificatePassword, X509KeyStorageFlags.EphemeralKeySet);
+        var hasClientAuthenticationEku = certificate.Extensions
+            .OfType<X509EnhancedKeyUsageExtension>()
+            .Any(extension => extension.EnhancedKeyUsages
+                .Cast<Oid>()
+                .Any(oid => oid.Value == "1.3.6.1.5.5.7.3.2"));
+        var allowsDigitalSignature = certificate.Extensions
+            .OfType<X509KeyUsageExtension>()
+            .Any(extension => extension.KeyUsages.HasFlag(X509KeyUsageFlags.DigitalSignature));
+
         if (!certificate.HasPrivateKey
+            || !hasClientAuthenticationEku
+            || !allowsDigitalSignature
             || certificate.NotBefore > DateTime.UtcNow
             || certificate.NotAfter <= DateTime.UtcNow)
         {
