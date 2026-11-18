@@ -43,6 +43,14 @@ public sealed class PlatformDbContextModelTests
         var table = StoreObjectIdentifier.Table("tenant_provisioning_jobs", null);
         Assert.Equal("business_id",
             entity.FindProperty(nameof(TenantProvisioningJob.BusinessId))!.GetColumnName(table));
+        Assert.Equal("idempotency_key",
+            entity.FindProperty(nameof(TenantProvisioningJob.IdempotencyKey))!.GetColumnName(table));
+        Assert.Equal("lease_owner",
+            entity.FindProperty(nameof(TenantProvisioningJob.LeaseOwner))!.GetColumnName(table));
+        Assert.Equal("lease_expires_at_utc",
+            entity.FindProperty(nameof(TenantProvisioningJob.LeaseExpiresAtUtc))!.GetColumnName(table));
+        Assert.Contains(entity.GetIndexes(), index => index.IsUnique &&
+            index.Properties.Any(property => property.Name == nameof(TenantProvisioningJob.IdempotencyKey)));
 
         var foreignKey = Assert.Single(entity.GetForeignKeys());
         Assert.Equal(typeof(BusinessTenant), foreignKey.PrincipalEntityType.ClrType);
