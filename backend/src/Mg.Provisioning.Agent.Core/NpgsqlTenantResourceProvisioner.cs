@@ -328,6 +328,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                              AND membership.set_option
                              AND NOT membership.inherit_option
                              AND NOT membership.admin_option),
+                   EXISTS (SELECT 1 FROM pg_auth_members membership
+                           JOIN pg_roles control_role ON control_role.oid = membership.member
+                           WHERE membership.roleid = role.oid
+                             AND control_role.rolname = @control_role
+                             AND (membership.inherit_option
+                                  OR (membership.set_option AND membership.admin_option)
+                                  OR (NOT membership.set_option AND NOT membership.admin_option))),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
                    COALESCE(shobj_description(database.oid, 'pg_database'), '')
             FROM pg_roles role
@@ -349,8 +356,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || reader.GetBoolean(9)
             || reader.GetBoolean(10)
             || !reader.GetBoolean(11)
-            || !string.Equals(reader.GetString(12), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
-            || !string.Equals(reader.GetString(13), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || reader.GetBoolean(12)
+            || !string.Equals(reader.GetString(13), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
+            || !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
             || await reader.ReadAsync(cancellationToken))
             throw new InvalidOperationException("Tenant owner database identity or restricted role verification failed.");
     }
