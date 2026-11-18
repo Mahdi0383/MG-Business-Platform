@@ -10,7 +10,7 @@
 - The current model still has no shared `ApplicationUserRecord`, `BusinessMembershipRecord`, or persisted role/permission/membership join model. Local staff users are business-scoped and use a fixed in-code role/permission map.
 - Some legacy operational records already carry a `BranchId` (notably game sessions, reservation resources and purchase invoices); many other business records still lack complete tenant/branch ownership and cross-tenant composite constraints.
 - Storefront configures SQLite, licensing, forwarded headers, rate limiting, security headers and public request-origin checks, but does not register ASP.NET Core authentication/authorization or expose operator routes protected by authorization policies.
-- Audit events currently identify the local Windows account and machine. This is not a trustworthy web-user identity.
+- Audit events can attribute writes made inside a validated local staff request context to `StaffUserId`, business, branch and correlation ID; unscoped legacy-process writes remain explicitly classified as `LegacyProcess`. This attribution is useful for the local desktop foundation but is not a shared browser principal or cross-business membership identity.
 - Public storefront routes must remain distinct from authenticated operator routes.
 
 ## 2. Target ownership model
