@@ -78,6 +78,21 @@ The repository now contains `backend/src/Mg.Provisioning.Agent.Core`:
 
 The agent service, mTLS server/API, operation reconciliation loop, restricted PostgreSQL control role, actual resource creation/migration runner, secret-manager key loading/rotation and crash-injection tests after each external side effect remain unimplemented. Do not interpret the core library or its tests as end-to-end provisioning. Keep the platform worker disabled.
 
+
+## PostgreSQL resource provisioner implementation
+
+The agent core now includes `NpgsqlTenantResourceProvisioner`. It is not yet registered in the HTTP host, but its contract and safety boundaries are implemented:
+
+- The control connection must use `VerifyCA` or `VerifyFull`, have a password, and identify a non-superuser login with `CREATEDB` and `CREATEROLE`; the role must not have replication, BYPASSRLS or inherited privileges. Control connections disable pooling to avoid session-role leakage.
+- Tenant names are deterministic: database `mg_tenant_{tenantUuid:N}`, owner role `mg_tenant_{tenantUuid:N}_owner`, runtime role `mg_tenant_{tenantUuid:N}_app`.
+- Owner/runtime roles are created with explicit safe attributes and immutable role comments inside one transaction. The owner is NOLOGIN, non-privileged and can be assumed only by the isolated control role. The runtime role is LOGIN, NOINHERIT, has no role memberships, and no CREATEDB/CREATEROLE/SUPERUSER/REPLICATION/BYPASSRLS.
+- The database is created with the owner role and receives a UUID-derived shared-object comment. If the process crashes after CREATE DATABASE but before the comment, a retry adopts it only when owner matches and the database is provably empty; an unmarked non-empty database is rejected.
+- Public database privileges are revoked; CONNECT is granted only to the agent control and tenant runtime identities. Schema/table grants are explicit; the runtime identity has no schema/database CREATE and no INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER on tenant identity, migration ledger or audit events. It cannot own tenant tables or functions.
+- The migration runner uses the exact packaged artifact bytes and checksum, sets transaction/session-local tenant identity and migration checksum, verifies an existing migration rather than re-running it, and applies the baseline as the tenant owner. It can safely resume if the migration committed but the coordinator did not persist its next phase.
+- Runtime verification independently checks the tenant marker, exact migration checksum/version, database and schema owner, runtime role attributes/memberships, immutable-table privileges, no owned tables/functions, and required customer CRUD.
+
+The agent HTTP host still has no `IAgentProvisioningHandler` registration. Therefore it reports not-ready and returns 503 even though the core provisioner now exists. Before wiring it, add a real TLS-enabled PostgreSQL integration environment, crash injection around CREATE DATABASE/role/migration/grant boundaries, and live secret-manager key loading/rotation. Never enable the central API worker until those tests pass.
+
 ## Safe HTTP error mapping
 
 - 400, 401, 403, 404: rejected request/identity/configuration; return no sensitive details.
