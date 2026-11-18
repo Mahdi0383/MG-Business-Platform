@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Mg.Platform.Api.Provisioning;
 using Npgsql;
 
 namespace Mg.Platform.Api.Provisioning;
@@ -31,6 +30,10 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
             response = await httpClient.PostAsJsonAsync(ProvisioningPath, request, cancellationToken);
         }
         catch (HttpRequestException)
+        {
+            throw new TenantProvisioningException("TENANT_PROVISIONING_AGENT_UNAVAILABLE");
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TenantProvisioningException("TENANT_PROVISIONING_AGENT_UNAVAILABLE");
         }
@@ -110,6 +113,10 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
             return false;
         }
         catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
         {
             return false;
         }
