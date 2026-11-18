@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import CreatorConsole from './CreatorConsole.jsx';
 import { readValidatedJsonStorage, writeJsonStorage } from './storage.js';
 import { applySaleToInventory, calculateCartTotal, nextOrderIdentifier, validateCartAgainstInventory } from './pos.js';
 
@@ -45,6 +46,10 @@ const number=n=>new Intl.NumberFormat('fa-IR').format(n);
 function Icon({children}){return <span className="icon">{children}</span>}
 function Modal({title,onClose,children}){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="modal"><header><h3>{title}</h3><button className="icon-btn" onClick={onClose}>×</button></header>{children}</section></div>}
 function App(){
+ return window.location.pathname.startsWith('/creator') ? <CreatorConsole/> : <BusinessWorkspace/>;
+}
+
+function BusinessWorkspace(){
  const [page,setPage]=useState('dashboard');
  const [products,setProducts]=useState(()=>readValidatedJsonStorage('mg-products',initialProducts,isValidProducts));
  const [customers,setCustomers]=useState(()=>readValidatedJsonStorage('mg-customers',initialCustomers,isValidCustomers));
