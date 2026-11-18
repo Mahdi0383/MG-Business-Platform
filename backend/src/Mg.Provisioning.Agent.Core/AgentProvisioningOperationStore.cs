@@ -141,6 +141,117 @@ public sealed class AgentProvisioningOperationStore(
         }
     }
 
+    /// <summary>
+    /// Re-encrypts a bounded batch of stored credential bundles with the current key.
+    /// Keep all historical keys in the configured key ring until this returns zero.
+    /// </summary>
+    public async Task<int> RewrapStoredCredentialsAsync(
+        int batchSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (batchSize is < 1 or > 1000)
+            throw new ArgumentOutOfRangeException(nameof(batchSize), "Credential rewrap batch size must be between 1 and 1000.");
+
+        var rows = new List<(
+            Guid TenantId,
+            Guid IdempotencyKey,
+            string DatabaseName,
+            string KeyId,
+            byte[] Nonce,
+            byte[] Ciphertext,
+            byte[] Tag)>();
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var select = new NpgsqlCommand(
+            """
+            SELECT tenant_id, idempotency_key, database_name,
+                   credential_key_id, credential_nonce,
+                   credential_ciphertext, credential_tag
+            FROM mg_agent.provisioning_operations
+            WHERE credential_key_id <> @current_key_id
+            ORDER BY updated_at
+            LIMIT @batch_size
+            FOR UPDATE SKIP LOCKED;
+            """, connection, transaction))
+        {
+            select.Parameters.AddWithValue("current_key_id", NpgsqlDbType.Text, credentialProtector.CurrentKeyId);
+            select.Parameters.AddWithValue("batch_size", NpgsqlDbType.Integer, batchSize);
+            await using var reader = await select.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rows.Add((
+                    reader.GetGuid(0),
+                    reader.GetGuid(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetFieldValue<byte[]>(4),
+                    reader.GetFieldValue<byte[]>(5),
+                    reader.GetFieldValue<byte[]>(6)));
+            }
+            await reader.CloseAsync();
+        }
+
+        try
+        {
+            foreach (var row in rows)
+            {
+                var oldEnvelope = new EncryptedTenantCredential(
+                    row.KeyId, row.Nonce, row.Ciphertext, row.Tag);
+                var payload = credentialProtector.Unprotect(
+                    oldEnvelope, row.TenantId, row.IdempotencyKey, row.DatabaseName);
+                var credentials = JsonSerializer.Deserialize<AgentProvisioningCredentials>(payload)
+                    ?? throw new InvalidOperationException("Stored tenant credential bundle is invalid.");
+                ValidateCredentials(credentials, row.TenantId, row.DatabaseName);
+
+                var newEnvelope = credentialProtector.Protect(
+                    payload, row.TenantId, row.IdempotencyKey, row.DatabaseName);
+                try
+                {
+                    await using var update = new NpgsqlCommand(
+                        """
+                        UPDATE mg_agent.provisioning_operations
+                        SET credential_key_id = @new_key_id,
+                            credential_nonce = @new_nonce,
+                            credential_ciphertext = @new_ciphertext,
+                            credential_tag = @new_tag,
+                            updated_at = now()
+                        WHERE tenant_id = @tenant_id
+                          AND idempotency_key = @idempotency_key
+                          AND credential_key_id = @old_key_id;
+                        """, connection, transaction);
+                    update.Parameters.AddWithValue("new_key_id", NpgsqlDbType.Text, newEnvelope.KeyId);
+                    update.Parameters.AddWithValue("new_nonce", NpgsqlDbType.Bytea, newEnvelope.Nonce);
+                    update.Parameters.AddWithValue("new_ciphertext", NpgsqlDbType.Bytea, newEnvelope.Ciphertext);
+                    update.Parameters.AddWithValue("new_tag", NpgsqlDbType.Bytea, newEnvelope.Tag);
+                    update.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, row.TenantId);
+                    update.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, row.IdempotencyKey);
+                    update.Parameters.AddWithValue("old_key_id", NpgsqlDbType.Text, row.KeyId);
+                    if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+                        throw new InvalidOperationException("Credential rewrap lost its locked provisioning operation.");
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(newEnvelope.Nonce);
+                    CryptographicOperations.ZeroMemory(newEnvelope.Ciphertext);
+                    CryptographicOperations.ZeroMemory(newEnvelope.Tag);
+                }
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return rows.Count;
+        }
+        finally
+        {
+            foreach (var row in rows)
+            {
+                CryptographicOperations.ZeroMemory(row.Nonce);
+                CryptographicOperations.ZeroMemory(row.Ciphertext);
+                CryptographicOperations.ZeroMemory(row.Tag);
+            }
+        }
+    }
+
     public async Task<string> GetPhaseAsync(
         Guid tenantId,
         Guid idempotencyKey,
