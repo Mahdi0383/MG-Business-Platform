@@ -9,7 +9,7 @@ Business registration creates two records in the MG central PostgreSQL database:
 
 Both are added to the same EF Core unit of work and saved together. The relational provider wraps the multi-command save in a transaction. A tenant must never be reported as active merely because its registry row exists.
 
-The queue schema and enqueue path are implemented. **There is not yet a worker, tenant database creator, secret-manager adapter, or tenant migration runner.** Do not advertise automated provisioning as available.
+The queue schema and enqueue path are implemented. Migration 003 adds a stable idempotency key and paired lease-owner/expiry fields, plus indexes for lease recovery. **There is not yet a worker, tenant database creator, secret-manager adapter, or tenant migration runner.** Do not advertise automated provisioning as available.
 
 ## Required worker state machine
 
@@ -26,7 +26,7 @@ Only a verified successful provisioning operation may move the business from `Pe
 ## Worker requirements before implementation
 
 - Claim jobs with a short transaction and PostgreSQL `FOR UPDATE SKIP LOCKED` so multiple worker replicas cannot process the same row concurrently.
-- Add a future migration for lease ownership/expiry and a stable idempotency key before enabling multi-replica workers; the current schema does not yet contain lease fields.
+- Migration 003 adds `idempotency_key` (unique), `lease_owner`, and `lease_expires_at_utc`. Every worker claim must set owner and expiry atomically; lease renew/release must compare the owner token to prevent one replica releasing another replica's lease.
 - Make every operation idempotent: database create, role/user create, secret write, schema migration, baseline seed and health verification.
 - Persist only secret-manager references in the central registry. Never log or store tenant passwords, connection strings, access tokens or raw secret values in job error fields.
 - Use bounded exponential retry with jitter for transient errors; classify permanent configuration and authorization errors into `DeadLetter`.
@@ -41,6 +41,7 @@ Apply central migrations in order:
 
 1. `database/migrations/001_create_business_registry.sql`
 2. `database/migrations/002_create_tenant_provisioning_jobs.sql`
+3. `database/migrations/003_add_provisioning_job_leases.sql` (required before enabling any worker)
 
 The API intentionally does not run schema migrations automatically at startup. Confirm both tables, unique slug constraint, queue status check and indexes before starting the API.
 
@@ -48,7 +49,8 @@ The API intentionally does not run schema migrations automatically at startup. C
 
 - Duplicate slug requests remain safe under concurrent registration.
 - A failed insert cannot leave an orphan business or orphan queue job.
-- Two worker replicas cannot hold the same active lease.
+- Two worker replicas cannot hold the same active lease; stale leases are recoverable after expiry.
+- A repeated command with the same idempotency key cannot create duplicate tenant resources.
 - Worker restart recovers expired leases without losing work.
 - Repeated delivery does not create duplicate databases, users, secrets or baseline records.
 - No business becomes `Active` before all provisioning checks pass.
