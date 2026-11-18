@@ -60,7 +60,6 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
         private readonly string applicationRoleName;
-        private readonly string ownerConnectionString;
 
         private Fixture(
             string adminConnectionString,
@@ -77,8 +76,6 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             TenantId = tenantId;
             IdempotencyKey = idempotencyKey;
             DatabaseName = databaseName;
-            Credentials = credentials;
-            this.ownerConnectionString = ownerConnectionString;
             Credentials = new AgentProvisioningCredentials(applicationConnectionString, ownerConnectionString);
             ownerRoleName = $"{databaseName}_owner";
             applicationRoleName = $"{databaseName}_app";
@@ -90,7 +87,6 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public string DatabaseName { get; }
         public AgentProvisioningCredentials Credentials { get; }
         public string ApplicationConnectionString => Credentials.ApplicationConnectionString;
-        public AgentProvisioningCredentials Credentials { get; }
         public NpgsqlTenantResourceProvisioner Provisioner { get; }
 
         public static async Task<Fixture> CreateAsync()
