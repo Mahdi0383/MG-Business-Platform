@@ -28,12 +28,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: web
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,12 +51,16 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+        working-directory: web
       - name: Audit dependencies
         run: node scripts/audit-dependencies.mjs
+        working-directory: web
       - name: Run frontend unit tests
         run: npm test
+        working-directory: web
       - name: Build production bundle
         run: npm run build
+        working-directory: web
       - name: Upload build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
