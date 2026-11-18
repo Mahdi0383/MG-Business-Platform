@@ -33,7 +33,7 @@ public sealed class AgentCredentialProtectorTests
             ConnectionString.Replace("mg_tenant_placeholder", DatabaseName, StringComparison.Ordinal),
             TenantId, IdempotencyKey, DatabaseName);
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<ArgumentException>(() =>
             protector.Unprotect(encrypted, Guid.NewGuid(), IdempotencyKey, DatabaseName));
         Assert.Throws<InvalidOperationException>(() =>
             protector.Unprotect(encrypted, TenantId, Guid.NewGuid(), DatabaseName));
