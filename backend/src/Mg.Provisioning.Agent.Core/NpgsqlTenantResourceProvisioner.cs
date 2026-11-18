@@ -409,22 +409,23 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task EnsureDatabaseAsync(
-        NpgsqlConnection connection,
+        NpgsqlConnection controlConnection,
         Guid tenantId,
         string databaseName,
         string ownerRole,
+        string ownerConnectionString,
+        string appRole,
         CancellationToken cancellationToken)
     {
-        var state = await GetDatabaseStateAsync(connection, databaseName, cancellationToken);
+        var state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         if (state is null)
         {
-            var createSql = await FormatSqlAsync(connection,
+            var createSql = await FormatSqlAsync(controlConnection,
                 "SELECT format('CREATE DATABASE %I OWNER %I', @database, @owner);",
                 cancellationToken, ("database", databaseName), ("owner", ownerRole));
-            await ExecuteDdlAsync(connection, createSql, cancellationToken);
-            await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
-            await SetDatabaseMarkerAsync(connection, tenantId, databaseName, cancellationToken);
-            state = await GetDatabaseStateAsync(connection, databaseName, cancellationToken);
+            await ExecuteDdlAsync(controlConnection, createSql, cancellationToken);
+            await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
+            state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         }
         else
         {
@@ -433,19 +434,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
             if (string.IsNullOrEmpty(state.Comment))
             {
-                // Recover the narrow crash window after CREATE DATABASE but before COMMENT.
-                // Adopt only a completely empty database whose owner role already has this tenant's marker.
+                // Recover only the crash window after CREATE DATABASE and before its marker.
                 if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
                     throw new InvalidOperationException("Unmarked tenant database is not empty and cannot be safely adopted.");
-                await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
-                await SetDatabaseMarkerAsync(connection, tenantId, databaseName, cancellationToken);
-                state = await GetDatabaseStateAsync(connection, databaseName, cancellationToken);
+                await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
+                state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
             }
-            else
+            else if (!string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             {
-                if (!string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
-                    throw new InvalidOperationException("Existing tenant database immutable marker does not match.");
-                await SwitchToOwnerRoleAsync(connection, ownerRole, cancellationToken);
+                throw new InvalidOperationException("Existing tenant database immutable marker does not match.");
             }
         }
 
@@ -453,6 +450,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(state.Owner, ownerRole, StringComparison.Ordinal)
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             throw new InvalidOperationException("Tenant database owner or immutable database marker verification failed.");
+
+        await ConfigureDatabaseAccessAsync(ownerConnectionString, databaseName, appRole, cancellationToken);
     }
 
     private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
@@ -483,20 +482,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
-    private async Task SwitchToOwnerRoleAsync(
-        NpgsqlConnection connection, string ownerRole, CancellationToken cancellationToken)
-    {
-        await using var command = new NpgsqlCommand($"SET ROLE {QuoteIdentifier(ownerRole)};", connection);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     private async Task SetDatabaseMarkerAsync(
-        NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
+        string ownerConnectionString, Guid tenantId, string databaseName, CancellationToken cancellationToken)
     {
-        var commentSql = await FormatSqlAsync(connection,
-            "SELECT format('COMMENT ON DATABASE %I IS %L', @database, @comment);",
-            cancellationToken, ("database", databaseName), ("comment", DatabaseMarker(tenantId)));
-        await ExecuteDdlAsync(connection, commentSql, cancellationToken);
+        var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
+        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("COMMENT ON DATABASE " + QuoteIdentifier(databaseName)
+            + " IS '" + DatabaseMarker(tenantId) + "';", connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private async Task<DatabaseState?> GetDatabaseStateAsync(
@@ -517,8 +511,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task ConfigureDatabaseAccessAsync(
-        NpgsqlConnection connection, string databaseName, string appRole, CancellationToken cancellationToken)
+        string ownerConnectionString, string databaseName, string appRole, CancellationToken cancellationToken)
     {
+        var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
+        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
         var sql = await FormatSqlAsync(connection,
             """
             SELECT format(
