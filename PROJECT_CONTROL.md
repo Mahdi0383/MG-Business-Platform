@@ -4,7 +4,7 @@
 
 - Product: **MG Business Web**, standalone browser-first application/PWA.
 - Repository: `Mahdi0383/MG-Business-Platform`.
-- Current governance change: `docs/mg-project-governance-and-continuation`, based on implementation PR #105 HEAD `8c574cd1d625566785f0a5a7e8236ad339c399ff` at the time this governance branch was created.
+- Current governance change: [Draft PR #152](https://github.com/Mahdi0383/MG-Business-Platform/pull/152), branch `docs/mg-project-governance-and-continuation`, based on implementation PR #105 HEAD `8c574cd1d625566785f0a5a7e8236ad339c399ff` at the time this governance branch was created.
 - Main implementation PR: [#105 — Start MG Business Web platform foundation](https://github.com/Mahdi0383/MG-Business-Platform/pull/105), open and Draft at the recorded snapshot. Always re-fetch live status; do not assume this snapshot is current.
 - This document is not a claim that the product is complete. It records the destination, verified baseline, acceptance gates and next work.
 
