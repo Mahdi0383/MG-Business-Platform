@@ -479,6 +479,119 @@ public sealed class StaffAdministrationServiceTests
         Assert.Null(await authentication.AuthenticateAsync(store.BusinessId, "owner", OwnerPassword));
     }
 
+    [Fact]
+    public async Task RevokedAdministratorStaleContext_CannotCreateUpdateDeactivateOrChangePassword()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        var ownerId = await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId, store.SecondBranchId],
+            "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token, store.MainBranchId);
+        Assert.NotNull(ownerContext);
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        Guid revokedAdministratorId;
+        Guid retainedAdministratorId;
+        Guid targetStaffId;
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            revokedAdministratorId = await administration.CreateStaffAsync(
+                "revoked-admin", "Revoked Administrator",
+                "Revoked-Admin-Passphrase-2026!", "Owner", [store.MainBranchId]);
+            retainedAdministratorId = await administration.CreateStaffAsync(
+                "retained-admin", "Retained Administrator",
+                "Retained-Admin-Passphrase-2026!", "Owner", [store.MainBranchId]);
+            targetStaffId = await administration.CreateStaffAsync(
+                "target-manager", "Target Manager",
+                "Target-Manager-Passphrase-2026!", "Manager", [store.MainBranchId]);
+        }
+
+        var revokedLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "revoked-admin", "Revoked-Admin-Passphrase-2026!");
+        var retainedLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "retained-admin", "Retained-Admin-Passphrase-2026!");
+        Assert.NotNull(revokedLogin);
+        Assert.NotNull(retainedLogin);
+
+        // Capture the administrator's request context before another administrator
+        // revokes it. This models a request that was authenticated before the
+        // revocation/demotion committed but reaches its mutation boundary afterward.
+        var staleRevokedContext = await resolver.ResolveAsync(
+            revokedLogin.Token, store.MainBranchId);
+        Assert.NotNull(staleRevokedContext);
+
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            await administration.UpdateStaffAccessAsync(
+                revokedAdministratorId, "Cashier", true, [store.MainBranchId]);
+        }
+
+        using (StaffRequestContextScope.Push(staleRevokedContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-after-revocation", "Blocked User",
+                    "Blocked-After-Revocation-Passphrase-2026!",
+                    "Cashier", [store.MainBranchId]));
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.UpdateStaffAccessAsync(
+                    targetStaffId, "Accountant", true, [store.SecondBranchId]));
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.UpdateStaffAccessAsync(
+                    targetStaffId, "Manager", false, [store.MainBranchId]));
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ChangeOwnPasswordAsync(
+                    "Revoked-Admin-Passphrase-2026!",
+                    "New-Revoked-Admin-Passphrase-2026!"));
+        }
+
+        Assert.Null(await authentication.ValidateSessionAsync(
+            store.BusinessId, revokedLogin.Token));
+        Assert.NotNull(await authentication.ValidateSessionAsync(
+            store.BusinessId, retainedLogin.Token));
+
+        var revokedAdministrator = await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == revokedAdministratorId);
+        Assert.Equal("Cashier", revokedAdministrator.Role);
+        Assert.True(revokedAdministrator.IsActive);
+
+        var retainedAdministrator = await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == retainedAdministratorId);
+        Assert.Equal("Owner", retainedAdministrator.Role);
+        Assert.True(retainedAdministrator.IsActive);
+
+        var targetStaff = await store.Db.StaffUsers.AsNoTracking()
+            .SingleAsync(x => x.Id == targetStaffId);
+        Assert.Equal("Manager", targetStaff.Role);
+        Assert.True(targetStaff.IsActive);
+        Assert.Equal(new[] { store.MainBranchId },
+            await store.Db.StaffBranchAccess.AsNoTracking()
+                .Where(x => x.StaffUserId == targetStaffId)
+                .Select(x => x.BranchId)
+                .ToArrayAsync());
+
+        Assert.Empty(await store.Db.StaffUsers.AsNoTracking()
+            .Where(x => x.UserNameNormalized == "BLOCKED-AFTER-REVOCATION")
+            .ToListAsync());
+
+        var activeAdministrators = await store.Db.StaffUsers.AsNoTracking()
+            .CountAsync(x => x.BusinessId == store.BusinessId
+                && x.IsActive
+                && (x.Role == "Owner" || x.Role == "Administrator"));
+        Assert.Equal(2, activeAdministrators);
+        Assert.NotEqual(ownerId, revokedAdministratorId);
+    }
+
     private sealed class TestStore(
         SqliteConnection connection,
         BusinessDbContext db,
