@@ -25,7 +25,7 @@ public sealed class HttpTenantDatabaseProvisionerTests
             {
                 Content = JsonContent.Create(new
                 {
-                    connectionString = $"Host=tenant-db.internal;Database=mg_tenant_{tenantId:N};Username=tenant_app;Password=secret;SSL Mode=VerifyFull"
+                    connectionString = $"Host=tenant-db.internal;Database=mg_tenant_{tenantId:N};Username=mg_tenant_{tenantId:N}_app;Password=secret;SSL Mode=VerifyFull"
                 })
             };
         });
