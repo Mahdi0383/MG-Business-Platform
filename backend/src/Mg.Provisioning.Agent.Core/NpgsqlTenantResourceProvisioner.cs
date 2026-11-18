@@ -58,6 +58,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 login: true, password: owner.Password, cancellationToken, allowControlMember: true);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
+            await EnsureOwnerRoleMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
             await roleTransaction.CommitAsync(cancellationToken);
         }
         await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole,
@@ -417,6 +418,48 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 cancellationToken, ("role", roleName), ("password", password!));
             await ExecuteDdlAsync(connection, alterSql, cancellationToken, transaction);
         }
+    }
+
+    private async Task EnsureOwnerRoleMembershipAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string ownerRole,
+        CancellationToken cancellationToken)
+    {
+        var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken, transaction)
+            ?? throw new InvalidOperationException("Tenant owner role was not created.");
+        if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
+            throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
+
+        await using var check = new NpgsqlCommand(
+            """
+            SELECT COUNT(*)::integer,
+                   COALESCE(bool_and(membership.set_option
+                       AND NOT membership.inherit_option
+                       AND NOT membership.admin_option), FALSE)
+            FROM pg_auth_members membership
+            JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+            JOIN pg_roles member_role ON member_role.oid = membership.member
+            WHERE granted_role.rolname = @owner_role
+              AND member_role.rolname = @control_role;
+            """, connection, transaction);
+        check.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
+        check.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
+        await using var reader = await check.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        var membershipCount = reader.GetInt32(0);
+        var membershipIsRestricted = reader.GetBoolean(1);
+        await reader.CloseAsync();
+
+        if (membershipCount == 1 && membershipIsRestricted)
+            return;
+        if (membershipCount != 0 || state.HasAnyMembers)
+            throw new InvalidOperationException("Tenant owner role membership must be exclusively SET-only for the agent control identity.");
+
+        var grantSql = await FormatSqlAsync(connection, transaction,
+            "SELECT format('GRANT %I TO %I WITH ADMIN FALSE, INHERIT FALSE, SET TRUE', @role, @member);",
+            cancellationToken, ("role", ownerRole), ("member", controlRoleName));
+        await ExecuteDdlAsync(connection, grantSql, cancellationToken, transaction);
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
