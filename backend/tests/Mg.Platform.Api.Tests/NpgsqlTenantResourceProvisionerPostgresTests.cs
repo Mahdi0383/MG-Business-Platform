@@ -189,6 +189,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 JOIN pg_database database ON database.datname = current_database()
                 WHERE role.rolname = current_user;
                 """, connection);
+            command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(ownerRoleName, reader.GetString(0));
@@ -208,7 +209,11 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                        pg_get_userbyid(database.datdba),
                        role.rolsuper, role.rolcreatedb, role.rolcreaterole,
                        role.rolreplication, role.rolbypassrls, role.rolinherit,
-                       EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = role.oid OR m.roleid = role.oid),
+                       EXISTS (SELECT 1 FROM pg_auth_members m
+                               WHERE m.member = role.oid
+                                  OR (m.roleid = role.oid
+                                      AND (pg_get_userbyid(m.member) <> @control_role
+                                           OR m.set_option OR m.inherit_option OR NOT m.admin_option))),
                        has_schema_privilege(current_user, 'mg', 'CREATE'),
                        has_database_privilege(current_user, current_database(), 'CREATE')
                 FROM pg_roles role
