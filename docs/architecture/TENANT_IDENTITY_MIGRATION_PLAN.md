@@ -1,15 +1,15 @@
 # MG Business Platform — Tenant Identity & Data-Isolation Migration Plan
 
 **Status:** Architecture proposal; not an implementation or a production-readiness claim.  
-**Baseline inspected:** `main` at `aef7fe11373ba05a0c2f9cf4d039a0adc04f31c8` (2026-11-17).  
+**Baseline inspected:** `main` at `88ea40799eda5c457c6c742eff26f2e8868f7f8a` (2026-11-17).  
 **Tracking issue:** #120.
 
 ## 1. Verified baseline
 
-- `Business` and `Branch` domain records exist in `MG.BusinessPlatform.Domain/Organizations/Business.cs`.
-- `BusinessDbContext` currently persists operational records but has no `Businesses`, `Branches`, `ApplicationUsers`, or `BusinessMemberships` sets.
-- Some records already carry a `BranchId` (notably game sessions, reservation resources and purchase invoices); many other business records have no tenant or branch owner.
-- Storefront configures SQLite, licensing, forwarded headers and rate limiting, but has no authentication/authorization registration or operator routes protected by authorization policies.
+- `BusinessRecord` and `BranchRecord` are persisted by `BusinessDbContext`, alongside `StaffUserRecord`, `StaffSessionRecord` and `StaffBranchAccessRecord` for local staff identity/session/branch grants.
+- The current model still has no shared `ApplicationUserRecord`, `BusinessMembershipRecord`, or persisted role/permission/membership join model. Local staff users are business-scoped and use a fixed in-code role/permission map.
+- Some legacy operational records already carry a `BranchId` (notably game sessions, reservation resources and purchase invoices); many other business records still lack complete tenant/branch ownership and cross-tenant composite constraints.
+- Storefront configures SQLite, licensing, forwarded headers, rate limiting, security headers and public request-origin checks, but does not register ASP.NET Core authentication/authorization or expose operator routes protected by authorization policies.
 - Audit events currently identify the local Windows account and machine. This is not a trustworthy web-user identity.
 - Public storefront routes must remain distinct from authenticated operator routes.
 
@@ -30,8 +30,8 @@ Identity records must use restrictive foreign keys and unique indexes. User IDs 
 
 ### Boundary with the local staff-administration foundation
 
-- The in-flight staff-administration work in PR #148 introduces business-scoped `StaffUser` and persisted `StaffSession` records for the local desktop/business workflow. If merged, treat those records as a single-business staff foundation, not as the completed multi-tenant identity model described here.
-- A business-scoped staff account is not equivalent to a cross-business `ApplicationUser` plus `BusinessMembership`. The PR #148 role map is also a local fixed-role policy, not the target persisted role/permission/membership model.
+- The current main baseline already persists business-scoped `StaffUser`, `StaffSession` and `StaffBranchAccess` records for the local desktop/business workflow. PR #148 adds staff-administration operations and hardens stale-session authorization; it does not replace the identity model.
+- A business-scoped staff account is not equivalent to a cross-business `ApplicationUser` plus `BusinessMembership`. The existing role map is a local fixed-role policy, not the target persisted role/permission/membership model.
 - Before enabling multi-tenant browser operations, explicitly decide whether to evolve/migrate local staff identities into shared application identities and memberships, or retain separate desktop principals behind a documented trust boundary. Do not silently merge the two models or infer web authorization from a desktop staff session.
 - The staff service alone does not provide browser authentication middleware, secure cookie/CSRF handling, public-host-to-tenant resolution, or authorization on operator HTTP endpoints. Those remain release blockers under issue #120.
 
