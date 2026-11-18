@@ -98,7 +98,7 @@ public sealed class AgentProvisioningOperationStore(
 
             // The factory must only generate a credential; it must not perform external side effects.
             var connectionString = await credentialFactory(cancellationToken);
-            ValidateApplicationConnectionString(connectionString, databaseName);
+            ValidateApplicationConnectionString(connectionString, tenantId, databaseName);
             var envelope = credentialProtector.Protect(
                 connectionString, tenantId, idempotencyKey, databaseName);
 
@@ -234,7 +234,7 @@ public sealed class AgentProvisioningOperationStore(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
     }
 
-    private static void ValidateApplicationConnectionString(string connectionString, string expectedDatabase)
+    private static void ValidateApplicationConnectionString(string connectionString, Guid tenantId, string expectedDatabase)
     {
         NpgsqlConnectionStringBuilder parsed;
         try
@@ -247,8 +247,8 @@ public sealed class AgentProvisioningOperationStore(
         }
 
         if (!string.Equals(parsed.Database, expectedDatabase, StringComparison.Ordinal)
+            || !string.Equals(parsed.Username, $"mg_tenant_{tenantId:N}_app", StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(parsed.Host)
-            || string.IsNullOrWhiteSpace(parsed.Username)
             || string.IsNullOrWhiteSpace(parsed.Password)
             || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
             throw new InvalidOperationException(
