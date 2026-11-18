@@ -323,18 +323,24 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                              AND pg_get_userbyid(membership.member) <> @control_role),
                    EXISTS (SELECT 1 FROM pg_auth_members membership
                            JOIN pg_roles control_role ON control_role.oid = membership.member
+                           JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                            WHERE membership.roleid = role.oid
                              AND control_role.rolname = @control_role
+                             AND grantor_role.rolname = @control_role
                              AND membership.set_option
                              AND NOT membership.inherit_option
                              AND NOT membership.admin_option),
                    EXISTS (SELECT 1 FROM pg_auth_members membership
                            JOIN pg_roles control_role ON control_role.oid = membership.member
+                           JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                            WHERE membership.roleid = role.oid
                              AND control_role.rolname = @control_role
-                             AND (membership.inherit_option
-                                  OR (membership.set_option AND membership.admin_option)
-                                  OR (NOT membership.set_option AND NOT membership.admin_option))),
+                             AND NOT (
+                                 (grantor_role.rolsuper AND membership.admin_option
+                                  AND NOT membership.inherit_option AND NOT membership.set_option)
+                                 OR (grantor_role.rolname = @control_role AND membership.set_option
+                                     AND NOT membership.inherit_option AND NOT membership.admin_option)
+                             )),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
                    COALESCE(shobj_description(database.oid, 'pg_database'), '')
             FROM pg_roles role
