@@ -39,12 +39,12 @@ public sealed class AgentHostOptions : IDisposable
         if (string.IsNullOrWhiteSpace(thumbprintsValue))
             throw new InvalidOperationException("At least one explicit mTLS client certificate thumbprint must be configured.");
 
-        var allowed = thumbprintsValue
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(NormalizeThumbprint)
-            .ToArray();
+        var rawThumbprints = thumbprintsValue
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var allowed = rawThumbprints.Select(NormalizeThumbprint).ToArray();
         if (allowed.Length == 0 || allowed.Any(value => value is null))
             throw new InvalidOperationException("The mTLS client certificate allowlist contains an invalid thumbprint.");
+        var allowedSet = allowed.Select(value => value!).ToHashSet(StringComparer.Ordinal);
 
         var path = Path.GetFullPath(certificatePath);
         if (!File.Exists(path))
@@ -58,7 +58,7 @@ public sealed class AgentHostOptions : IDisposable
             throw new InvalidOperationException("Agent HTTPS server certificate is invalid, expired or lacks required extensions.");
         }
 
-        return new AgentHostOptions(port, certificate, new HashSet<string>(allowed!, StringComparer.Ordinal));
+        return new AgentHostOptions(port, certificate, allowedSet);
     }
 
     public bool ValidateClientCertificate(
