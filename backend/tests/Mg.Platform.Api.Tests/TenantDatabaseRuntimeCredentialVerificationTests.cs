@@ -18,12 +18,17 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 "MG_TEST_POSTGRES must point to a disposable PostgreSQL test database.");
 
         var tenantId = Guid.NewGuid();
-        var databaseName = "mg_verify_" + Guid.NewGuid().ToString("N");
-        var roleName = "mg_runtime_" + Guid.NewGuid().ToString("N");
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var roleName = $"{databaseName}_app";
+        var rootCertificate = Environment.GetEnvironmentVariable("MG_TEST_PG_ROOT_CERT");
+        if (string.IsNullOrWhiteSpace(rootCertificate) || !File.Exists(rootCertificate))
+            throw new InvalidOperationException("MG_TEST_PG_ROOT_CERT must point to the disposable PostgreSQL TLS root certificate.");
         var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var adminBuilder = new NpgsqlConnectionStringBuilder(configured)
         {
             Database = "postgres",
+            SslMode = SslMode.VerifyFull,
+            RootCertificate = rootCertificate,
             Pooling = false
         };
         var quotedDatabase = $"\"{databaseName}\"";
@@ -37,7 +42,7 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             {
                 await admin.OpenAsync();
                 await using var createRole = new NpgsqlCommand(
-                    $"CREATE ROLE {quotedRole} LOGIN PASSWORD '{password}'", admin);
+                    $"CREATE ROLE {quotedRole} LOGIN PASSWORD '{password}' NOINHERIT", admin);
                 await createRole.ExecuteNonQueryAsync();
                 roleCreated = true;
                 await using var createDatabase = new NpgsqlCommand(
@@ -86,7 +91,8 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 Database = databaseName,
                 Username = roleName,
                 Password = password,
-                SslMode = SslMode.Disable,
+                SslMode = SslMode.VerifyFull,
+                RootCertificate = rootCertificate,
                 Pooling = false
             };
             using var httpClient = new HttpClient(new RejectingHandler());
