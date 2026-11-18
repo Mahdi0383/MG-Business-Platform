@@ -293,7 +293,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 ? await FormatSqlAsync(connection, transaction,
                     "SELECT format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role, @password);",
                     cancellationToken, ("role", roleName), ("password", password!))
-                : await FormatSqlAsync(connection,
+                : await FormatSqlAsync(connection, transaction,
                     "SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role);",
                     cancellationToken, ("role", roleName));
             await ExecuteDdlAsync(connection, sql, cancellationToken, transaction);
