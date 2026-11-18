@@ -58,7 +58,10 @@ public sealed class HttpTenantDatabaseProvisionerTests
             called = true;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         });
-        using var client = new HttpClient(handler);
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://provisioner.internal/")
+        };
         var provisioner = new HttpTenantDatabaseProvisioner(client);
         var tenantId = Guid.NewGuid();
 
@@ -77,7 +80,10 @@ public sealed class HttpTenantDatabaseProvisionerTests
     {
         var handler = new StubHandler(_ =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
-        using var client = new HttpClient(handler);
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://provisioner.internal/")
+        };
         var provisioner = new HttpTenantDatabaseProvisioner(client);
         var tenantId = Guid.NewGuid();
 
@@ -95,7 +101,10 @@ public sealed class HttpTenantDatabaseProvisionerTests
     {
         var handler = new StubHandler(_ =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)));
-        using var client = new HttpClient(handler);
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://provisioner.internal/")
+        };
         var provisioner = new HttpTenantDatabaseProvisioner(client);
         var tenantId = Guid.NewGuid();
 
