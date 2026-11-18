@@ -28,13 +28,14 @@ public static class PlatformEndpoints
                 {
                     ["name"] = ["نام کسب‌وکار الزامی است و حداکثر ۱۶۰ نویسه دارد."]
                 });
-            if (!BusinessSlug.TryNormalize(request.Slug, out _))
+            if (!BusinessSlug.TryNormalize(request.Slug, out var normalizedSlug))
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
                     ["slug"] = ["شناسه باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد."]
                 });
 
-            var (business, conflict) = await registry.CreateAsync(request, ct);
+            var normalizedRequest = request with { Slug = normalizedSlug };
+            var (business, conflict) = await registry.CreateAsync(normalizedRequest, ct);
             if (conflict) return Results.Conflict(new { code = "business_slug_conflict" });
             return Results.Created($"/api/v1/platform/businesses/{business!.Id}", business);
         });
