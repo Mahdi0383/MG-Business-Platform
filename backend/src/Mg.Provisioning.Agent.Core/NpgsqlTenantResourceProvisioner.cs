@@ -74,7 +74,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
         await VerifyControlRoleAsync(connection, cancellationToken);
-        await SetRoleAsync(connection, ownerRole, cancellationToken);
         await SetTenantMigrationContextAsync(connection, tenantId, migration.Sha256, cancellationToken);
 
         var ledgerExists = await SchemaMigrationLedgerExistsAsync(connection, cancellationToken);
