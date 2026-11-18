@@ -81,7 +81,13 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        role.rolbypassrls,
                        has_schema_privilege(current_user, 'mg', 'CREATE'),
                        has_database_privilege(current_user, current_database(), 'CREATE'),
-                       database.datdba = role.oid
+                       database.datdba = role.oid,
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'DELETE')
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
                 JOIN pg_roles AS role ON role.rolname = current_user
@@ -106,7 +112,13 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(6)
                 && !reader.GetBoolean(7)
                 && !reader.GetBoolean(8)
-                && !reader.GetBoolean(9);
+                && !reader.GetBoolean(9)
+                && !reader.GetBoolean(10)
+                && !reader.GetBoolean(11)
+                && !reader.GetBoolean(12)
+                && !reader.GetBoolean(13)
+                && !reader.GetBoolean(14)
+                && !reader.GetBoolean(15);
         }
         catch (NpgsqlException)
         {
