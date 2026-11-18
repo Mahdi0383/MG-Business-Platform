@@ -26,6 +26,9 @@ public sealed class TenantProvisioningLeasePostgresTests
         var claims = await Task.WhenAll(Claim("worker-a"), Claim("worker-b"));
         Assert.All(claims, Assert.NotNull);
         Assert.NotEqual(claims[0]!.Id, claims[1]!.Id);
+        Assert.NotNull(claims[0]!.LeaseToken);
+        Assert.NotNull(claims[1]!.LeaseToken);
+        Assert.NotEqual(claims[0]!.LeaseToken, claims[1]!.LeaseToken);
         Assert.Equal(new[] { "worker-a", "worker-b" },
             claims.Select(job => job!.LeaseOwner).Order().ToArray());
         Assert.Contains(claims, job => job!.Id == first.Id);
@@ -49,9 +52,11 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.Equal(job.Id, claimed.Id);
         Assert.Equal(2, claimed.Attempts);
         Assert.Equal("new-worker", claimed.LeaseOwner);
-        Assert.False(await service.RenewAsync(job.Id, "old-worker",
+        Assert.NotNull(claimed.LeaseToken);
+        Assert.NotEqual(job.LeaseToken, claimed.LeaseToken);
+        Assert.False(await service.RenewAsync(job.Id, "old-worker", job.LeaseToken!.Value,
             TimeSpan.FromMinutes(1), CancellationToken.None));
-        Assert.True(await service.RenewAsync(job.Id, "new-worker",
+        Assert.True(await service.RenewAsync(job.Id, "new-worker", claimed.LeaseToken.Value,
             TimeSpan.FromMinutes(1), CancellationToken.None));
     }
 
@@ -73,6 +78,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.Equal(TenantProvisioningStatus.DeadLetter, stored.Status);
         Assert.Equal("LEASE_EXHAUSTED", stored.LastErrorCode);
         Assert.Null(stored.LeaseOwner);
+        Assert.Null(stored.LeaseToken);
         Assert.Null(stored.LeaseExpiresAtUtc);
         Assert.Equal(0, await service.DeadLetterExhaustedAsync(CancellationToken.None));
     }
@@ -85,19 +91,21 @@ public sealed class TenantProvisioningLeasePostgresTests
 
         await using var context = fixture.CreateContext();
         var service = new TenantProvisioningLeaseService(context);
-        Assert.NotNull(await service.ClaimNextAsync(
-            "worker-failure", TimeSpan.FromMinutes(1), CancellationToken.None));
+        var claimed = await service.ClaimNextAsync(
+            "worker-failure", TimeSpan.FromMinutes(1), CancellationToken.None);
+        Assert.NotNull(claimed);
 
-        Assert.True(await service.MarkFailedAsync(job.Id, "worker-failure",
+        Assert.True(await service.MarkFailedAsync(job.Id, "worker-failure", claimed.LeaseToken!.Value,
             "PROVIDER_DENIED", permanent: true, CancellationToken.None));
 
         var stored = await context.TenantProvisioningJobs.AsNoTracking()
             .SingleAsync(item => item.Id == job.Id);
         Assert.Equal(TenantProvisioningStatus.DeadLetter, stored.Status);
         Assert.Null(stored.LeaseOwner);
+        Assert.Null(stored.LeaseToken);
         Assert.Null(stored.LeaseExpiresAtUtc);
         Assert.Equal("PROVIDER_DENIED", stored.LastErrorCode);
-        Assert.False(await service.MarkFailedAsync(job.Id, "worker-failure",
+        Assert.False(await service.MarkFailedAsync(job.Id, "worker-failure", claimed.LeaseToken.Value,
             "PROVIDER_DENIED", permanent: true, CancellationToken.None));
     }
 
@@ -109,13 +117,14 @@ public sealed class TenantProvisioningLeasePostgresTests
 
         await using var context = fixture.CreateContext();
         var service = new TenantProvisioningLeaseService(context);
-        Assert.NotNull(await service.ClaimNextAsync(
-            "worker-success", TimeSpan.FromMinutes(1), CancellationToken.None));
+        var claimed = await service.ClaimNextAsync(
+            "worker-success", TimeSpan.FromMinutes(1), CancellationToken.None);
+        Assert.NotNull(claimed);
 
         Assert.True(await service.MarkSucceededAsync(
-            job.Id, "worker-success", CancellationToken.None));
+            job.Id, "worker-success", claimed.LeaseToken!.Value, CancellationToken.None));
         Assert.False(await service.MarkSucceededAsync(
-            job.Id, "worker-success", CancellationToken.None));
+            job.Id, "worker-success", claimed.LeaseToken.Value, CancellationToken.None));
 
         var storedJob = await context.TenantProvisioningJobs.AsNoTracking()
             .SingleAsync(item => item.Id == job.Id);
@@ -125,6 +134,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.Equal("Active", storedBusiness.Status);
         Assert.NotNull(storedBusiness.ActivatedAtUtc);
         Assert.Null(storedJob.LeaseOwner);
+        Assert.Null(storedJob.LeaseToken);
         Assert.Null(storedJob.LeaseExpiresAtUtc);
     }
 
@@ -181,6 +191,7 @@ public sealed class TenantProvisioningLeasePostgresTests
                         attempts integer NOT NULL,
                         idempotency_key uuid NOT NULL UNIQUE,
                         lease_owner varchar(120) NULL,
+                        lease_token uuid NULL,
                         lease_expires_at_utc timestamptz NULL,
                         created_at_utc timestamptz NOT NULL,
                         next_attempt_at_utc timestamptz NOT NULL,
@@ -188,7 +199,9 @@ public sealed class TenantProvisioningLeasePostgresTests
                         completed_at_utc timestamptz NULL,
                         last_error_code varchar(80) NULL,
                         CONSTRAINT ck_test_lease_pair
-                            CHECK ((lease_owner IS NULL) = (lease_expires_at_utc IS NULL))
+                            CHECK ((lease_owner IS NULL) = (lease_expires_at_utc IS NULL)),
+                        CONSTRAINT ck_test_lease_token_pair
+                            CHECK ((lease_owner IS NULL) = (lease_token IS NULL))
                     );
                     """, connection);
                 await command.ExecuteNonQueryAsync();
@@ -239,6 +252,7 @@ public sealed class TenantProvisioningLeasePostgresTests
                 Status = status,
                 Attempts = attempts,
                 LeaseOwner = leaseOwner,
+                LeaseToken = leaseOwner is null ? null : Guid.NewGuid(),
                 LeaseExpiresAtUtc = leaseExpiry
             };
             await using var context = CreateContext();
