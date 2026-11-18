@@ -58,13 +58,41 @@ public sealed class TenantProvisioningAgentOptionsTests
         }
     }
 
-    private static void CreateClientCertificate(string path, string password, string ekuOid)
+    [Fact]
+    public void RejectsCertificateAuthorityAsApiClientIdentity()
+    {
+        const string password = "test-only-pfx-password";
+        var path = Path.Combine(Path.GetTempPath(), $"mg-agent-ca-cert-{Guid.NewGuid():N}.pfx");
+        CreateClientCertificate(path, password, "1.3.6.1.5.5.7.3.2", isCertificateAuthority: true);
+
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Provisioning:Agent:Address"] = "https://provisioner.internal/",
+                    ["Provisioning:Agent:ClientCertificatePath"] = path,
+                    ["Provisioning:Agent:ClientCertificatePassword"] = password
+                })
+                .Build();
+
+            Assert.Throws<InvalidOperationException>(() =>
+                TenantProvisioningAgentOptions.From(configuration));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static void CreateClientCertificate(
+        string path, string password, string ekuOid, bool isCertificateAuthority = false)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
             "CN=mg-agent-test-client", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        request.CertificateExtensions.Add(
-            new X509BasicConstraintsExtension(false, false, 0, critical: true));
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(
+            isCertificateAuthority, isCertificateAuthority, isCertificateAuthority ? 1 : 0, critical: true));
         request.CertificateExtensions.Add(
             new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
         var usages = new OidCollection();
