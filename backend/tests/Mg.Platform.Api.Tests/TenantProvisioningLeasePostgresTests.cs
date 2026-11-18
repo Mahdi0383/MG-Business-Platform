@@ -56,6 +56,28 @@ public sealed class TenantProvisioningLeasePostgresTests
     }
 
     [Fact]
+    public async Task ExpiredLeaseAtAttemptLimitIsReconciledToDeadLetter()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var job = await fixture.AddJobAsync("exhausted",
+            TenantProvisioningStatus.Running, attempts: 8,
+            leaseOwner: "crashed-worker",
+            leaseExpiry: DateTimeOffset.UtcNow.AddMinutes(-2));
+
+        await using var context = fixture.CreateContext();
+        var service = new TenantProvisioningLeaseService(context);
+        Assert.Equal(1, await service.DeadLetterExhaustedAsync(CancellationToken.None));
+
+        var stored = await context.TenantProvisioningJobs.AsNoTracking()
+            .SingleAsync(item => item.Id == job.Id);
+        Assert.Equal(TenantProvisioningStatus.DeadLetter, stored.Status);
+        Assert.Equal("LEASE_EXHAUSTED", stored.LastErrorCode);
+        Assert.Null(stored.LeaseOwner);
+        Assert.Null(stored.LeaseExpiresAtUtc);
+        Assert.Equal(0, await service.DeadLetterExhaustedAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task PermanentFailureMovesJobToDeadLetterAndReleasesLease()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
