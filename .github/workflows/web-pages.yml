@@ -30,6 +30,22 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: mg-ci-test-only
+          POSTGRES_DB: mg_platform_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mg_platform_tests"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MG_TEST_POSTGRES: Host=localhost;Port=5432;Database=mg_platform_tests;Username=postgres;Password=mg-ci-test-only
     permissions:
       contents: read
     steps:
