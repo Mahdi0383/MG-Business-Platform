@@ -431,37 +431,27 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
             throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
 
+        // PostgreSQL 17 creates an immutable bootstrap-grantor ADMIN membership for the
+        // CREATEROLE identity that creates a role (INHERIT FALSE, SET FALSE). It cannot
+        // be downgraded by that identity. Add a separate grantor-scoped SET-only path.
         await using var check = new NpgsqlCommand(
             """
-            SELECT COUNT(*)::integer,
-                   COALESCE(bool_and(membership.set_option
-                       AND NOT membership.inherit_option
-                       AND NOT membership.admin_option), FALSE)
-            FROM pg_auth_members membership
-            JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-            JOIN pg_roles member_role ON member_role.oid = membership.member
-            WHERE granted_role.rolname = @owner_role
-              AND member_role.rolname = @control_role;
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_auth_members membership
+                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                JOIN pg_roles member_role ON member_role.oid = membership.member
+                WHERE granted_role.rolname = @owner_role
+                  AND member_role.rolname = @control_role
+                  AND membership.set_option
+                  AND NOT membership.inherit_option
+                  AND NOT membership.admin_option
+            );
             """, connection, transaction);
         check.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
         check.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
-        await using var reader = await check.ExecuteReaderAsync(cancellationToken);
-        await reader.ReadAsync(cancellationToken);
-        var membershipCount = reader.GetInt32(0);
-        var membershipIsRestricted = reader.GetBoolean(1);
-        await reader.CloseAsync();
-
-        if (membershipCount == 1 && membershipIsRestricted)
+        if (await check.ExecuteScalarAsync(cancellationToken) is true)
             return;
-        if (membershipCount > 1 || (membershipCount == 0 && state.HasAnyMembers))
-            throw new InvalidOperationException("Tenant owner role membership must be exclusively SET-only for the agent control identity.");
-
-        // CREATE ROLE may leave the creator with an administrative membership.
-        // Explicitly downgrade it to a SET-only membership before database ownership is assigned.
-        var revokeAdminSql = await FormatSqlAsync(connection, transaction,
-            "SELECT format('REVOKE ADMIN OPTION FOR %I FROM %I', @role, @member);",
-            cancellationToken, ("role", ownerRole), ("member", controlRoleName));
-        await ExecuteDdlAsync(connection, revokeAdminSql, cancellationToken, transaction);
 
         var grantSql = await FormatSqlAsync(connection, transaction,
             "SELECT format('GRANT %I TO %I WITH INHERIT FALSE, SET TRUE', @role, @member);",
@@ -470,19 +460,22 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         await using var verify = new NpgsqlCommand(
             """
-            SELECT membership.set_option
-               AND NOT membership.inherit_option
-               AND NOT membership.admin_option
-            FROM pg_auth_members membership
-            JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-            JOIN pg_roles member_role ON member_role.oid = membership.member
-            WHERE granted_role.rolname = @owner_role
-              AND member_role.rolname = @control_role;
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_auth_members membership
+                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                JOIN pg_roles member_role ON member_role.oid = membership.member
+                WHERE granted_role.rolname = @owner_role
+                  AND member_role.rolname = @control_role
+                  AND membership.set_option
+                  AND NOT membership.inherit_option
+                  AND NOT membership.admin_option
+            );
             """, connection, transaction);
         verify.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
         verify.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
         if (await verify.ExecuteScalarAsync(cancellationToken) is not true)
-            throw new InvalidOperationException("Tenant owner role membership could not be restricted to SET-only.");
+            throw new InvalidOperationException("Tenant owner role lacks the required isolated SET-only membership path.");
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
