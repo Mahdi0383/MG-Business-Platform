@@ -139,6 +139,8 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE'),
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE'),
                        has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER'),
                        has_database_privilege(current_user, current_database(), 'CREATE'),
                        pg_get_userbyid(database.datdba),
                        pg_get_userbyid(schema.nspowner),
@@ -170,9 +172,11 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                 && !reader.GetBoolean(13)
                 && !reader.GetBoolean(14)
                 && !reader.GetBoolean(15)
-                && !string.Equals(reader.GetString(16), reader.GetString(19), StringComparison.Ordinal)
-                && !string.Equals(reader.GetString(17), reader.GetString(19), StringComparison.Ordinal)
-                && !string.Equals(reader.GetString(18), reader.GetString(19), StringComparison.Ordinal);
+                && !reader.GetBoolean(16)
+                && !reader.GetBoolean(17)
+                && !string.Equals(reader.GetString(18), reader.GetString(21), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(19), reader.GetString(21), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(20), reader.GetString(21), StringComparison.Ordinal);
         }
         catch (NpgsqlException)
         {
