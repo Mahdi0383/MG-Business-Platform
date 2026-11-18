@@ -66,6 +66,18 @@ A successful agent response can be lost after the database side effects complete
 - A duplicate request with the same key and payload must return the same decrypted connection string. A different payload for the same key, or a second idempotency key for an already provisioned tenant, must return a safe conflict and must not rotate credentials or mutate resources.
 - If the API loses its response, it retries the same key and receives the same credential. The API then performs its Vault CAS write/readback and its own independent tenant/runtime-role verification before the central job can complete.
 
+
+## Implemented agent-core primitives (not a deployed agent)
+
+The repository now contains `backend/src/Mg.Provisioning.Agent.Core`:
+- `AgentCredentialProtector`: AES-256-GCM envelopes with 96-bit random nonces, 128-bit tags, strict UTF-8, zeroed plaintext/key buffers, key IDs for rotation, and AAD binding tenant UUID, idempotency UUID, deterministic database name and key ID.
+- `AgentProvisioningOperationStore`: PostgreSQL transaction-scoped per-tenant advisory locking; durable unique tenant/idempotency records; stable encrypted credential replay; conflict rejection; and strictly monotonic `Prepared → DatabaseCreated → SchemaApplied → Verified` phase transitions.
+- The credential factory is invoked only after the tenant lock and only before any resource side effect. It must generate a credential and must not perform network/database provisioning. The store validates exact database identity and requires `SSL Mode=VerifyCA` or `VerifyFull` before encrypting/persisting.
+- Agent-owned database migration: `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql`. Apply it to a separate agent control database. It is not a migration for the MG central registry or a tenant database.
+- PostgreSQL integration tests execute the checked-in ledger migration and exercise replay, concurrent duplicate requests, key reuse conflicts, failed preparation recovery and monotonic phase progression.
+
+The agent service, mTLS server/API, operation reconciliation loop, restricted PostgreSQL control role, actual resource creation/migration runner, secret-manager key loading/rotation and crash-injection tests after each external side effect remain unimplemented. Do not interpret the core library or its tests as end-to-end provisioning. Keep the platform worker disabled.
+
 ## Safe HTTP error mapping
 
 - 400, 401, 403, 404: rejected request/identity/configuration; return no sensitive details.
