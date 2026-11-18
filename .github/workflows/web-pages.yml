@@ -5,6 +5,8 @@ on:
     branches: [main, 'feature/mg-business-web-foundation']
     paths:
       - 'web/**'
+      - 'backend/**'
+      - 'docker-compose.web.yml'
       - '.github/workflows/web-pages.yml'
   pull_request:
     paths:
