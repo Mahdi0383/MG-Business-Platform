@@ -453,13 +453,31 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         if (membershipCount == 1 && membershipIsRestricted)
             return;
-        if (membershipCount != 0 || state.HasAnyMembers)
+        if (membershipCount > 1 || (membershipCount == 0 && state.HasAnyMembers))
             throw new InvalidOperationException("Tenant owner role membership must be exclusively SET-only for the agent control identity.");
 
+        // CREATE ROLE may leave the creator with an administrative membership.
+        // Explicitly downgrade it to a SET-only membership before database ownership is assigned.
         var grantSql = await FormatSqlAsync(connection, transaction,
             "SELECT format('GRANT %I TO %I WITH ADMIN FALSE, INHERIT FALSE, SET TRUE', @role, @member);",
             cancellationToken, ("role", ownerRole), ("member", controlRoleName));
         await ExecuteDdlAsync(connection, grantSql, cancellationToken, transaction);
+
+        await using var verify = new NpgsqlCommand(
+            """
+            SELECT membership.set_option
+               AND NOT membership.inherit_option
+               AND NOT membership.admin_option
+            FROM pg_auth_members membership
+            JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+            JOIN pg_roles member_role ON member_role.oid = membership.member
+            WHERE granted_role.rolname = @owner_role
+              AND member_role.rolname = @control_role;
+            """, connection, transaction);
+        verify.Parameters.AddWithValue("owner_role", NpgsqlDbType.Text, ownerRole);
+        verify.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
+        if (await verify.ExecuteScalarAsync(cancellationToken) is not true)
+            throw new InvalidOperationException("Tenant owner role membership could not be restricted to SET-only.");
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
