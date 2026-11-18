@@ -29,6 +29,13 @@ A release may not be described as complete until all applicable gates have evide
 
 ## Security
 - Authorization is enforced server-side for every protected operation.
+- Every authenticated request is bound to a specific persisted session identifier; the server rechecks that the session is active, unrevoked and unexpired at the authorization boundary.
+- Mutating operations re-read the actor's current active status, business membership, role and permission after acquiring the relevant serialization/transaction lock. Ambient request-context snapshots alone are never sufficient authorization evidence.
+- Session revocation, role changes, branch-grant changes, account deactivation and password changes take effect immediately for subsequent requests, including requests whose context was resolved before the change.
+- The local desktop staff-authentication service accepts only the business ID persisted in trusted local `StoreSettings`; a caller-supplied ID for another persisted business cannot authenticate. This single-business guard must be replaced by verified membership resolution—not bypassed—before multi-tenant identity is enabled.
+- Stale-context tests cover branch-grant removal, branch deactivation, business deactivation and live role downgrade, and verify rejected mutations leave no staff account behind.
+- Add race-condition regression tests with at least three administrators: revoke/demote one actor while retaining another active administrator, then prove the stale actor cannot create users, change roles/branch grants, deactivate staff or change passwords.
+- Authorization checks and the protected data mutation occur within a transaction/consistency boundary that prevents time-of-check/time-of-use races.
 - Public endpoints cannot reach admin APIs, local files, backups, or secrets.
 - License verification uses a public key only in the main app.
 - Secrets are not logged or committed.
