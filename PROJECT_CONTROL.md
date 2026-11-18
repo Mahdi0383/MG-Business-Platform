@@ -280,7 +280,16 @@ Progress percentages must reflect the whole product's verified production-readin
 - Next engineering priority after PR #153 validation/review: implement a durable tenant provisioning worker with lease/claim semantics, idempotency and bounded retry/dead-letter behavior; do not create tenant databases until a secret-manager adapter and least-privilege PostgreSQL provisioning credentials are designed and tested.
 - Latest verified base snapshot before PR #153: PR #105 head `8c574cd1d625566785f0a5a7e8236ad339c399ff` had five associated workflows completed successfully (MG Web build, .NET formatting, dependency audit, CodeQL, and .NET CI/Windows Release). This evidence applies only to that exact SHA, not subsequent commits.
 
+
+## 14. Latest engineering continuation — 2026-11-18
+
+- Creator OIDC PR #153 head `c152c1dd2430a74d0df752ff0cb6a7a974c6e189` completed its MG Business Web workflow successfully. This confirms the branch's backend build/tests and frontend checks in that workflow only; it does not certify an external OIDC provider integration or production identity configuration.
+- Provisioning lease/idempotency PR: [Draft PR #154](https://github.com/Mahdi0383/MG-Business-Platform/pull/154), branch `feature/mg-provisioning-job-leases`, based on PR #153. Head `714a87922f93cb030a7a603991c1c3299f384961` at this update. It adds migration 003, a unique stable idempotency key, lease owner/expiry metadata, EF mappings, model tests and runbook updates. Its CI was queued when recorded; verify exact latest head and workflow result before relying on it.
+- Migration sequence for the central platform database is now 001 → 002 → 003. Migration 003 must be applied before any worker is enabled.
+- No provisioning worker, tenant database creator, secret-manager adapter or tenant migration runner has been implemented yet. Do not activate tenants or claim automatic tenant provisioning works.
+- Next task: validate PR #154 CI and schema migration against a real disposable PostgreSQL instance; then implement atomic queue claiming with `FOR UPDATE SKIP LOCKED`, lease ownership checks, renewal/recovery, bounded retry and tests. Before external database creation, implement a secret-manager abstraction and provisioner credentials with least privilege. Do not create real customer databases until those controls are in place.
+
 ## 12. Change log
 
-- 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening and its pending exact-head CI state. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
+- 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
 - Future sessions must append dated entries with PR/commit, concrete changes, tests/results, blockers and next task. Never erase historical verification; mark superseded evidence clearly.
