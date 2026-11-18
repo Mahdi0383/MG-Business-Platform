@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: node scripts/audit-dependencies.mjs
       - name: Run frontend unit tests
         run: npm test
       - name: Build production bundle
