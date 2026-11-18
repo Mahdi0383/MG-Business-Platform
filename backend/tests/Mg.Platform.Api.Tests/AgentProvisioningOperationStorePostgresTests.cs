@@ -16,10 +16,10 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var provisioner = new FakeResourceProvisioner();
         var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
         var generated = 0;
-        ValueTask<string> CredentialFactory(CancellationToken _) 
+        ValueTask<AgentProvisioningCredentials> CredentialFactory(CancellationToken _) 
         {
             Interlocked.Increment(ref generated);
-            return ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "coordinator-secret"));
+            return ValueTask.FromResult(Fixture.Credentials($"mg_tenant_{tenantId:N}", "coordinator-secret"));
         }
 
         var first = await coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
@@ -41,8 +41,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var idempotencyKey = Guid.NewGuid();
         var provisioner = new FakeResourceProvisioner { FailMigrationOnce = true };
         var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
-        ValueTask<string> CredentialFactory(CancellationToken _) =>
-            ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "replay-secret"));
+        ValueTask<AgentProvisioningCredentials> CredentialFactory(CancellationToken _) =>
+            ValueTask.FromResult(Fixture.Credentials($"mg_tenant_{tenantId:N}", "replay-secret"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             coordinator.ProvisionAsync(new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory));
@@ -75,8 +75,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             }
         };
         var coordinator = new AgentProvisioningCoordinator(fixture.Store, provisioner, LoadMigration());
-        ValueTask<string> CredentialFactory(CancellationToken _) =>
-            ValueTask.FromResult(Fixture.ConnectionString($"mg_tenant_{tenantId:N}", "exclusive-secret"));
+        ValueTask<AgentProvisioningCredentials> CredentialFactory(CancellationToken _) =>
+            ValueTask.FromResult(Fixture.Credentials($"mg_tenant_{tenantId:N}", "exclusive-secret"));
 
         var firstTask = coordinator.ProvisionAsync(
             new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
@@ -129,9 +129,9 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             var databaseName = $"mg_tenant_{tenantId:N}";
             try
             {
-                await fixture.Store.GetOrCreatePreparedCredentialAsync(
+                await fixture.Store.GetOrCreatePreparedCredentialsAsync(
                     tenantId, idempotencyKey, databaseName,
-                    _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "one-winner-secret")));
+                    _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "one-winner-secret")));
                 return true;
             }
             catch (InvalidOperationException)
@@ -154,20 +154,20 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
         var generated = 0;
 
-        var first = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        var first = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
             _ =>
             {
                 Interlocked.Increment(ref generated);
-                return ValueTask.FromResult(Fixture.ConnectionString(databaseName, "stable-secret"));
+                return ValueTask.FromResult(Fixture.Credentials(databaseName, "stable-secret"));
             });
 
-        var replay = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        var replay = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
             _ =>
             {
                 Interlocked.Increment(ref generated);
-                return ValueTask.FromResult(Fixture.ConnectionString(databaseName, "should-not-be-used"));
+                return ValueTask.FromResult(Fixture.Credentials(databaseName, "should-not-be-used"));
             });
 
         Assert.Equal(first, replay);
@@ -192,13 +192,13 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
         var generated = 0;
 
-        async Task<string> CallAsync() =>
-            await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        async Task<AgentProvisioningCredentials> CallAsync() =>
+            await fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
                 _ =>
                 {
                     Interlocked.Increment(ref generated);
-                    return ValueTask.FromResult(Fixture.ConnectionString(databaseName, "one-time-secret"));
+                    return ValueTask.FromResult(Fixture.Credentials(databaseName, "one-time-secret"));
                 });
 
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => CallAsync()));
@@ -214,14 +214,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var tenantId = Guid.NewGuid();
         var databaseName = $"mg_tenant_{tenantId:N}";
 
-        await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, Guid.NewGuid(), databaseName,
-            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "secret-one")));
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-one")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, Guid.NewGuid(), databaseName,
-                _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "secret-two"))));
+                _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-two"))));
     }
 
     [Fact]
@@ -234,14 +234,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseA = $"mg_tenant_{tenantA:N}";
         var databaseB = $"mg_tenant_{tenantB:N}";
 
-        await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantA, idempotencyKey, databaseA,
-            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseA, "secret-one")));
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseA, "secret-one")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantB, idempotencyKey, databaseB,
-                _ => ValueTask.FromResult(Fixture.ConnectionString(databaseB, "secret-two"))));
+                _ => ValueTask.FromResult(Fixture.Credentials(databaseB, "secret-two"))));
     }
 
     [Fact]
@@ -253,21 +253,22 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
                 _ => ValueTask.FromResult(
                     "Host=localhost;Database=another_db;Username=tenant_app;Password=secret;SSL Mode=VerifyFull")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
-                _ => ValueTask.FromResult(
-                    $"Host=localhost;Database={databaseName};Username=tenant_app;Password=secret;SSL Mode=Require")));
+                _ => ValueTask.FromResult(new AgentProvisioningCredentials(
+                    $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=secret;SSL Mode=Require",
+                    Fixture.Credentials(databaseName, "owner-test").OwnerConnectionString))));
 
-        var valid = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        var valid = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
-            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "valid-secret")));
-        Assert.Contains("valid-secret", valid, StringComparison.Ordinal);
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "valid-secret")));
+        Assert.Contains("valid-secret", valid.ApplicationConnectionString, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -279,15 +280,16 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
-                _ => ValueTask.FromResult(
-                    $"Host=localhost;Database={databaseName};Username=other_role;Password=secret;SSL Mode=VerifyFull")));
+                _ => ValueTask.FromResult(new AgentProvisioningCredentials(
+                    $"Host=localhost;Database={databaseName};Username=other_role;Password=secret;SSL Mode=VerifyFull",
+                    Fixture.Credentials(databaseName, "owner-test").OwnerConnectionString))));
 
-        var valid = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        var valid = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
-            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "valid-role-secret")));
-        Assert.Contains($"{databaseName}_app", valid, StringComparison.Ordinal);
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "valid-role-secret")));
+        Assert.Contains($"{databaseName}_app", valid.ApplicationConnectionString, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -299,14 +301,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialAsync(
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, idempotencyKey, databaseName,
-                _ => ValueTask.FromException<string>(new InvalidOperationException("safe test failure"))));
+                _ => ValueTask.FromException<AgentProvisioningCredentials>(new InvalidOperationException("safe test failure"))));
 
-        var created = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+        var created = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
-            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "retry-secret")));
-        Assert.Contains("retry-secret", created, StringComparison.Ordinal);
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "retry-secret")));
+        Assert.Contains("retry-secret", created.ApplicationConnectionString, StringComparison.Ordinal);
     }
 
     private sealed class FakeResourceProvisioner : ITenantResourceProvisioner
@@ -320,21 +322,23 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         public async Task EnsureDatabaseAndRolesAsync(
             Guid tenantId, Guid idempotencyKey, string databaseName,
-            string applicationConnectionString, CancellationToken cancellationToken)
+            AgentProvisioningCredentials credentials, CancellationToken cancellationToken)
         {
             EnsureCalls++;
             Assert.Equal($"mg_tenant_{tenantId:N}", databaseName);
             Assert.NotEqual(Guid.Empty, idempotencyKey);
-            Assert.Contains(databaseName, applicationConnectionString, StringComparison.Ordinal);
+            Assert.Contains(databaseName, credentials.ApplicationConnectionString, StringComparison.Ordinal);
+            Assert.Contains($"{databaseName}_owner", credentials.OwnerConnectionString, StringComparison.Ordinal);
             if (OnEnsure is not null)
                 await OnEnsure(cancellationToken);
         }
 
         public Task ApplyTenantSchemaAsync(
-            Guid tenantId, string applicationConnectionString, TenantSchemaMigrationArtifact migration,
+            Guid tenantId, AgentProvisioningCredentials credentials, TenantSchemaMigrationArtifact migration,
             CancellationToken cancellationToken)
         {
             MigrationCalls++;
+            Assert.Contains($"mg_tenant_{tenantId:N}_owner", credentials.OwnerConnectionString, StringComparison.Ordinal);
             Assert.Equal(1, migration.Version);
             Assert.Equal("tenant_core_baseline", migration.Name);
             Assert.Matches("^[a-f0-9]{64}$", migration.Sha256);
@@ -402,8 +406,10 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 new AgentProvisioningOperationStore(dataSource, protector));
         }
 
-        public static string ConnectionString(string databaseName, string password) =>
-            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password={password};SSL Mode=VerifyFull";
+        public static AgentProvisioningCredentials Credentials(string databaseName, string password) =>
+            new(
+                $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password={password};SSL Mode=VerifyFull",
+                $"Host=localhost;Database={databaseName};Username={databaseName}_owner;Password={password}-owner;SSL Mode=VerifyFull");
 
         public async ValueTask DisposeAsync()
         {
