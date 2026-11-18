@@ -1,0 +1,184 @@
+using System.Security.Cryptography;
+using Mg.Provisioning.Agent.Core;
+using Npgsql;
+using NpgsqlTypes;
+
+namespace Mg.Provisioning.Agent.Api;
+
+/// <summary>
+/// Connects the mTLS HTTP boundary to the isolated agent core. The agent ledger migration
+/// must already be applied and the control role must have only the reviewed privileges.
+/// </summary>
+public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, IDisposable
+{
+    private readonly string controlConnectionString;
+    private readonly NpgsqlDataSource dataSource;
+    private readonly AgentCredentialProtector credentialProtector;
+    private readonly AgentProvisioningCoordinator coordinator;
+    private bool disposed;
+
+    private NpgsqlAgentProvisioningHandler(
+        string controlConnectionString,
+        NpgsqlDataSource dataSource,
+        AgentCredentialProtector credentialProtector,
+        AgentProvisioningCoordinator coordinator)
+    {
+        this.controlConnectionString = controlConnectionString;
+        this.dataSource = dataSource;
+        this.credentialProtector = credentialProtector;
+        this.coordinator = coordinator;
+    }
+
+    public static NpgsqlAgentProvisioningHandler? TryCreate(
+        IConfiguration configuration,
+        string applicationBaseDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var controlConnectionString = configuration["Agent:ControlDatabase:ConnectionString"];
+        var currentKeyId = configuration["Agent:CredentialEncryption:CurrentKeyId"];
+        var keys = configuration.GetSection("Agent:CredentialEncryption:Keys")
+            .GetChildren()
+            .Where(child => !string.IsNullOrWhiteSpace(child.Value))
+            .ToDictionary(child => child.Key, child => child.Value!, StringComparer.Ordinal);
+
+        var anyConfigured = !string.IsNullOrWhiteSpace(controlConnectionString)
+            || !string.IsNullOrWhiteSpace(currentKeyId)
+            || keys.Count > 0;
+        if (!anyConfigured)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(controlConnectionString)
+            || string.IsNullOrWhiteSpace(currentKeyId)
+            || keys.Count == 0)
+            throw new InvalidOperationException(
+                "Agent provisioning requires a control database connection and a complete credential encryption key ring.");
+
+        var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
+        if (string.IsNullOrWhiteSpace(parsed.Host)
+            || string.IsNullOrWhiteSpace(parsed.Database)
+            || string.IsNullOrWhiteSpace(parsed.Username)
+            || string.IsNullOrWhiteSpace(parsed.Password)
+            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
+            throw new InvalidOperationException(
+                "Agent control database connection must use strict TLS and complete credentials.");
+
+        parsed.Pooling = false;
+        var normalizedControlConnectionString = parsed.ConnectionString;
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(applicationBaseDirectory);
+        var protector = new AgentCredentialProtector(currentKeyId, keys);
+        NpgsqlDataSource? dataSource = null;
+
+        try
+        {
+            dataSource = NpgsqlDataSource.Create(normalizedControlConnectionString);
+            var store = new AgentProvisioningOperationStore(dataSource, protector);
+            var provisioner = new NpgsqlTenantResourceProvisioner(normalizedControlConnectionString);
+            var coordinator = new AgentProvisioningCoordinator(store, provisioner, migration);
+            return new NpgsqlAgentProvisioningHandler(
+                normalizedControlConnectionString, dataSource, protector, coordinator);
+        }
+        catch
+        {
+            dataSource?.Dispose();
+            protector.Dispose();
+            throw;
+        }
+    }
+
+    public async Task<string> ProvisionAsync(
+        AgentProvisioningRequest request,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        return await coordinator.ProvisionAsync(
+            request,
+            token =>
+            {
+                token.ThrowIfCancellationRequested();
+                var databaseName = $"mg_tenant_{request.TenantId:N}";
+                var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+                {
+                    Database = databaseName,
+                    Username = $"{databaseName}_app",
+                    Password = GenerateApplicationPassword(),
+                    Pooling = true
+                };
+                return ValueTask.FromResult(builder.ConnectionString);
+            },
+            cancellationToken);
+    }
+
+    public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT role.rolcanlogin,
+                       role.rolsuper,
+                       role.rolcreatedb,
+                       role.rolcreaterole,
+                       role.rolreplication,
+                       role.rolbypassrls,
+                       role.rolinherit,
+                       to_regclass('mg_agent.provisioning_operations') IS NOT NULL,
+                       has_schema_privilege(current_user, 'mg_agent', 'USAGE'),
+                       has_schema_privilege(current_user, 'mg_agent', 'CREATE'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE'),
+                       has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE'),
+                       has_database_privilege(current_user, current_database(), 'CREATE')
+                FROM pg_roles role
+                WHERE role.rolname = current_user;
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return false;
+
+            return reader.GetBoolean(0)
+                && !reader.GetBoolean(1)
+                && reader.GetBoolean(2)
+                && reader.GetBoolean(3)
+                && !reader.GetBoolean(4)
+                && !reader.GetBoolean(5)
+                && !reader.GetBoolean(6)
+                && reader.GetBoolean(7)
+                && reader.GetBoolean(8)
+                && !reader.GetBoolean(9)
+                && reader.GetBoolean(10)
+                && reader.GetBoolean(11)
+                && reader.GetBoolean(12)
+                && !reader.GetBoolean(13)
+                && !reader.GetBoolean(14)
+                && !reader.GetBoolean(15);
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        dataSource.Dispose();
+        credentialProtector.Dispose();
+        disposed = true;
+    }
+
+    private static string GenerateApplicationPassword() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+    }
+}
