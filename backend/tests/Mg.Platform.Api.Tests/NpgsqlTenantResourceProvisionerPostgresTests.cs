@@ -32,7 +32,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
 
         var verified = await fixture.Provisioner.VerifyRuntimeAsync(
-            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
             migration.Version, migration.Sha256, CancellationToken.None);
 
         Assert.True(verified);
@@ -77,7 +77,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             TenantId = tenantId;
             IdempotencyKey = idempotencyKey;
             DatabaseName = databaseName;
-            ApplicationConnectionString = applicationConnectionString;
+            Credentials = credentials;
             this.ownerConnectionString = ownerConnectionString;
             Credentials = new AgentProvisioningCredentials(applicationConnectionString, ownerConnectionString);
             ownerRoleName = $"{databaseName}_owner";
@@ -88,7 +88,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public Guid TenantId { get; }
         public Guid IdempotencyKey { get; }
         public string DatabaseName { get; }
-        public string ApplicationConnectionString { get; }
+        public AgentProvisioningCredentials Credentials { get; }
+        public string ApplicationConnectionString => Credentials.ApplicationConnectionString;
         public AgentProvisioningCredentials Credentials { get; }
         public NpgsqlTenantResourceProvisioner Provisioner { get; }
 
