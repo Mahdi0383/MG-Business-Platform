@@ -15,21 +15,21 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
         await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
             fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
-            fixture.ApplicationConnectionString, CancellationToken.None);
+            fixture.Credentials, CancellationToken.None);
 
         // Simulate a crash after CREATE DATABASE but before its immutable comment was stored.
         await fixture.SetDatabaseCommentAsync(null);
         await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
             fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
-            fixture.ApplicationConnectionString, CancellationToken.None);
+            fixture.Credentials, CancellationToken.None);
 
         var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
         await fixture.Provisioner.ApplyTenantSchemaAsync(
-            fixture.TenantId, fixture.ApplicationConnectionString, migration, CancellationToken.None);
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
 
         // Simulate a retry after the migration committed but before the coordinator advanced its phase.
         await fixture.Provisioner.ApplyTenantSchemaAsync(
-            fixture.TenantId, fixture.ApplicationConnectionString, migration, CancellationToken.None);
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
 
         var verified = await fixture.Provisioner.VerifyRuntimeAsync(
             fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
@@ -45,13 +45,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
             fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
-            fixture.ApplicationConnectionString, CancellationToken.None);
+            fixture.Credentials, CancellationToken.None);
         await fixture.SetDatabaseCommentAsync("mg-tenant:wrong:database:v1");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Provisioner.EnsureDatabaseAndRolesAsync(
                 fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
-                fixture.ApplicationConnectionString, CancellationToken.None));
+                fixture.Credentials, CancellationToken.None));
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -60,6 +60,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
         private readonly string applicationRoleName;
+        private readonly string ownerConnectionString;
 
         private Fixture(
             string adminConnectionString,
@@ -68,7 +69,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             Guid tenantId,
             Guid idempotencyKey,
             string databaseName,
-            string applicationConnectionString)
+            string applicationConnectionString,
+            string ownerConnectionString)
         {
             this.adminConnectionString = adminConnectionString;
             this.controlRoleName = controlRoleName;
@@ -76,6 +78,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             IdempotencyKey = idempotencyKey;
             DatabaseName = databaseName;
             ApplicationConnectionString = applicationConnectionString;
+            this.ownerConnectionString = ownerConnectionString;
+            Credentials = new AgentProvisioningCredentials(applicationConnectionString, ownerConnectionString);
             ownerRoleName = $"{databaseName}_owner";
             applicationRoleName = $"{databaseName}_app";
             Provisioner = new NpgsqlTenantResourceProvisioner(controlConnectionString);
@@ -85,6 +89,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public Guid IdempotencyKey { get; }
         public string DatabaseName { get; }
         public string ApplicationConnectionString { get; }
+        public AgentProvisioningCredentials Credentials { get; }
         public NpgsqlTenantResourceProvisioner Provisioner { get; }
 
         public static async Task<Fixture> CreateAsync()
@@ -126,12 +131,20 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             var tenantId = Guid.NewGuid();
             var databaseName = $"mg_tenant_{tenantId:N}";
             var appPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            var ownerPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             var app = new NpgsqlConnectionStringBuilder(control.ConnectionString)
             {
                 Database = databaseName,
                 Username = $"{databaseName}_app",
                 Password = appPassword,
                 Pooling = true
+            };
+            var owner = new NpgsqlConnectionStringBuilder(control.ConnectionString)
+            {
+                Database = databaseName,
+                Username = $"{databaseName}_owner",
+                Password = ownerPassword,
+                Pooling = false
             };
 
             return new Fixture(
@@ -141,7 +154,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 tenantId,
                 Guid.NewGuid(),
                 databaseName,
-                app.ConnectionString);
+                app.ConnectionString,
+                owner.ConnectionString);
         }
 
         public async Task SetDatabaseCommentAsync(string? comment)
@@ -155,6 +169,34 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             var ddl = (string)(await format.ExecuteScalarAsync())!;
             await using var command = new NpgsqlCommand(ddl, connection);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task AssertOwnerRoleIsRestrictedAsync()
+        {
+            await using var connection = new NpgsqlConnection(ownerConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT current_user,
+                       pg_get_userbyid(database.datdba),
+                       role.rolcanlogin,
+                       role.rolsuper,
+                       role.rolcreatedb,
+                       role.rolcreaterole,
+                       role.rolreplication,
+                       role.rolbypassrls,
+                       role.rolinherit
+                FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                WHERE role.rolname = current_user;
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(ownerRoleName, reader.GetString(0));
+            Assert.Equal(ownerRoleName, reader.GetString(1));
+            Assert.True(reader.GetBoolean(2));
+            for (var index = 3; index <= 8; index++)
+                Assert.False(reader.GetBoolean(index));
         }
 
         public async Task AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync()
