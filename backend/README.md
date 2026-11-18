@@ -27,7 +27,7 @@ dotnet restore
 dotnet run
 ```
 
-Apply reviewed EF Core migrations before production use; the service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
+Apply the reviewed SQL migration in `database/migrations/001_create_business_registry.sql` to the MG central database before using registry endpoints. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
 
 ## Initial endpoints
 
