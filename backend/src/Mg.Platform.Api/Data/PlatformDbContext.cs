@@ -30,6 +30,9 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         job.Property(x => x.BusinessId).HasColumnName("business_id");
         job.Property(x => x.Status).HasColumnName("status").HasMaxLength(20).IsRequired();
         job.Property(x => x.Attempts).HasColumnName("attempts");
+        job.Property(x => x.IdempotencyKey).HasColumnName("idempotency_key").IsRequired();
+        job.Property(x => x.LeaseOwner).HasColumnName("lease_owner").HasMaxLength(120);
+        job.Property(x => x.LeaseExpiresAtUtc).HasColumnName("lease_expires_at_utc");
         job.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         job.Property(x => x.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
         job.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
@@ -38,6 +41,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         job.HasOne<BusinessTenant>().WithMany().HasForeignKey(x => x.BusinessId)
             .OnDelete(DeleteBehavior.Restrict);
         job.HasIndex(x => new { x.Status, x.NextAttemptAtUtc, x.CreatedAtUtc });
+        job.HasIndex(x => x.IdempotencyKey).IsUnique();
+        job.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
         job.HasIndex(x => new { x.BusinessId, x.CreatedAtUtc });
     }
 }
