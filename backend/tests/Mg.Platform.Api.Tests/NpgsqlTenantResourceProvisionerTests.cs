@@ -103,6 +103,51 @@ public sealed class NpgsqlTenantResourceProvisionerTests
     }
 
     [Fact]
+    public async Task RejectsOwnerCredentialWithNonDeterministicRoleName()
+    {
+        var provisioner = CreateProvisioner();
+        var tenantId = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var app = $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull";
+        var owner = $"Host=localhost;Database={databaseName};Username=wrong_owner;Password=owner-secret;SSL Mode=VerifyFull";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provisioner.EnsureDatabaseAndRolesAsync(
+                tenantId, Guid.NewGuid(), databaseName,
+                new AgentProvisioningCredentials(app, owner), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RejectsOwnerCredentialToDifferentPostgresHost()
+    {
+        var provisioner = CreateProvisioner();
+        var tenantId = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var app = $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull";
+        var owner = $"Host=untrusted-db.internal;Database={databaseName};Username={databaseName}_owner;Password=owner-secret;SSL Mode=VerifyFull";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provisioner.EnsureDatabaseAndRolesAsync(
+                tenantId, Guid.NewGuid(), databaseName,
+                new AgentProvisioningCredentials(app, owner), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RejectsOwnerCredentialWithoutStrictTls()
+    {
+        var provisioner = CreateProvisioner();
+        var tenantId = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var app = $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull";
+        var owner = $"Host=localhost;Database={databaseName};Username={databaseName}_owner;Password=owner-secret;SSL Mode=Require";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provisioner.EnsureDatabaseAndRolesAsync(
+                tenantId, Guid.NewGuid(), databaseName,
+                new AgentProvisioningCredentials(app, owner), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RejectsInvalidTenantDatabaseIdentityBeforeConnecting()
     {
         var provisioner = CreateProvisioner();
