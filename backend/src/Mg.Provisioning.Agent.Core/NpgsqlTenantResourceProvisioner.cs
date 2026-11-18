@@ -271,6 +271,70 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         return app;
     }
 
+    private NpgsqlConnectionStringBuilder ValidateOwnerConnection(
+        string ownerConnectionString, Guid tenantId, string expectedDatabase)
+    {
+        NpgsqlConnectionStringBuilder owner;
+        try
+        {
+            owner = new NpgsqlConnectionStringBuilder(ownerConnectionString);
+        }
+        catch (ArgumentException)
+        {
+            throw new InvalidOperationException("Tenant owner credential is malformed.");
+        }
+
+        if (!string.Equals(owner.Database, expectedDatabase, StringComparison.Ordinal)
+            || !string.Equals(owner.Username, $"{expectedDatabase}_owner", StringComparison.Ordinal)
+            || !string.Equals(owner.Host, controlHost, StringComparison.OrdinalIgnoreCase)
+            || owner.Port != controlPort
+            || string.IsNullOrWhiteSpace(owner.Password)
+            || owner.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
+            throw new InvalidOperationException("Tenant owner credential does not match its immutable identity or strict TLS policy.");
+
+        return owner;
+    }
+
+    private static async Task VerifyTenantOwnerConnectionAsync(
+        NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT current_user,
+                   pg_get_userbyid(database.datdba),
+                   role.rolcanlogin,
+                   role.rolsuper,
+                   role.rolcreatedb,
+                   role.rolcreaterole,
+                   role.rolreplication,
+                   role.rolbypassrls,
+                   role.rolinherit,
+                   EXISTS (SELECT 1 FROM pg_auth_members membership
+                           WHERE membership.member = role.oid OR membership.roleid = role.oid),
+                   COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
+                   COALESCE(shobj_description(database.oid, 'pg_database'), '')
+            FROM pg_roles role
+            JOIN pg_database database ON database.datname = current_database()
+            WHERE role.rolname = current_user;
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)
+            || !string.Equals(reader.GetString(0), OwnerRoleName(tenantId), StringComparison.Ordinal)
+            || !string.Equals(reader.GetString(1), OwnerRoleName(tenantId), StringComparison.Ordinal)
+            || !reader.GetBoolean(2)
+            || reader.GetBoolean(3)
+            || reader.GetBoolean(4)
+            || reader.GetBoolean(5)
+            || reader.GetBoolean(6)
+            || reader.GetBoolean(7)
+            || reader.GetBoolean(8)
+            || reader.GetBoolean(9)
+            || !string.Equals(reader.GetString(10), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
+            || !string.Equals(reader.GetString(11), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("Tenant owner database identity or restricted role verification failed.");
+    }
+
     private async Task VerifyControlRoleAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
     {
         await using var command = new NpgsqlCommand(
@@ -365,47 +429,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             reader.GetBoolean(0), reader.GetBoolean(1), reader.GetBoolean(2), reader.GetBoolean(3),
             reader.GetBoolean(4), reader.GetBoolean(5), reader.GetBoolean(6), reader.GetString(7),
             reader.GetBoolean(8), reader.GetBoolean(9), reader.GetBoolean(10));
-    }
-
-    private async Task EnsureOwnerMembershipAsync(
-        NpgsqlConnection connection, NpgsqlTransaction transaction, string ownerRole, CancellationToken cancellationToken)
-    {
-        var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken, transaction)
-            ?? throw new InvalidOperationException("Tenant owner role was not created.");
-        if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
-            throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
-
-        if (!state.HasAnyMembers)
-        {
-            var grantSql = await FormatSqlAsync(connection, transaction,
-                "SELECT format('GRANT %I TO %I', @role, @member);",
-                cancellationToken, ("role", ownerRole), ("member", controlRoleName));
-            await ExecuteDdlAsync(connection, grantSql, cancellationToken, transaction);
-        }
-        else
-        {
-            var controlMembership = await RoleMembershipExistsAsync(connection, ownerRole, controlRoleName, cancellationToken, transaction);
-            if (!controlMembership)
-                throw new InvalidOperationException("Tenant owner role membership is not held by the isolated agent control identity.");
-        }
-    }
-
-    private async Task<bool> RoleMembershipExistsAsync(
-        NpgsqlConnection connection, string roleName, string memberName, CancellationToken cancellationToken,
-        NpgsqlTransaction? transaction = null)
-    {
-        await using var command = new NpgsqlCommand(
-            """
-            SELECT EXISTS (
-                SELECT 1 FROM pg_auth_members membership
-                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-                JOIN pg_roles member_role ON member_role.oid = membership.member
-                WHERE granted_role.rolname = @role AND member_role.rolname = @member
-            );
-            """, connection, transaction);
-        command.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
-        command.Parameters.AddWithValue("member", NpgsqlDbType.Text, memberName);
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 
     private async Task EnsureDatabaseAsync(
@@ -525,11 +548,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await ExecuteDdlAsync(connection, sql, cancellationToken);
     }
 
-    private async Task SetTenantMigrationContextAsync(
+    private static async Task SetTenantMigrationContextAsync(
         NpgsqlConnection connection, Guid tenantId, string checksum, CancellationToken cancellationToken)
     {
-        await using var setRole = new NpgsqlCommand($"SET ROLE {QuoteIdentifier(OwnerRoleName(tenantId))};", connection);
-        await setRole.ExecuteNonQueryAsync(cancellationToken);
         await using var command = new NpgsqlCommand(
             "SELECT set_config('mg.tenant_id', @tenant_id, false), set_config('mg.migration_checksum', @checksum, false);",
             connection);
