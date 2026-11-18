@@ -160,6 +160,26 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
             {
                 await owner.OpenAsync();
+                await using var grantAuditTrigger = new NpgsqlCommand(
+                    $"GRANT TRIGGER ON mg.audit_events TO {quotedRole}", owner);
+                await grantAuditTrigger.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokeAuditTrigger = new NpgsqlCommand(
+                    $"REVOKE TRIGGER ON mg.audit_events FROM {quotedRole}", owner);
+                await revokeAuditTrigger.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
                 await using var grantSchemaCreate = new NpgsqlCommand(
                     $"GRANT CREATE ON SCHEMA mg TO {quotedRole}", owner);
                 await grantSchemaCreate.ExecuteNonQueryAsync();
