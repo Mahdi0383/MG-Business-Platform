@@ -56,7 +56,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.NotEqual(job.LeaseToken, claimed.LeaseToken);
         Assert.False(await service.RenewAsync(job.Id, "old-worker", job.LeaseToken!.Value,
             TimeSpan.FromMinutes(1), CancellationToken.None));
-        Assert.True(await service.RenewAsync(job.Id, "new-worker", claimed.LeaseToken.Value,
+        Assert.True(await service.RenewAsync(job.Id, "new-worker", claimed.LeaseToken!.Value,
             TimeSpan.FromMinutes(1), CancellationToken.None));
     }
 
@@ -86,7 +86,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.False(await service.MarkFailedAsync(job.Id, "reused-worker", staleToken,
             "STALE_ATTEMPT", permanent: true, CancellationToken.None));
 
-        Assert.True(await service.RenewAsync(job.Id, "reused-worker", reclaimed.LeaseToken.Value,
+        Assert.True(await service.RenewAsync(job.Id, "reused-worker", reclaimed.LeaseToken!.Value,
             TimeSpan.FromMinutes(1), CancellationToken.None));
     }
 
@@ -135,7 +135,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.Null(stored.LeaseToken);
         Assert.Null(stored.LeaseExpiresAtUtc);
         Assert.Equal("PROVIDER_DENIED", stored.LastErrorCode);
-        Assert.False(await service.MarkFailedAsync(job.Id, "worker-failure", claimed.LeaseToken.Value,
+        Assert.False(await service.MarkFailedAsync(job.Id, "worker-failure", claimed.LeaseToken!.Value,
             "PROVIDER_DENIED", permanent: true, CancellationToken.None));
     }
 
@@ -154,7 +154,7 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.True(await service.MarkSucceededAsync(
             job.Id, "worker-success", claimed.LeaseToken!.Value, CancellationToken.None));
         Assert.False(await service.MarkSucceededAsync(
-            job.Id, "worker-success", claimed.LeaseToken.Value, CancellationToken.None));
+            job.Id, "worker-success", claimed.LeaseToken!.Value, CancellationToken.None));
 
         var storedJob = await context.TenantProvisioningJobs.AsNoTracking()
             .SingleAsync(item => item.Id == job.Id);
