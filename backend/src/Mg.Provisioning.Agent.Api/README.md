@@ -20,6 +20,40 @@ The HTTP surface is intentionally narrow:
 
 The POST endpoint accepts only the exact JSON fields `tenantId`, `idempotencyKey` and `databaseName`; rejects unknown/duplicate properties and mismatched UUID-derived database names; caps request bodies at 4 KiB; and rate-limits each client certificate. Error responses contain stable codes only. Exception messages, SQL and credentials are never logged.
 
-## Not production-ready yet
+
+## Enabling the real handler
+
+The API now conditionally registers `NpgsqlAgentProvisioningHandler` only when all of the following are present:
+- `Agent__ControlDatabase__ConnectionString`: dedicated agent-control PostgreSQL connection, using `SSL Mode=VerifyCA` or `VerifyFull`, a trusted root certificate, and a non-superuser login with `CREATEDB` + `CREATEROLE`, `NOINHERIT`, no replication and no BYPASSRLS.
+- `Agent__CredentialEncryption__CurrentKeyId`: active encryption key ID.
+- `Agent__CredentialEncryption__Keys__<key-id>`: base64-encoded 32-byte AES-256 key for each active/retained key ID. Inject from a runtime secret manager; never commit or bake into images.
+
+The handler constructs the PostgreSQL operation ledger, AES-GCM protector, exact packaged tenant migration artifact, coordinator and Npgsql tenant provisioner. It generates the application password once, stores the complete app connection string only in the encrypted agent ledger, and returns it only over mTLS after database/schema/runtime verification.
+
+### Agent control database bootstrap
+
+Create the `mg_agent_control` database and a dedicated control role using a separate database administrator. Example role attributes (replace the password through secure secret injection):
+
+```sql
+CREATE ROLE mg_agent_control
+    LOGIN PASSWORD '<runtime-secret>'
+    CREATEDB CREATEROLE
+    NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS;
+```
+
+Use a separate migration identity to apply `agent-database/migrations/001_agent_provisioning_ledger.sql` to the agent control database. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. Grant only:
+
+```sql
+GRANT CONNECT ON DATABASE mg_agent_control TO mg_agent_control;
+GRANT USAGE ON SCHEMA mg_agent TO mg_agent_control;
+GRANT SELECT, INSERT, UPDATE
+    ON TABLE mg_agent.provisioning_operations TO mg_agent_control;
+```
+
+Do not grant DELETE, TRUNCATE, schema CREATE, database ownership or table ownership. Readiness stays 503 until the ledger exists and the live control role/privilege checks pass. The tenant baseline migration is packaged at `tenant-database/migrations/001_tenant_core_baseline.sql` and is applied by the agent provisioner only after the tenant database and owner/runtime roles have been safely created.
+
+The API host does not auto-run either agent or tenant migrations. Provisioning configuration being present is not sufficient by itself: readiness verifies the agent control database. Production rollout still requires a live TLS-enabled PostgreSQL integration environment, crash injection at database/role/migration/grant boundaries, key rotation and backup/restore drills.
+
+## Remaining production rollout gates
 
 No `IAgentProvisioningHandler` is registered. Therefore readiness returns 503 and provisioning requests return 503 even after valid mTLS authentication. This is deliberate: the host must never return a fabricated connection string or report success until the real restricted PostgreSQL provisioner, exact tenant migration runner, independent runtime verification, secret-manager key loading and crash recovery are implemented and tested. Do not deploy or enable the platform worker yet.
