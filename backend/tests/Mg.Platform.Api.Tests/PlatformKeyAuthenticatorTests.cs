@@ -1,5 +1,6 @@
 using Mg.Platform.Api.Security;
 using Microsoft.Extensions.Configuration;
+using Xunit;
 
 namespace Mg.Platform.Api.Tests;
 
