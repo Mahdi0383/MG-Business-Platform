@@ -136,7 +136,7 @@ public sealed class TenantProvisioningHandlerPostgresTests
     };
 
     private static string ConnectionString(Guid tenantId) =>
-        $"Host=localhost;Database=mg_tenant_{tenantId:N};Username=tenant;Password=secret;SSL Mode=VerifyFull";
+        $"Host=localhost;Database=mg_tenant_{tenantId:N};Username=mg_tenant_{tenantId:N}_app;Password=secret;SSL Mode=VerifyFull";
 
     private sealed class FakeSecretStore : ITenantSecretStore
     {
