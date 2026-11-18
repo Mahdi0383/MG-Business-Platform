@@ -51,7 +51,7 @@ function CreatorConsole() {
           </div>
           <div className="creator-grid">
             <section className="creator-panel"><div className="creator-panel-head"><div><h2>وضعیت سرویس‌های اصلی</h2><p>نمایش سلامت اجزای زیرساخت</p></div><span className="creator-demo-tag">نمونه</span></div>
-              {['MG Control Plane API','Business API Gateway','PostgreSQL — Central','Tenant Database Router','Background Workers','Object Storage'].map((name,i)=><div className="service-row" key={name}><span className="service-dot" style={{opacity:i===4?.45:1}}/><b>{name}</b><small>{i===4?'در حال بررسی':'نمایشی'}</small></div>)}
+              {['MG Control Plane API','Business API Gateway','PostgreSQL — Central','Tenant Database Router','Background Workers','Object Storage'].map((name,i)=><div className="service-row" key={name}><span className="service-dot" style={{opacity:i === 4 ? 0.45 : 1}}/><b>{name}</b><small>{i===4?'در حال بررسی':'نمایشی'}</small></div>)}
             </section>
             <section className="creator-panel"><div className="creator-panel-head"><div><h2>توزیع طرح‌های اشتراک</h2><p>تقسیم‌بندی نمونه مشتریان</p></div></div>
               {[['Starter',32],['Professional',58],['Business',76],['Enterprise',24]].map(([name,value])=><div className="plan-meter" key={name}><div><b>{name}</b><small>{value}%</small></div><i><span style={{width:value+'%'}}/></i></div>)}
