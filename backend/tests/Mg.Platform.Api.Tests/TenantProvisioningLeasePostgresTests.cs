@@ -229,7 +229,7 @@ public sealed class TenantProvisioningLeasePostgresTests
                 Name = slug,
                 Slug = slug,
                 Status = "PendingProvisioning",
-                DatabaseSecretReference = $"tenants/{slug}/postgres"
+                DatabaseSecretReference = $"tenants/{business.Id:N}/postgres"
             };
             var job = new TenantProvisioningJob
             {
