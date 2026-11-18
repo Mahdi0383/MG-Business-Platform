@@ -165,7 +165,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        has_table_privilege(current_user, 'mg.customers', 'SELECT'),
                        has_table_privilege(current_user, 'mg.customers', 'INSERT'),
                        has_table_privilege(current_user, 'mg.customers', 'UPDATE'),
-                       has_table_privilege(current_user, 'mg.customers', 'DELETE')
+                       has_table_privilege(current_user, 'mg.customers', 'DELETE'),
+                       EXISTS (SELECT 1 FROM pg_class relation
+                               JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+                               WHERE namespace.nspname = 'mg' AND relation.relowner = role.oid),
+                       EXISTS (SELECT 1 FROM pg_proc routine
+                               JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                               WHERE namespace.nspname = 'mg' AND routine.proowner = role.oid)
                 FROM mg.tenant_identity identity
                 JOIN mg.schema_migrations migration ON migration.version = @version
                 JOIN pg_roles role ON role.rolname = current_user
@@ -224,7 +230,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 && reader.GetBoolean(37)
                 && reader.GetBoolean(38)
                 && reader.GetBoolean(39)
-                && reader.GetBoolean(40);
+                && reader.GetBoolean(40)
+                && !reader.GetBoolean(41)
+                && !reader.GetBoolean(42);
         }
         catch (NpgsqlException)
         {
