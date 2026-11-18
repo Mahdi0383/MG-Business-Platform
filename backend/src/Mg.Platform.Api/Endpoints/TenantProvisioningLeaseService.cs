@@ -6,8 +6,8 @@ using Npgsql;
 namespace Mg.Platform.Api.Endpoints;
 
 /// <summary>
-/// Atomic PostgreSQL queue lease operations. This is infrastructure only:
-/// it does not create tenant databases or activate tenants by itself.
+/// Atomic PostgreSQL queue lease operations. This infrastructure does not create
+/// tenant databases; it only manages durable work ownership and registry state.
 /// </summary>
 public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
 {
@@ -78,6 +78,22 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
         {
             if (closeConnection) await db.Database.CloseConnectionAsync();
         }
+    }
+
+    public Task<int> DeadLetterExhaustedAsync(CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return db.TenantProvisioningJobs
+            .Where(job => job.Attempts >= MaxAttempts
+                && (job.Status == TenantProvisioningStatus.Pending
+                    || job.Status == TenantProvisioningStatus.Retry
+                    || (job.Status == TenantProvisioningStatus.Running
+                        && job.LeaseExpiresAtUtc <= now)))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(job => job.Status, TenantProvisioningStatus.DeadLetter)
+                .SetProperty(job => job.LastErrorCode, "LEASE_EXHAUSTED")
+                .SetProperty(job => job.LeaseOwner, (string?)null)
+                .SetProperty(job => job.LeaseExpiresAtUtc, (DateTimeOffset?)null), cancellationToken);
     }
 
     public async Task<bool> RenewAsync(
