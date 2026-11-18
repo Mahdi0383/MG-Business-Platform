@@ -383,7 +383,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         }
 
         public static string ConnectionString(string databaseName, string password) =>
-            $"Host=localhost;Database={databaseName};Username=tenant_app;Password={password};SSL Mode=VerifyFull";
+            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password={password};SSL Mode=VerifyFull";
 
         public async ValueTask DisposeAsync()
         {
