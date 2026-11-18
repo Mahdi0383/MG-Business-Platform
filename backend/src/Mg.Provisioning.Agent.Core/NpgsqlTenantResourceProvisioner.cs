@@ -458,8 +458,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         // CREATE ROLE may leave the creator with an administrative membership.
         // Explicitly downgrade it to a SET-only membership before database ownership is assigned.
+        var revokeAdminSql = await FormatSqlAsync(connection, transaction,
+            "SELECT format('REVOKE ADMIN OPTION FOR %I FROM %I', @role, @member);",
+            cancellationToken, ("role", ownerRole), ("member", controlRoleName));
+        await ExecuteDdlAsync(connection, revokeAdminSql, cancellationToken, transaction);
+
         var grantSql = await FormatSqlAsync(connection, transaction,
-            "SELECT format('GRANT %I TO %I WITH ADMIN FALSE, INHERIT FALSE, SET TRUE', @role, @member);",
+            "SELECT format('GRANT %I TO %I WITH INHERIT FALSE, SET TRUE', @role, @member);",
             cancellationToken, ("role", ownerRole), ("member", controlRoleName));
         await ExecuteDdlAsync(connection, grantSql, cancellationToken, transaction);
 
