@@ -184,6 +184,45 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task RewrapsStoredCredentialsToCurrentKeyAndAllowsHistoricalKeyRemoval()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var original = Fixture.Credentials(databaseName, "stable-rotation-secret");
+        var stored = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(original));
+
+        var newKeyBytes = RandomNumberGenerator.GetBytes(32);
+        var newKey = Convert.ToBase64String(newKeyBytes);
+        CryptographicOperations.ZeroMemory(newKeyBytes);
+        using var rotatedProtector = new AgentCredentialProtector(
+            "test-key-v2",
+            new Dictionary<string, string>
+            {
+                ["test-key-v1"] = fixture.OriginalKeyMaterial,
+                ["test-key-v2"] = newKey
+            });
+        var rotatedStore = fixture.CreateStore(rotatedProtector);
+
+        Assert.Equal(1, await rotatedStore.RewrapStoredCredentialsAsync(10));
+        Assert.Equal(0, await rotatedStore.RewrapStoredCredentialsAsync(10));
+
+        using var currentOnlyProtector = new AgentCredentialProtector(
+            "test-key-v2",
+            new Dictionary<string, string> { ["test-key-v2"] = newKey });
+        var currentOnlyStore = fixture.CreateStore(currentOnlyProtector);
+        var recovered = await currentOnlyStore.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromException<AgentProvisioningCredentials>(
+                new InvalidOperationException("Credential factory must not run for an existing operation.")));
+
+        Assert.Equal(stored, recovered);
+    }
+
+    [Fact]
     public async Task ConcurrentDuplicateRequestsGenerateAndPersistOnlyOneCredential()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -369,14 +408,22 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         private readonly NpgsqlDataSource dataSource;
         private readonly AgentCredentialProtector protector;
 
-        private Fixture(NpgsqlDataSource dataSource, AgentCredentialProtector protector, AgentProvisioningOperationStore store)
+        private Fixture(
+            NpgsqlDataSource dataSource,
+            AgentCredentialProtector protector,
+            AgentProvisioningOperationStore store,
+            string originalKeyMaterial)
         {
             this.dataSource = dataSource;
             this.protector = protector;
             Store = store;
+            OriginalKeyMaterial = originalKeyMaterial;
         }
 
         public AgentProvisioningOperationStore Store { get; }
+        public string OriginalKeyMaterial { get; }
+        public AgentProvisioningOperationStore CreateStore(AgentCredentialProtector activeProtector) =>
+            new(dataSource, activeProtector);
 
         public static async Task<Fixture> CreateAsync()
         {
@@ -397,13 +444,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             }
 
             var key = RandomNumberGenerator.GetBytes(32);
+            var keyMaterial = Convert.ToBase64String(key);
             var protector = new AgentCredentialProtector(
                 "test-key-v1",
-                new Dictionary<string, string> { ["test-key-v1"] = Convert.ToBase64String(key) });
+                new Dictionary<string, string> { ["test-key-v1"] = keyMaterial });
             CryptographicOperations.ZeroMemory(key);
             var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
             return new Fixture(dataSource, protector,
-                new AgentProvisioningOperationStore(dataSource, protector));
+                new AgentProvisioningOperationStore(dataSource, protector), keyMaterial);
         }
 
         public static AgentProvisioningCredentials Credentials(string databaseName, string password) =>
