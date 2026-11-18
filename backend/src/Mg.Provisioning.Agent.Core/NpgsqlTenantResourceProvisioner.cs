@@ -55,7 +55,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using (var roleTransaction = await connection.BeginTransactionAsync(cancellationToken))
         {
             await EnsureRoleAsync(connection, roleTransaction, ownerRole, RoleMarker(tenantId, "owner"),
-                login: true, password: owner.Password, cancellationToken);
+                login: true, password: owner.Password, cancellationToken, allowControlMember: true);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
             await roleTransaction.CommitAsync(cancellationToken);
@@ -295,7 +295,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         return owner;
     }
 
-    private static async Task VerifyTenantOwnerConnectionAsync(
+    private async Task VerifyTenantOwnerConnectionAsync(
         NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
     {
         await using var command = new NpgsqlCommand(
@@ -310,13 +310,21 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                    role.rolbypassrls,
                    role.rolinherit,
                    EXISTS (SELECT 1 FROM pg_auth_members membership
-                           WHERE membership.member = role.oid OR membership.roleid = role.oid),
+                           WHERE membership.member = role.oid),
+                   EXISTS (SELECT 1 FROM pg_auth_members membership
+                           WHERE membership.roleid = role.oid
+                             AND pg_get_userbyid(membership.member) <> @control_role),
+                   EXISTS (SELECT 1 FROM pg_auth_members membership
+                           JOIN pg_roles control_role ON control_role.oid = membership.member
+                           WHERE membership.roleid = role.oid
+                             AND control_role.rolname = @control_role),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
                    COALESCE(shobj_description(database.oid, 'pg_database'), '')
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
             WHERE role.rolname = current_user;
             """, connection);
+        command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)
             || !string.Equals(reader.GetString(0), OwnerRoleName(tenantId), StringComparison.Ordinal)
@@ -329,8 +337,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || reader.GetBoolean(7)
             || reader.GetBoolean(8)
             || reader.GetBoolean(9)
-            || !string.Equals(reader.GetString(10), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
-            || !string.Equals(reader.GetString(11), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || reader.GetBoolean(10)
+            || !reader.GetBoolean(11)
+            || !string.Equals(reader.GetString(12), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
+            || !string.Equals(reader.GetString(13), DatabaseMarker(tenantId), StringComparison.Ordinal)
             || await reader.ReadAsync(cancellationToken))
             throw new InvalidOperationException("Tenant owner database identity or restricted role verification failed.");
     }
@@ -362,7 +372,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         string marker,
         bool login,
         string? password,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowControlMember = false)
     {
         var state = await GetRoleStateAsync(connection, roleName, cancellationToken, transaction);
         if (state is null)
@@ -390,7 +401,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || state.CanReplicate
             || state.CanBypassRls
             || state.Inherit
-            || (login && (state.MemberOfAnyRole || state.HasAnyMembers))
+            || (login && (state.MemberOfAnyRole
+                || (state.HasAnyMembers && !allowControlMember)
+                || state.MemberOfUnexpectedRole))
             || (!login && state.MemberOfUnexpectedRole))
             throw new InvalidOperationException("Existing tenant role has an unexpected identity, privilege or membership state.");
 
