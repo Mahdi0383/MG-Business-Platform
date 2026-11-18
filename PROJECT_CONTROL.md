@@ -311,6 +311,8 @@ Progress percentages must reflect the whole product's verified production-readin
 - Updated backend README and provisioning runbook to match implementation. No actual tenant DB creation, secret-manager integration, hosted worker, tenant API or production deployment has been implemented.
 - Latest PR #154 head: `9e3ae213ed6d0d0a6549174362bab6c68ef67e8a`. Exact-head GitHub Actions run `44377815900` was in progress at the time of this update; earlier failed run `44377122537` failed on the now-fixed ambiguous SQL projection. Do not claim the latest tests pass until run 44377815900 (or a later exact-head run) completes successfully.
 
+
+- Exact-head CI is now green for PR #154 head `9e3ae213ed6d0d0a6549174362bab6c68ef67e8a` (run `44377815900`): backend Release build, all backend tests including the PostgreSQL 17 integration suite, frontend dependency install/audit, frontend unit tests, production bundle build and artifact upload all succeeded. Pages deployment steps were correctly skipped for this PR. This does not validate later commits; rerun CI after any subsequent change.
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
