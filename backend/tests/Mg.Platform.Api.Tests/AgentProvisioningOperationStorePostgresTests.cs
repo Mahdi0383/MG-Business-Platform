@@ -128,13 +128,12 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly NpgsqlDataSource dataSource;
-        private readonly string connectionString;
-        private readonly Guid[] operationIds = [];
+        private readonly AgentCredentialProtector protector;
 
-        private Fixture(NpgsqlDataSource dataSource, string connectionString, AgentProvisioningOperationStore store)
+        private Fixture(NpgsqlDataSource dataSource, AgentCredentialProtector protector, AgentProvisioningOperationStore store)
         {
             this.dataSource = dataSource;
-            this.connectionString = connectionString;
+            this.protector = protector;
             Store = store;
         }
 
@@ -179,7 +178,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 new Dictionary<string, string> { ["test-key-v1"] = Convert.ToBase64String(key) });
             CryptographicOperations.ZeroMemory(key);
             var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
-            return new Fixture(dataSource, builder.ConnectionString,
+            return new Fixture(dataSource, protector,
                 new AgentProvisioningOperationStore(dataSource, protector));
         }
 
@@ -190,6 +189,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         {
             // The test database is disposable; use globally unique tenant/idempotency IDs.
             await dataSource.DisposeAsync();
+            protector.Dispose();
         }
     }
 }
