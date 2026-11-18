@@ -7,12 +7,15 @@ namespace Mg.Platform.Api.Security;
 // Replace with OIDC + creator-role authorization before public production use.
 public sealed class PlatformKeyAuthenticator(IConfiguration configuration)
 {
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(configuration["Security:BootstrapPlatformKey"]);
+    public bool IsConfigured => IsStronglyConfigured(configuration["Security:BootstrapPlatformKey"]);
+
+    private static bool IsStronglyConfigured(string? key) =>
+        !string.IsNullOrWhiteSpace(key) && Encoding.UTF8.GetByteCount(key) >= 32;
 
     public bool IsAuthorized(string? suppliedKey)
     {
         var expected = configuration["Security:BootstrapPlatformKey"];
-        if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(suppliedKey))
+        if (!IsStronglyConfigured(expected) || string.IsNullOrWhiteSpace(suppliedKey))
             return false;
 
         var expectedBytes = Encoding.UTF8.GetBytes(expected);
