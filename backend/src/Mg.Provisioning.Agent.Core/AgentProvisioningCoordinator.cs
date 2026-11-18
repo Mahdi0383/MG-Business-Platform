@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace Mg.Provisioning.Agent.Core;
 
 /// <summary>
@@ -8,24 +6,20 @@ namespace Mg.Provisioning.Agent.Core;
 /// </summary>
 public sealed class AgentProvisioningCoordinator
 {
-    private const int TenantSchemaMigrationVersion = 1;
-    private static readonly Regex Sha256Pattern = new("^[a-fA-F0-9]{64}$",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
     private readonly AgentProvisioningOperationStore operationStore;
     private readonly ITenantResourceProvisioner provisioner;
-    private readonly string migrationSha256;
+    private readonly TenantSchemaMigrationArtifact migration;
 
     public AgentProvisioningCoordinator(
         AgentProvisioningOperationStore operationStore,
         ITenantResourceProvisioner provisioner,
-        string migrationSha256)
+        TenantSchemaMigrationArtifact migration)
     {
         this.operationStore = operationStore ?? throw new ArgumentNullException(nameof(operationStore));
         this.provisioner = provisioner ?? throw new ArgumentNullException(nameof(provisioner));
-        if (string.IsNullOrWhiteSpace(migrationSha256) || !Sha256Pattern.IsMatch(migrationSha256))
-            throw new ArgumentException("Tenant migration SHA-256 must be a 64-character hexadecimal digest.", nameof(migrationSha256));
-        this.migrationSha256 = migrationSha256.ToLowerInvariant();
+        this.migration = migration ?? throw new ArgumentNullException(nameof(migration));
+        if (migration.Version != 1 || !string.Equals(migration.Name, "tenant_core_baseline", StringComparison.Ordinal))
+            throw new ArgumentException("Only the reviewed tenant core baseline migration is supported for initial provisioning.", nameof(migration));
     }
 
     public async Task<string> ProvisionAsync(
@@ -62,7 +56,7 @@ public sealed class AgentProvisioningCoordinator
                 if (phase == "DatabaseCreated")
                 {
                     await provisioner.ApplyTenantSchemaAsync(
-                        request.TenantId, connectionString, TenantSchemaMigrationVersion, migrationSha256, token);
+                        request.TenantId, connectionString, migration, token);
                     await operationStore.AdvancePhaseAsync(
                         request.TenantId, request.IdempotencyKey, "DatabaseCreated", "SchemaApplied", token);
                     phase = "SchemaApplied";
@@ -72,7 +66,7 @@ public sealed class AgentProvisioningCoordinator
                 {
                     var verified = await provisioner.VerifyRuntimeAsync(
                         request.TenantId, databaseName, connectionString,
-                        TenantSchemaMigrationVersion, migrationSha256, token);
+                        migration.Version, migration.Sha256, token);
                     if (!verified)
                         throw new InvalidOperationException(
                             "Tenant database failed independent identity, migration or runtime privilege verification.");
