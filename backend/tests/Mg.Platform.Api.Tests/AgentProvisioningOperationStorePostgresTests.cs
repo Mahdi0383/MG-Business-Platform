@@ -96,13 +96,17 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     [Fact]
     public void CoordinatorRejectsInvalidMigrationChecksum()
     {
+        using var dataSource = NpgsqlDataSource.Create(
+            "Host=localhost;Database=mg_agent_test;Username=mg_agent_test");
         using var protector = new AgentCredentialProtector(
             "key-v1", new Dictionary<string, string>
             {
                 ["key-v1"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             });
+        var store = new AgentProvisioningOperationStore(dataSource, protector);
+
         Assert.Throws<ArgumentException>(() =>
-            new AgentProvisioningCoordinator(null!, new FakeResourceProvisioner(), "not-a-checksum"));
+            new AgentProvisioningCoordinator(store, new FakeResourceProvisioner(), "not-a-checksum"));
     }
 
     [Fact]
