@@ -302,6 +302,15 @@ Progress percentages must reflect the whole product's verified production-readin
 - PR #154 follow-up: removed the obsolete Security__BootstrapPlatformKey Compose setting and replaced it with required MG_OIDC_AUTHORITY / MG_OIDC_AUDIENCE inputs; added .env.web.example with placeholders only and refreshed backend deployment/migration documentation. Never use the example issuer as a real identity provider. This change is included in the current PR #154 head and must pass its new CI run.
 
 - PR #154 added a PostgreSQL-backed concurrency integration test using an isolated schema and two independent EF contexts; the GitHub Actions workflow now starts an ephemeral PostgreSQL 17 service and supplies MG_TEST_POSTGRES. The latest test/workflow/documentation head is 1b5e83f24e2e6813d2a58df8f3b0464d20073251; its exact-head workflow was queued at this ledger update. Do not treat earlier successful CI for a different SHA as validation of this latest change.
+
+### Provisioning lease hardening update — 2026-11-18
+
+- PostgreSQL integration exposed an actual ambiguity in the claim statement's `RETURNING id` projection. It was corrected by qualifying every returned column with `job.`; the failed run is retained as evidence and is not represented as passing.
+- Expanded real-PostgreSQL coverage to four independent scenarios: concurrent workers claim distinct jobs; expired leases are reclaimed and stale owners cannot renew; permanent failures move to dead-letter and release leases; successful completion activates only a pending business and is idempotently rejected on a repeat call.
+- Added `DeadLetterExhaustedAsync` reconciliation for abandoned expired leases and pending/retry items at the attempt limit, plus a regression test. The future hosted worker must invoke this method periodically.
+- Updated backend README and provisioning runbook to match implementation. No actual tenant DB creation, secret-manager integration, hosted worker, tenant API or production deployment has been implemented.
+- Latest PR #154 head: `9e3ae213ed6d0d0a6549174362bab6c68ef67e8a`. Exact-head GitHub Actions run `44377815900` was in progress at the time of this update; earlier failed run `44377122537` failed on the now-fixed ambiguous SQL projection. Do not claim the latest tests pass until run 44377815900 (or a later exact-head run) completes successfully.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
