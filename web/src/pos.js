@@ -13,7 +13,7 @@ export function validateCartAgainstInventory(cart, products) {
     const product = matches[0];
     return Number.isFinite(product.stock) && product.stock >= line.qty
       && Number.isFinite(product.price) && product.price >= 0
-      && Number.isFinite(product.sold) && product.sold >= 0;
+      && Number.isSafeInteger(product.sold) && product.sold >= 0;
   });
 }
 
@@ -34,7 +34,7 @@ export function applySaleToInventory(cart, products) {
 
     const stock = product.stock - line.qty;
     const sold = product.sold + line.qty;
-    if (!Number.isFinite(stock) || stock < 0 || !Number.isFinite(sold)) return null;
+    if (!Number.isFinite(stock) || stock < 0 || !Number.isSafeInteger(sold)) return null;
     return { ...product, stock, sold };
   });
   return updated.some(product => product === null) ? null : updated;
