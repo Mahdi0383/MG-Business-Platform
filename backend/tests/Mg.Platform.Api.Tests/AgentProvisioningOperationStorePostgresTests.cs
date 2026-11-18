@@ -6,7 +6,7 @@ using Xunit;
 namespace Mg.Platform.Api.Tests;
 
 [CollectionDefinition("AgentProvisioningPostgres", DisableParallelization = true)]
-public sealed class AgentProvisioningPostgresCollection;
+public sealed class AgentProvisioningPostgresCollection { }
 
 [Collection("AgentProvisioningPostgres")]
 public sealed class AgentProvisioningOperationStorePostgresTests
