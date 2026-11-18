@@ -39,6 +39,13 @@ public sealed class TenantProvisioningAgentOptionsTests
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
             "CN=mg-agent-test-client", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(false, false, 0, critical: true));
+        request.CertificateExtensions.Add(
+            new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
+        var usages = new OidCollection();
+        usages.Add(new Oid("1.3.6.1.5.5.7.3.2"));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(usages, critical: true));
         using var generated = request.CreateSelfSigned(
             DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(1));
         File.WriteAllBytes(path, generated.Export(X509ContentType.Pfx, password));
