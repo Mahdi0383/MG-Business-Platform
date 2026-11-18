@@ -63,9 +63,25 @@ function App(){
  const addToCart=p=>{const inCart=cart.find(x=>x.id===p.id)?.qty||0;if(inCart>=p.stock){notify('موجودی کافی برای این کالا وجود ندارد');return}setCart(old=>{const found=old.find(x=>x.id===p.id);return found?old.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...old,{...p,qty:1}]});notify(p.name+' به سبد اضافه شد')};
  const cartTotal=calculateCartTotal(cart,products) ?? 0;
  const checkout=()=>{if(!cart.length)return;if(!validateCartAgainstInventory(cart,products)){notify('موجودی کالا تغییر کرده است؛ سبد را بررسی کنید');return}const finalTotal=calculateCartTotal(cart,products);const orderId=nextOrderIdentifier(orders);if(finalTotal===null||orderId===null){notify('اطلاعات فروش معتبر نیست؛ عملیات لغو شد');return}const itemCount=cart.reduce((sum,item)=>sum+item.qty,0);const now=new Date().toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'});const updatedInventory=applySaleToInventory(cart,products);if(!updatedInventory){notify('به‌روزرسانی موجودی ناموفق بود');return}setProducts(updatedInventory);setOrders(old=>[{id:orderId,customer:'مشتری حضوری',items:itemCount,total:finalTotal,status:'تکمیل‌شده',time:now},...old]);setCart([]);notify('فروش آزمایشی با به‌روزرسانی موجودی ثبت شد')};
- const saveForm=()=>{if(modal==='product'){if(!form.name||!form.price)return notify('نام و قیمت را وارد کنید');setProducts(p=>[{id:Date.now(),name:form.name,category:form.category||'عمومی',price:+form.price,stock:+(form.stock||0),sold:0},...p]);}
- if(modal==='customer'){if(!form.name)return notify('نام مشتری را وارد کنید');setCustomers(c=>[{id:Date.now(),name:form.name,phone:form.phone||'',credit:+(form.credit||0),visits:0},...c]);}
- setModal('');setForm({});notify('اطلاعات ذخیره شد')};
+ const saveForm=()=>{
+ if(modal==='product'){
+  const name=typeof form.name==='string'?form.name.trim():'';
+  const price=Number(form.price);
+  const stock=Number(form.stock??0);
+  if(!name)return notify('نام کالا را وارد کنید');
+  if(!Number.isFinite(price)||price<0)return notify('قیمت کالا باید عددی معتبر و غیرمنفی باشد');
+  if(!Number.isFinite(stock)||stock<0)return notify('موجودی باید عددی معتبر و غیرمنفی باشد');
+  setProducts(p=>[{id:Date.now(),name,category:form.category?.trim()||'عمومی',price,stock,sold:0},...p]);
+ }
+ if(modal==='customer'){
+  const name=typeof form.name==='string'?form.name.trim():'';
+  const credit=Number(form.credit??0);
+  if(!name)return notify('نام مشتری را وارد کنید');
+  if(!Number.isFinite(credit)||credit<0)return notify('مانده حساب باید عددی معتبر و غیرمنفی باشد');
+  setCustomers(c=>[{id:Date.now(),name,phone:form.phone?.trim()||'',credit,visits:0},...c]);
+ }
+ setModal('');setForm({});notify('اطلاعات ذخیره شد')
+ };
  const filteredProducts=products.filter(p=>(p.name+' '+p.category).includes(query));
  const pageContent=()=>{
  if(page==='dashboard')return <Dashboard products={products} customers={customers} orders={orders} total={total} setPage={setPage}/>;
