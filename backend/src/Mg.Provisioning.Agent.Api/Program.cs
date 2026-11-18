@@ -17,6 +17,8 @@ builder.WebHost.ConfigureKestrel(server =>
     server.ListenAnyIP(hostOptions.Port, listen => listen.UseHttps(https =>
     {
         https.ServerCertificate = hostOptions.ServerCertificate;
+        https.SslProtocols = System.Security.Authentication.SslProtocols.Tls12
+            | System.Security.Authentication.SslProtocols.Tls13;
         https.ClientCertificateMode = Microsoft.AspNetCore.Server.Kestrel.Https.ClientCertificateMode.RequireCertificate;
         https.CheckCertificateRevocation = true;
         https.ClientCertificateValidation = hostOptions.ValidateClientCertificate;
