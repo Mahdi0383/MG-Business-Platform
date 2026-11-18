@@ -14,11 +14,11 @@ This folder contains the first ASP.NET Core 10 control-plane API slice.
 
 ## Not production-ready yet
 
-Creator registry endpoints now require an OIDC access token issued by the configured HTTPS authority, with the API audience and an explicit `mg_platform_role` claim of `PlatformOwner` or `PlatformAdministrator`. The former shared bootstrap API key has been removed. This is an authentication and coarse creator-role gate only: creator user lifecycle, MFA enforcement, fine-grained permission administration, tenant membership, support grants and audited privileged access remain release blockers. Configure `Authentication__Authority` and `Authentication__Audience` as deployment settings. The issuer must publish standard OIDC discovery/JWKS metadata over HTTPS. Do not expose the API until an identity provider is configured and issuer/audience/role claims have been tested end to end. A durable provisioning queue is now recorded, but its background worker, idempotent database creation, tenant API routing, per-business migrations, business workspace APIs, CSRF/CORS policy, backups and integration/security tests are not yet implemented. Creator registry requests currently have a per-client-IP limit of 30 requests per minute; this is not a substitute for an edge WAF or user-based throttling. Do not expose this API publicly with an empty or weak bootstrap key.
+Creator registry endpoints now require an OIDC access token issued by the configured HTTPS authority, with the API audience and an explicit `mg_platform_role` claim of `PlatformOwner` or `PlatformAdministrator`. The former shared bootstrap API key has been removed. This is an authentication and coarse creator-role gate only: creator user lifecycle, MFA enforcement, fine-grained permission administration, tenant membership, support grants and audited privileged access remain release blockers. Configure `Authentication__Authority` and `Authentication__Audience` as deployment settings. The issuer must publish standard OIDC discovery/JWKS metadata over HTTPS. Do not expose the API until an identity provider is configured and issuer/audience/role claims have been tested end to end. A durable provisioning queue and lease-management service are implemented, including atomic PostgreSQL claims, owner-checked renewals/completion and bounded retry/dead-letter handling. The service is not yet invoked by a hosted worker, and no tenant database creator, secret-manager adapter, least-privilege provisioning credentials, tenant migration runner, tenant API routing, business workspace APIs, CSRF/CORS policy, backups or PostgreSQL concurrency integration tests are available yet. Creator registry requests currently have a per-client-IP limit of 30 requests per minute; this is not a substitute for an edge WAF or user-based throttling. Do not expose this API publicly until an HTTPS OIDC issuer, audience, role claims, MFA and privileged access controls have been configured and tested.
 
 ## Configuration
 
-Set `ConnectionStrings__Platform`, `Authentication__Authority` (absolute HTTPS OIDC issuer URL), and `Authentication__Audience` through deployment configuration. Never commit credentials or signing keys.
+Set `ConnectionStrings__Platform`, `Authentication__Authority` (absolute HTTPS OIDC issuer URL), and `Authentication__Audience` through deployment configuration. The web Docker Compose file requires `MG_PLATFORM_DB_PASSWORD`, `MG_OIDC_AUTHORITY`, and `MG_OIDC_AUDIENCE`; the obsolete shared bootstrap-key setting has been removed. Never commit credentials or signing keys.
 
 ## Local run
 
@@ -28,7 +28,7 @@ dotnet restore
 dotnet run
 ```
 
-Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql` to the MG central database before using registry endpoints. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
+Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql`, then `database/migrations/003_add_provisioning_job_leases.sql` to the MG central database before using registry endpoints. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
 
 ## Initial endpoints
 
