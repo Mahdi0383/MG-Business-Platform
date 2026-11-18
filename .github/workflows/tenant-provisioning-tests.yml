@@ -7,6 +7,8 @@ on:
       - 'backend/database/migrations/**'
       - 'backend/src/Mg.Platform.Api/Provisioning/**'
       - 'backend/src/Mg.Platform.Api/Secrets/**'
+      - 'backend/src/Mg.Provisioning.Agent.Core/**'
+      - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
       - 'backend/tests/Mg.Platform.Api.Tests/**'
       - '.github/workflows/tenant-provisioning-tests.yml'
   push:
@@ -16,6 +18,8 @@ on:
       - 'backend/database/migrations/**'
       - 'backend/src/Mg.Platform.Api/Provisioning/**'
       - 'backend/src/Mg.Platform.Api/Secrets/**'
+      - 'backend/src/Mg.Provisioning.Agent.Core/**'
+      - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
       - 'backend/tests/Mg.Platform.Api.Tests/**'
       - '.github/workflows/tenant-provisioning-tests.yml'
   workflow_dispatch:
