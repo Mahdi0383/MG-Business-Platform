@@ -109,6 +109,27 @@ public sealed class LeaseFencingMigrationPostgresTests
                 Assert.Equal("Pending", rows[pendingId].Status);
                 Assert.Null(rows[pendingId].Owner);
                 Assert.Null(rows[pendingId].Token);
+
+                await reader.DisposeAsync();
+
+                await using var invalidRunning = new NpgsqlCommand("""
+                    INSERT INTO tenant_provisioning_jobs (id, status, next_attempt_at_utc)
+                    VALUES (@id, 'Running', now())
+                    """, tenant);
+                invalidRunning.Parameters.AddWithValue("id", Guid.NewGuid());
+                var missingLease = await Assert.ThrowsAsync<PostgresException>(
+                    () => invalidRunning.ExecuteNonQueryAsync());
+                Assert.Equal("ck_tenant_provisioning_jobs_running_lease", missingLease.ConstraintName);
+
+                await using var invalidPending = new NpgsqlCommand("""
+                    INSERT INTO tenant_provisioning_jobs
+                        (id, status, next_attempt_at_utc, lease_owner, lease_token, lease_expires_at_utc)
+                    VALUES (@id, 'Pending', now(), 'unexpected-owner', gen_random_uuid(), now() + interval '1 minute')
+                    """, tenant);
+                invalidPending.Parameters.AddWithValue("id", Guid.NewGuid());
+                var unexpectedLease = await Assert.ThrowsAsync<PostgresException>(
+                    () => invalidPending.ExecuteNonQueryAsync());
+                Assert.Equal("ck_tenant_provisioning_jobs_running_lease", unexpectedLease.ConstraintName);
             }
         }
         finally
