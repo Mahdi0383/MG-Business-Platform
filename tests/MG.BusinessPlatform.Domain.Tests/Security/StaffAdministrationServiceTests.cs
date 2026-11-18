@@ -234,6 +234,46 @@ public sealed class StaffAdministrationServiceTests
     }
 
     [Fact]
+    public async Task LiveRoleDowngrade_IsEnforcedEvenWhenSessionWasNotRevoked()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        var ownerId = await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var staleOwnerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(staleOwnerContext);
+
+        // Simulate a role change made by another trusted administrative path that did
+        // not revoke sessions. Authorization must still use the current persisted role.
+        var owner = await store.Db.StaffUsers.SingleAsync(x => x.Id == ownerId);
+        owner.Role = "ReadOnly";
+        await store.Db.SaveChangesAsync();
+
+        var stillValidSession = await authentication.ValidateSessionAsync(
+            store.BusinessId, ownerLogin.Token);
+        Assert.NotNull(stillValidSession);
+        Assert.Equal("ReadOnly", stillValidSession.Role);
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        using (StaffRequestContextScope.Push(staleOwnerContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-user", "Blocked User", "Blocked-Passphrase-2026!",
+                    "Cashier", [store.MainBranchId]));
+        }
+
+        Assert.Empty(await store.Db.StaffUsers.AsNoTracking()
+            .Where(x => x.UserNameNormalized == "BLOCKED-USER").ToListAsync());
+    }
+
+    [Fact]
     public async Task RevokedStaffContext_CannotReadCreateOrChangePassword()
     {
         await using var store = await TestStore.CreateAsync();
