@@ -92,6 +92,14 @@ public sealed class TenantDatabaseBaselineMigrationTests
                 Assert.Contains("schema_migrations rows are immutable", exception.MessageText,
                     StringComparison.Ordinal);
             }
+            await using (var deleteLedger = new NpgsqlCommand(
+                "DELETE FROM mg.schema_migrations WHERE version = 1", tenantConnection))
+            {
+                var exception = await Assert.ThrowsAsync<PostgresException>(
+                    () => deleteLedger.ExecuteNonQueryAsync());
+                Assert.Contains("schema_migrations rows are immutable", exception.MessageText,
+                    StringComparison.Ordinal);
+            }
 
             var auditId = Guid.NewGuid();
             await using (var insertAudit = new NpgsqlCommand(
@@ -109,6 +117,15 @@ public sealed class TenantDatabaseBaselineMigrationTests
                 mutateAudit.Parameters.AddWithValue("id", auditId);
                 var exception = await Assert.ThrowsAsync<PostgresException>(
                     () => mutateAudit.ExecuteNonQueryAsync());
+                Assert.Contains("audit_events rows are immutable", exception.MessageText,
+                    StringComparison.Ordinal);
+            }
+            await using (var deleteAudit = new NpgsqlCommand(
+                "DELETE FROM mg.audit_events WHERE id = @id", tenantConnection))
+            {
+                deleteAudit.Parameters.AddWithValue("id", auditId);
+                var exception = await Assert.ThrowsAsync<PostgresException>(
+                    () => deleteAudit.ExecuteNonQueryAsync());
                 Assert.Contains("audit_events rows are immutable", exception.MessageText,
                     StringComparison.Ordinal);
             }
