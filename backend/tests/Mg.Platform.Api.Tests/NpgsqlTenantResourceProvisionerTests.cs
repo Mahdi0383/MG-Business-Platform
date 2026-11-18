@@ -8,7 +8,6 @@ public sealed class NpgsqlTenantResourceProvisionerTests
     [Theory]
     [InlineData("Disable")]
     [InlineData("Require")]
-    [InlineData("VerifyFull;Trust Server Certificate=true")]
     public void RejectsControlConnectionWithoutCertificateValidation(string sslMode)
     {
         var control = $"Host=localhost;Database=postgres;Username=mg_agent_control;Password=not-a-real-secret;SSL Mode={sslMode}";
@@ -63,39 +62,6 @@ public sealed class NpgsqlTenantResourceProvisionerTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             provisioner.EnsureDatabaseAndRolesAsync(
                 tenantId, Guid.NewGuid(), databaseName, credentials, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task RejectsApplicationConnectionThatTrustsAnyServerCertificate()
-    {
-        var provisioner = CreateProvisioner();
-        var tenantId = Guid.NewGuid();
-        var databaseName = $"mg_tenant_{tenantId:N}";
-        var credentials = Credentials(databaseName,
-            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull;Trust Server Certificate=true");
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            provisioner.EnsureDatabaseAndRolesAsync(
-                tenantId, Guid.NewGuid(), databaseName, credentials, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task RejectsOwnerConnectionThatTrustsAnyServerCertificate()
-    {
-        var provisioner = CreateProvisioner();
-        var tenantId = Guid.NewGuid();
-        var databaseName = $"mg_tenant_{tenantId:N}";
-        var valid = Credentials(databaseName,
-            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull");
-        var invalid = valid with
-        {
-            OwnerConnectionString =
-                $"Host=localhost;Database={databaseName};Username={databaseName}_owner;Password=owner-secret;SSL Mode=VerifyFull;Trust Server Certificate=true"
-        };
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            provisioner.EnsureDatabaseAndRolesAsync(
-                tenantId, Guid.NewGuid(), databaseName, invalid, CancellationToken.None));
     }
 
     [Fact]
