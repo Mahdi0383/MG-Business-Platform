@@ -313,6 +313,13 @@ Progress percentages must reflect the whole product's verified production-readin
 
 
 - Exact-head CI is now green for PR #154 head `9e3ae213ed6d0d0a6549174362bab6c68ef67e8a` (run `44377815900`): backend Release build, all backend tests including the PostgreSQL 17 integration suite, frontend dependency install/audit, frontend unit tests, production bundle build and artifact upload all succeeded. Pages deployment steps were correctly skipped for this PR. This does not validate later commits; rerun CI after any subsequent change.
+
+### Tenant secret storage adapter — 2026-11-18
+
+- Added `ITenantSecretStore` and an optional HashiCorp Vault KV v2 implementation to PR #154. The adapter requires an HTTPS origin, validates mount/path segments, sends the token only in the `X-Vault-Token` header, supports store/read/delete, and keeps secret values out of the central registry. The options object is not a record so its generated string representation cannot accidentally include the token.
+- Added HTTP-stub tests for KV v2 writes, reads and path traversal rejection. Added optional `MG_VAULT_*` deployment variables and documented that the adapter has not been tested against a live Vault instance. A narrowly scoped Vault policy and real deployment credentials remain unconfigured.
+- Current PR #154 head: `0ebd3e01e460f114067743b1b6472886a1c02221`; workflow run `44378484810` was still initializing at the time of this update. Previous exact-head run `44377815900` passed all backend and frontend checks before the Vault adapter was added; that result does not validate the new adapter.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
