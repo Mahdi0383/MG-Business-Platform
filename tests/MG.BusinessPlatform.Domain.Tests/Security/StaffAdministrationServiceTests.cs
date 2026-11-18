@@ -152,7 +152,34 @@ public sealed class StaffAdministrationServiceTests
         };
         store.Db.Businesses.Add(foreignBusiness);
         store.Db.Branches.Add(foreignBranch);
+        var foreignStaffId = Guid.NewGuid();
+        const string foreignPassword = "Foreign-Owner-Passphrase-2026!";
+        var foreignNow = DateTimeOffset.UtcNow;
+        store.Db.StaffUsers.Add(new StaffUserRecord
+        {
+            Id = foreignStaffId,
+            BusinessId = foreignBusiness.Id,
+            UserNameNormalized = "FOREIGN-OWNER",
+            DisplayName = "Foreign Owner",
+            PasswordHash = hasher.Hash(foreignPassword),
+            Role = "Owner",
+            IsActive = true,
+            CreatedAtUtc = foreignNow,
+            UpdatedAtUtc = foreignNow
+        });
+        store.Db.StaffBranchAccess.Add(new StaffBranchAccessRecord
+        {
+            BusinessId = foreignBusiness.Id,
+            StaffUserId = foreignStaffId,
+            BranchId = foreignBranch.Id,
+            GrantedAtUtc = foreignNow
+        });
         await store.Db.SaveChangesAsync();
+
+        // Even a valid account in another persisted business cannot authenticate
+        // through the local single-business staff service.
+        Assert.Null(await authentication.AuthenticateAsync(
+            foreignBusiness.Id, "foreign-owner", foreignPassword));
 
         var administration = new StaffAdministrationService(store.Db, hasher);
         using (StaffRequestContextScope.Push(context!))
