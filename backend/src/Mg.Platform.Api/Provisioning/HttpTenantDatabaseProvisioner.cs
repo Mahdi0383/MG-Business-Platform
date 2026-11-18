@@ -68,7 +68,17 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
 
         try
         {
-            await using var connection = new NpgsqlConnection(connectionString);
+            var expectedDatabase = $"mg_tenant_{tenantId:N}";
+            var parsed = new NpgsqlConnectionStringBuilder(connectionString);
+            if (!string.Equals(parsed.Database, expectedDatabase, StringComparison.Ordinal)
+                || !string.Equals(parsed.Username, $"{expectedDatabase}_app", StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(parsed.Host)
+                || string.IsNullOrWhiteSpace(parsed.Password)
+                || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
+                || parsed.TrustServerCertificate)
+                return false;
+
+            await using var connection = new NpgsqlConnection(parsed.ConnectionString);
             await connection.OpenAsync(cancellationToken);
             await using var command = new NpgsqlCommand(
                 """
