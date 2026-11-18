@@ -90,10 +90,23 @@ A future isolated migration runner must execute each migration in a transaction 
 
 The API now has an HTTP adapter for a separately deployed HTTPS agent. The API only sends the tenant UUID, durable idempotency key and deterministic database name; it does not receive cluster-administration credentials. The adapter requires an HTTPS origin and a mounted, valid PKCS#12 client certificate, sends the client certificate for mutual TLS, maps agent failures to stable safe error codes, and independently verifies the returned connection using TLS certificate validation. Verification requires the expected tenant marker and schema version, and rejects a runtime role that is superuser, can create databases/roles/schemas, bypass row-level security, replicate, or owns the tenant database.
 
-Configure `Provisioning:Agent:Address`, `Provisioning:Agent:ClientCertificatePath` and `Provisioning:Agent:ClientCertificatePassword` only after the separate agent is deployed. In Docker, mount the PFX read-only at the configured container path. The agent service itself is not implemented or deployed by this repository yet; do not enable the worker until its mTLS identity allowlist, restricted PostgreSQL provisioning role, role grants, migration runner, audit trail and idempotency behavior have passed end-to-end security tests.
+Configure `Provisioning:Agent:Address`, `Provisioning:Agent:ClientCertificatePath` and `Provisioning:Agent:ClientCertificatePassword` only after the separate agent is deployed. In Docker, mount the PFX read-only at the configured container path. The isolated agent HTTP host and PostgreSQL provisioner core now exist, but no `IAgentProvisioningHandler` is registered and the service is not deployed. The Npgsql provisioner requires a strict-TLS non-superuser control role with CREATEDB/CREATEROLE, creates UUID-derived NOLOGIN owner and least-privilege runtime roles, marks databases/roles with immutable tenant UUID comments, applies the packaged migration as owner, grants explicit runtime rights, and independently verifies identity/checksum/ownership/role flags/privileges. It is not yet covered by a live TLS-enabled PostgreSQL integration suite or crash-injection tests. Do not enable the worker until the handler is wired and those acceptance gates pass.
 
 See [PROVISIONING_AGENT_CONTRACT.md](PROVISIONING_AGENT_CONTRACT.md) for the detailed mTLS endpoint, request/response, idempotency, role separation, safe error mapping and end-to-end acceptance contract for the isolated agent.
 
 The API-side independent verification also checks that the runtime role has no UPDATE or DELETE privileges on `mg.tenant_identity`, `mg.schema_migrations` or `mg.audit_events`, in addition to rejecting database/schema ownership and cluster-level capabilities. Granting any of these mutation privileges causes verification to fail before activation.
 
 The separate agent must also persist a stable credential for idempotent replay: an operation ledger keyed by tenant/idempotency key, per-tenant advisory locking, AEAD-encrypted connection-string persistence before side effects, key-versioned decryption, durable phase reconciliation and same-credential replay. See `PROVISIONING_AGENT_CONTRACT.md` for the exact acceptance requirements. A retry must never rotate a credential while an earlier API response may still be in flight.
+
+### Agent database control role and tenant role layout
+
+The isolated agent's control database connection must use PostgreSQL `VerifyCA` or `VerifyFull`, a private network route and a dedicated non-superuser login with `CREATEDB` and `CREATEROLE`; it must have `NOINHERIT`, no replication, no BYPASSRLS and no superuser. Never put this credential in the MG Platform API container.
+
+For tenant UUID `{uuid}`, the provisioner derives:
+- database: `mg_tenant_{uuid:N}`
+- non-login owner: `mg_tenant_{uuid:N}_owner`
+- runtime login: `mg_tenant_{uuid:N}_app`
+
+The database and both roles receive comments containing the immutable tenant UUID and role purpose. An existing object with a mismatched marker, owner, attributes or membership is rejected. The runtime login is not a member of any other role and cannot create databases, roles, schemas or tenant tables. It cannot mutate the tenant identity marker, schema migration ledger or audit events.
+
+The agent control database is separate from the MG central registry. Apply `src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql` using a migration identity, then grant the agent runtime role only CONNECT, schema USAGE, and SELECT/INSERT/UPDATE on `mg_agent.provisioning_operations`. No DELETE/TRUNCATE, schema CREATE, role membership or database ownership is required. The API host currently does not register the handler; this layout is not an instruction to deploy before TLS and crash-recovery integration tests exist.
