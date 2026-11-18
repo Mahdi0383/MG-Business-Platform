@@ -10,12 +10,12 @@ public interface ITenantResourceProvisioner
         Guid tenantId,
         Guid idempotencyKey,
         string databaseName,
-        string applicationConnectionString,
+        AgentProvisioningCredentials credentials,
         CancellationToken cancellationToken);
 
     Task ApplyTenantSchemaAsync(
         Guid tenantId,
-        string applicationConnectionString,
+        AgentProvisioningCredentials credentials,
         TenantSchemaMigrationArtifact migration,
         CancellationToken cancellationToken);
 
@@ -33,3 +33,7 @@ public sealed record AgentProvisioningRequest(Guid TenantId, Guid IdempotencyKey
 public sealed class AgentProvisioningBusyException()
     : Exception("A provisioning operation for this tenant is already in progress.");
 
+
+public sealed record AgentProvisioningCredentials(
+    string ApplicationConnectionString,
+    string OwnerConnectionString);
