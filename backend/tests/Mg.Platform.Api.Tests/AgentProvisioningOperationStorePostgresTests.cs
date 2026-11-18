@@ -271,6 +271,26 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task RejectsConnectionStringWithWrongApplicationRoleBeforePersistingCredential()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.GetOrCreatePreparedCredentialAsync(
+                tenantId, idempotencyKey, databaseName,
+                _ => ValueTask.FromResult(
+                    $"Host=localhost;Database={databaseName};Username=other_role;Password=secret;SSL Mode=VerifyFull")));
+
+        var valid = await fixture.Store.GetOrCreatePreparedCredentialAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.ConnectionString(databaseName, "valid-role-secret")));
+        Assert.Contains($"{databaseName}_app", valid, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RejectsCredentialFactoryFailureWithoutCreatingOperation()
     {
         await using var fixture = await Fixture.CreateAsync();
