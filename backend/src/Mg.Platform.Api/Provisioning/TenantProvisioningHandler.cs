@@ -65,8 +65,8 @@ public sealed class TenantProvisioningHandler(
         {
             var parsed = new NpgsqlConnectionStringBuilder(connectionString);
             if (!string.Equals(parsed.Database, expectedDatabase, StringComparison.Ordinal)
+                || !string.Equals(parsed.Username, $"{expectedDatabase}_app", StringComparison.Ordinal)
                 || string.IsNullOrWhiteSpace(parsed.Host)
-                || string.IsNullOrWhiteSpace(parsed.Username)
                 || string.IsNullOrWhiteSpace(parsed.Password)
                 || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
                 || parsed.Pooling == false)
