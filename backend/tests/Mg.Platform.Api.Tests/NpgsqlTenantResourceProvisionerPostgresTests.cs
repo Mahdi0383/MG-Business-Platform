@@ -172,7 +172,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
         public async Task AssertOwnerRoleIsRestrictedAsync()
         {
-            await using var connection = new NpgsqlConnection(ownerConnectionString);
+            await using var connection = new NpgsqlConnection(OwnerConnectionString);
             await connection.OpenAsync();
             await using var command = new NpgsqlCommand(
                 """
