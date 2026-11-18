@@ -64,6 +64,40 @@ public sealed class TenantProvisioningHandlerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsSecretWhenVaultReadbackDoesNotMatchProvisionedValue()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenant = await fixture.AddTenantAsync();
+        var secretStore = new FakeSecretStore { CorruptOnStore = true };
+        var provisioner = new FakeProvisioner(ConnectionString(tenant.Id));
+        await using var db = fixture.CreateContext();
+
+        var exception = await Assert.ThrowsAsync<TenantProvisioningException>(() =>
+            new TenantProvisioningHandler(db, provisioner, secretStore)
+                .ProvisionAsync(Job(tenant.Id), CancellationToken.None));
+
+        Assert.Equal("TENANT_SECRET_READBACK_FAILED", exception.SafeErrorCode);
+        Assert.Equal(0, provisioner.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task RejectsDatabaseWhenIndependentVerificationFails()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenant = await fixture.AddTenantAsync();
+        var secretStore = new FakeSecretStore();
+        var provisioner = new FakeProvisioner(ConnectionString(tenant.Id), verificationResult: false);
+        await using var db = fixture.CreateContext();
+
+        var exception = await Assert.ThrowsAsync<TenantProvisioningException>(() =>
+            new TenantProvisioningHandler(db, provisioner, secretStore)
+                .ProvisionAsync(Job(tenant.Id), CancellationToken.None));
+
+        Assert.Equal("TENANT_DATABASE_VERIFICATION_FAILED", exception.SafeErrorCode);
+        Assert.Equal(1, provisioner.VerifyCalls);
+    }
+
+    [Fact]
     public async Task RejectsTenantNotInProvisioningState()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -89,10 +123,11 @@ public sealed class TenantProvisioningHandlerPostgresTests
     private sealed class FakeSecretStore : ITenantSecretStore
     {
         public Dictionary<string, string> Values { get; } = new();
+        public bool CorruptOnStore { get; init; }
 
         public Task StoreAsync(string secretReference, string secretValue, CancellationToken cancellationToken)
         {
-            Values[secretReference] = secretValue;
+            Values[secretReference] = CorruptOnStore ? "tampered-value" : secretValue;
             return Task.CompletedTask;
         }
 
@@ -109,7 +144,7 @@ public sealed class TenantProvisioningHandlerPostgresTests
         }
     }
 
-    private sealed class FakeProvisioner(string connectionString) : ITenantDatabaseProvisioner
+    private sealed class FakeProvisioner(string connectionString, bool verificationResult = true) : ITenantDatabaseProvisioner
     {
         public int ProvisionCalls { get; private set; }
         public int VerifyCalls { get; private set; }
@@ -128,7 +163,7 @@ public sealed class TenantProvisioningHandlerPostgresTests
         {
             VerifyCalls++;
             Assert.Equal(ConnectionString(tenantId), connectionString);
-            return Task.FromResult(true);
+            return Task.FromResult(verificationResult);
         }
     }
 
