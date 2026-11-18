@@ -342,6 +342,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             Assert.Equal("tenant_core_baseline", migration.Name);
             Assert.Matches("^[a-f0-9]{64}$", migration.Sha256);
             Assert.Contains("CREATE TABLE mg.tenant_identity", System.Text.Encoding.UTF8.GetString(migration.GetSqlBytes().Span), StringComparison.Ordinal);
+            Assert.Contains($"mg_tenant_{tenantId:N}_owner", credentials.OwnerConnectionString, StringComparison.Ordinal);
             if (FailMigrationOnce && !migrationFailureConsumed)
             {
                 migrationFailureConsumed = true;
