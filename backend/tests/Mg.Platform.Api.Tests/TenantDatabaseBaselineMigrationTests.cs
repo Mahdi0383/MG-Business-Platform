@@ -72,14 +72,46 @@ public sealed class TenantDatabaseBaselineMigrationTests
                 Assert.Equal(checksum, (string?)await ledger.ExecuteScalarAsync());
             }
 
-            await using var mutate = new NpgsqlCommand(
+            await using (var mutate = new NpgsqlCommand(
                 "UPDATE mg.tenant_identity SET tenant_id = @other_tenant",
-                tenantConnection);
-            mutate.Parameters.AddWithValue("other_tenant", Guid.NewGuid());
-            var exception = await Assert.ThrowsAsync<PostgresException>(
-                () => mutate.ExecuteNonQueryAsync());
-            Assert.Contains("tenant identity is immutable", exception.MessageText,
-                StringComparison.Ordinal);
+                tenantConnection))
+            {
+                mutate.Parameters.AddWithValue("other_tenant", Guid.NewGuid());
+                var exception = await Assert.ThrowsAsync<PostgresException>(
+                    () => mutate.ExecuteNonQueryAsync());
+                Assert.Contains("tenant identity is immutable", exception.MessageText,
+                    StringComparison.Ordinal);
+            }
+
+            await using (var mutateLedger = new NpgsqlCommand(
+                "UPDATE mg.schema_migrations SET name = 'tampered' WHERE version = 1",
+                tenantConnection))
+            {
+                var exception = await Assert.ThrowsAsync<PostgresException>(
+                    () => mutateLedger.ExecuteNonQueryAsync());
+                Assert.Contains("schema_migrations rows are immutable", exception.MessageText,
+                    StringComparison.Ordinal);
+            }
+
+            var auditId = Guid.NewGuid();
+            await using (var insertAudit = new NpgsqlCommand(
+                "INSERT INTO mg.audit_events (id, action, subject_type) VALUES (@id, 'test.created', 'test')",
+                tenantConnection))
+            {
+                insertAudit.Parameters.AddWithValue("id", auditId);
+                await insertAudit.ExecuteNonQueryAsync();
+            }
+
+            await using (var mutateAudit = new NpgsqlCommand(
+                "UPDATE mg.audit_events SET action = 'tampered' WHERE id = @id",
+                tenantConnection))
+            {
+                mutateAudit.Parameters.AddWithValue("id", auditId);
+                var exception = await Assert.ThrowsAsync<PostgresException>(
+                    () => mutateAudit.ExecuteNonQueryAsync());
+                Assert.Contains("audit_events rows are immutable", exception.MessageText,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {
