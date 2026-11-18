@@ -137,6 +137,66 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
 
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var grantAuditInsert = new NpgsqlCommand(
+                    $"GRANT INSERT ON mg.audit_events TO {quotedRole}", owner);
+                await grantAuditInsert.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokeAuditInsert = new NpgsqlCommand(
+                    $"REVOKE INSERT ON mg.audit_events FROM {quotedRole}", owner);
+                await revokeAuditInsert.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var grantSchemaCreate = new NpgsqlCommand(
+                    $"GRANT CREATE ON SCHEMA mg TO {quotedRole}", owner);
+                await grantSchemaCreate.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokeSchemaCreate = new NpgsqlCommand(
+                    $"REVOKE CREATE ON SCHEMA mg FROM {quotedRole}", owner);
+                await revokeSchemaCreate.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var grantMembership = new NpgsqlCommand(
+                    $"GRANT pg_read_all_data TO {quotedRole}", admin);
+                await grantMembership.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokeMembership = new NpgsqlCommand(
+                    $"REVOKE pg_read_all_data FROM {quotedRole}", admin);
+                await revokeMembership.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
             await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
