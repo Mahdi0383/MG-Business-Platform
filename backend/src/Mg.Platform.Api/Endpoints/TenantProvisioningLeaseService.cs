@@ -1,6 +1,7 @@
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Mg.Platform.Api.Endpoints;
 
@@ -19,10 +20,14 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
         ValidateLease(workerId, leaseDuration);
         var leaseSeconds = (int)leaseDuration.TotalSeconds;
 
-        // A single UPDATE statement claims one due job. SKIP LOCKED allows multiple
-        // replicas to compete without waiting on a row another worker has locked.
-        return await db.TenantProvisioningJobs
-            .FromSqlInterpolated($"""
+        // Execute this data-modifying CTE directly: EF FromSql would wrap it in a
+        // SELECT subquery, which PostgreSQL does not allow for UPDATE ... RETURNING.
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        var closeConnection = connection.State != System.Data.ConnectionState.Open;
+        if (closeConnection) await db.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = new NpgsqlCommand("""
                 WITH candidate AS (
                     SELECT id
                     FROM tenant_provisioning_jobs
@@ -30,7 +35,7 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                         (status IN ('Pending', 'Retry') AND next_attempt_at_utc <= now())
                         OR (status = 'Running' AND lease_expires_at_utc <= now())
                     )
-                    AND attempts < {MaxAttempts}
+                    AND attempts < @maxAttempts
                     ORDER BY next_attempt_at_utc, created_at_utc
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
@@ -38,15 +43,41 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 UPDATE tenant_provisioning_jobs AS job
                 SET status = 'Running',
                     attempts = job.attempts + 1,
-                    lease_owner = {workerId},
-                    lease_expires_at_utc = now() + ({leaseSeconds} * interval '1 second'),
+                    lease_owner = @workerId,
+                    lease_expires_at_utc = now() + (@leaseSeconds * interval '1 second'),
                     started_at_utc = COALESCE(job.started_at_utc, now())
                 FROM candidate
                 WHERE job.id = candidate.id
-                RETURNING job.*
-                """)
-            .AsNoTracking()
-            .SingleOrDefaultAsync(cancellationToken);
+                RETURNING id, business_id, status, attempts, idempotency_key,
+                    lease_owner, lease_expires_at_utc, created_at_utc,
+                    next_attempt_at_utc, started_at_utc, completed_at_utc, last_error_code
+                """, connection);
+            command.Parameters.AddWithValue("maxAttempts", MaxAttempts);
+            command.Parameters.AddWithValue("workerId", workerId);
+            command.Parameters.AddWithValue("leaseSeconds", leaseSeconds);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return null;
+            return new TenantProvisioningJob
+            {
+                Id = reader.GetGuid(0),
+                BusinessId = reader.GetGuid(1),
+                Status = reader.GetString(2),
+                Attempts = reader.GetInt32(3),
+                IdempotencyKey = reader.GetGuid(4),
+                LeaseOwner = reader.IsDBNull(5) ? null : reader.GetString(5),
+                LeaseExpiresAtUtc = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+                CreatedAtUtc = reader.GetFieldValue<DateTimeOffset>(7),
+                NextAttemptAtUtc = reader.GetFieldValue<DateTimeOffset>(8),
+                StartedAtUtc = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+                CompletedAtUtc = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
+                LastErrorCode = reader.IsDBNull(11) ? null : reader.GetString(11)
+            };
+        }
+        finally
+        {
+            if (closeConnection) await db.Database.CloseConnectionAsync();
+        }
     }
 
     public async Task<bool> RenewAsync(
