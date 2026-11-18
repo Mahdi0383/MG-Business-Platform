@@ -16,8 +16,7 @@ public interface ITenantResourceProvisioner
     Task ApplyTenantSchemaAsync(
         Guid tenantId,
         string applicationConnectionString,
-        int migrationVersion,
-        string migrationSha256,
+        TenantSchemaMigrationArtifact migration,
         CancellationToken cancellationToken);
 
     Task<bool> VerifyRuntimeAsync(
