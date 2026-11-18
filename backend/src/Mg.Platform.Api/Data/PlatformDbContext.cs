@@ -32,6 +32,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         job.Property(x => x.Attempts).HasColumnName("attempts");
         job.Property(x => x.IdempotencyKey).HasColumnName("idempotency_key").IsRequired();
         job.Property(x => x.LeaseOwner).HasColumnName("lease_owner").HasMaxLength(120);
+        job.Property(x => x.LeaseToken).HasColumnName("lease_token");
         job.Property(x => x.LeaseExpiresAtUtc).HasColumnName("lease_expires_at_utc");
         job.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         job.Property(x => x.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
