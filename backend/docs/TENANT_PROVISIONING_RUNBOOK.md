@@ -46,6 +46,7 @@ Apply central migrations in order:
 1. `database/migrations/001_create_business_registry.sql`
 2. `database/migrations/002_create_tenant_provisioning_jobs.sql`
 3. `database/migrations/003_add_provisioning_job_leases.sql` (required before enabling any worker)
+4. `database/migrations/004_uuid_tenant_secret_references.sql` (moves pending tenant secret references to immutable UUID-based paths; active references are intentionally untouched)
 
 The API intentionally does not run schema migrations automatically at startup. Confirm both tables, unique slug constraint, queue status check and indexes before starting the API.
 
