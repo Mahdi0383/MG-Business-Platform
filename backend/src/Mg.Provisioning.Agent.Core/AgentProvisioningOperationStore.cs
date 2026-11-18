@@ -80,6 +80,43 @@ public sealed class AgentProvisioningOperationStore(
                         ?? throw new InvalidOperationException("Stored tenant credential bundle is invalid.");
                     ValidateCredentials(stableCredentials, tenantId, databaseName);
                     await reader.CloseAsync();
+
+                    if (!string.Equals(encrypted.KeyId, credentialProtector.CurrentKeyId, StringComparison.Ordinal))
+                    {
+                        var rewrapped = credentialProtector.Protect(
+                            stablePayload, tenantId, idempotencyKey, databaseName);
+                        try
+                        {
+                            await using var update = new NpgsqlCommand(
+                                """
+                                UPDATE mg_agent.provisioning_operations
+                                SET credential_key_id = @new_key_id,
+                                    credential_nonce = @new_nonce,
+                                    credential_ciphertext = @new_ciphertext,
+                                    credential_tag = @new_tag,
+                                    updated_at = now()
+                                WHERE tenant_id = @tenant_id
+                                  AND idempotency_key = @idempotency_key
+                                  AND credential_key_id = @old_key_id;
+                                """, connection, transaction);
+                            update.Parameters.AddWithValue("new_key_id", NpgsqlDbType.Text, rewrapped.KeyId);
+                            update.Parameters.AddWithValue("new_nonce", NpgsqlDbType.Bytea, rewrapped.Nonce);
+                            update.Parameters.AddWithValue("new_ciphertext", NpgsqlDbType.Bytea, rewrapped.Ciphertext);
+                            update.Parameters.AddWithValue("new_tag", NpgsqlDbType.Bytea, rewrapped.Tag);
+                            update.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                            update.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
+                            update.Parameters.AddWithValue("old_key_id", NpgsqlDbType.Text, encrypted.KeyId);
+                            if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+                                throw new InvalidOperationException("Credential key rotation could not update the locked operation.");
+                        }
+                        finally
+                        {
+                            CryptographicOperations.ZeroMemory(rewrapped.Nonce);
+                            CryptographicOperations.ZeroMemory(rewrapped.Ciphertext);
+                            CryptographicOperations.ZeroMemory(rewrapped.Tag);
+                        }
+                    }
+
                     await transaction.CommitAsync(cancellationToken);
                     return stableCredentials;
                 }
