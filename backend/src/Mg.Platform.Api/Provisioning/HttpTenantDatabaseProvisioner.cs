@@ -96,7 +96,13 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_table_privilege(current_user, 'mg.audit_events', 'INSERT'),
                        has_table_privilege(current_user, 'mg.audit_events', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.audit_events', 'DELETE'),
-                       has_table_privilege(current_user, 'mg.audit_events', 'TRUNCATE')
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'TRIGGER'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'TRIGGER'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRIGGER')
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
                 JOIN pg_roles AS role ON role.rolname = current_user
@@ -136,7 +142,13 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(21)
                 && !reader.GetBoolean(22)
                 && !reader.GetBoolean(23)
-                && !reader.GetBoolean(24);
+                && !reader.GetBoolean(24)
+                && !reader.GetBoolean(25)
+                && !reader.GetBoolean(26)
+                && !reader.GetBoolean(27)
+                && !reader.GetBoolean(28)
+                && !reader.GetBoolean(29)
+                && !reader.GetBoolean(30);
         }
         catch (NpgsqlException)
         {
