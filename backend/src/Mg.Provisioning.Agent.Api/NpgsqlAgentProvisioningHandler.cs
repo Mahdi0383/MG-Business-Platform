@@ -58,7 +58,8 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
             || string.IsNullOrWhiteSpace(parsed.Database)
             || string.IsNullOrWhiteSpace(parsed.Username)
             || string.IsNullOrWhiteSpace(parsed.Password)
-            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull))
+            || parsed.SslMode is not (SslMode.VerifyCA or SslMode.VerifyFull)
+            || parsed.TrustServerCertificate)
             throw new InvalidOperationException(
                 "Agent control database connection must use strict TLS and complete credentials.");
 
