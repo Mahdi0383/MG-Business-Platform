@@ -122,8 +122,8 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && reader.GetBoolean(7)
                 && !reader.GetBoolean(8)
                 && !reader.GetBoolean(9)
-                && reader.GetBoolean(10)
-                && !reader.GetBoolean(11)
+                && !reader.GetBoolean(10)
+                && reader.GetBoolean(11)
                 && !reader.GetBoolean(12)
                 && !reader.GetBoolean(13)
                 && !reader.GetBoolean(14)
@@ -134,7 +134,9 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(19)
                 && !reader.GetBoolean(20)
                 && !reader.GetBoolean(21)
-                && !reader.GetBoolean(22);
+                && !reader.GetBoolean(22)
+                && !reader.GetBoolean(23)
+                && !reader.GetBoolean(24);
         }
         catch (NpgsqlException)
         {
