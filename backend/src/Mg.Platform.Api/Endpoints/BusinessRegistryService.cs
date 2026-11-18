@@ -34,7 +34,7 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
         var provisioningJob = new TenantProvisioningJob
         {
             BusinessId = tenant.Id,
-            Status = "Pending"
+            Status = TenantProvisioningStatus.Pending
         };
 
         // Persist both rows in one EF Core transaction so no tenant is left without work.
