@@ -114,7 +114,12 @@ public sealed class AgentCredentialProtector : IDisposable
         ArgumentNullException.ThrowIfNull(encrypted);
         ValidateContext("credential-placeholder", tenantId, idempotencyKey, databaseName);
 
-        if (!keys.TryGetValue(encrypted.KeyId, out var key)
+        if (string.IsNullOrEmpty(encrypted.KeyId)
+            || !KeyIdPattern.IsMatch(encrypted.KeyId)
+            || !keys.TryGetValue(encrypted.KeyId, out var key)
+            || encrypted.Nonce is null
+            || encrypted.Tag is null
+            || encrypted.Ciphertext is null
             || encrypted.Nonce.Length != NonceSize
             || encrypted.Tag.Length != TagSize
             || encrypted.Ciphertext.Length is < 1 or > MaxConnectionStringLength * 4)
