@@ -22,6 +22,7 @@ public sealed class VaultKv2TenantSecretStore(
         using var request = CreateRequest(HttpMethod.Post, path);
         request.Content = JsonContent.Create(new
         {
+            options = new { cas = 0 },
             data = new Dictionary<string, string> { ["value"] = secretValue }
         });
         using var response = await httpClient.SendAsync(request, cancellationToken);
