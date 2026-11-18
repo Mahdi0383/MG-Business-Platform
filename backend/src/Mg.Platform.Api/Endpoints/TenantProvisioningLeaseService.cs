@@ -169,7 +169,6 @@ public sealed class TenantProvisioningLeaseService(PlatformDbContext db)
                 || char.IsAsciiDigit(character) || character == '_')))
             throw new ArgumentException("Error code must be a safe uppercase identifier.", nameof(safeErrorCode));
 
-        var now = DateTimeOffset.UtcNow;
         var job = await db.TenantProvisioningJobs.AsNoTracking()
             .Where(item => item.Id == jobId
                 && item.Status == TenantProvisioningStatus.Running
