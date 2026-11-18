@@ -18,6 +18,9 @@ public sealed class CreatorAuthenticationConfigurationTests
     [InlineData("http://issuer.example.com")]
     [InlineData("/relative/issuer")]
     [InlineData("not-a-url")]
+    [InlineData("https://user:password@issuer.example.com")]
+    [InlineData("https://issuer.example.com?redirect=https://evil.example")]
+    [InlineData("https://issuer.example.com#fragment")]
     public void RejectsNonHttpsOrInvalidIssuer(string authority)
     {
         var configuration = new ConfigurationBuilder()
@@ -39,6 +42,24 @@ public sealed class CreatorAuthenticationConfigurationTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Authentication:Authority"] = "https://identity.example.com/"
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CreatorAuthenticationConfiguration.From(configuration));
+    }
+
+    [Theory]
+    [InlineData("mg platform")]
+    [InlineData("mg\nplatform")]
+    [InlineData("mg\tplatform")]
+    public void RejectsAudienceWithWhitespaceOrControlCharacters(string audience)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Authority"] = "https://identity.example.com/",
+                ["Authentication:Audience"] = audience
             })
             .Build();
 
