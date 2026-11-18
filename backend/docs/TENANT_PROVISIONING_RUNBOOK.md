@@ -95,3 +95,5 @@ Configure `Provisioning:Agent:Address`, `Provisioning:Agent:ClientCertificatePat
 See [PROVISIONING_AGENT_CONTRACT.md](PROVISIONING_AGENT_CONTRACT.md) for the detailed mTLS endpoint, request/response, idempotency, role separation, safe error mapping and end-to-end acceptance contract for the isolated agent.
 
 The API-side independent verification also checks that the runtime role has no UPDATE or DELETE privileges on `mg.tenant_identity`, `mg.schema_migrations` or `mg.audit_events`, in addition to rejecting database/schema ownership and cluster-level capabilities. Granting any of these mutation privileges causes verification to fail before activation.
+
+The separate agent must also persist a stable credential for idempotent replay: an operation ledger keyed by tenant/idempotency key, per-tenant advisory locking, AEAD-encrypted connection-string persistence before side effects, key-versioned decryption, durable phase reconciliation and same-credential replay. See `PROVISIONING_AGENT_CONTRACT.md` for the exact acceptance requirements. A retry must never rotate a credential while an earlier API response may still be in flight.
