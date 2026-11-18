@@ -2,6 +2,7 @@ using Mg.Platform.Api.Contracts;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Mg.Platform.Api.Endpoints;
 
@@ -35,7 +36,12 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
         {
             await db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException) when (db.ChangeTracker.HasChanges())
+        catch (DbUpdateException exception) when (
+            exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation,
+                ConstraintName: "uq_business_tenants_slug"
+            })
         {
             return (null, true);
         }
