@@ -188,14 +188,15 @@ public sealed class TenantProvisioningHandlerPostgresTests
 
         public async Task<BusinessTenant> AddTenantAsync(string status = "PendingProvisioning")
         {
+            var tenantId = Guid.NewGuid();
             var tenant = new BusinessTenant
             {
+                Id = tenantId,
                 Name = "Test Tenant",
                 Slug = "test-tenant-" + Guid.NewGuid().ToString("N")[..8],
                 Status = status,
-                DatabaseSecretReference = $"tenants/{Guid.NewGuid():N}/postgres"
+                DatabaseSecretReference = $"tenants/{tenantId:N}/postgres"
             };
-            tenant.DatabaseSecretReference = $"tenants/{tenant.Id:N}/postgres";
             await using var context = CreateContext();
             context.Businesses.Add(tenant);
             await context.SaveChangesAsync();
