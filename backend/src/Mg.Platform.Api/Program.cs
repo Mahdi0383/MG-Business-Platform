@@ -48,6 +48,7 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 builder.Services.AddScoped<BusinessRegistryService>();
+builder.Services.AddScoped<TenantProvisioningLeaseService>();
 
 var app = builder.Build();
 
