@@ -5,6 +5,7 @@ using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Security;
 using Mg.Platform.Api.Secrets;
+using Mg.Platform.Api.Provisioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -51,6 +52,12 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddScoped<BusinessRegistryService>();
 builder.Services.AddScoped<TenantProvisioningLeaseService>();
 builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>();
+if (builder.Configuration.GetValue<bool>("Provisioning:WorkerEnabled"))
+{
+    if (!builder.Services.Any(descriptor => descriptor.ServiceType == typeof(ITenantProvisioningHandler)))
+        throw new InvalidOperationException("Provisioning worker cannot be enabled until a reviewed ITenantProvisioningHandler is registered.");
+    builder.Services.AddHostedService<TenantProvisioningWorker>();
+}
 
 var app = builder.Build();
 
