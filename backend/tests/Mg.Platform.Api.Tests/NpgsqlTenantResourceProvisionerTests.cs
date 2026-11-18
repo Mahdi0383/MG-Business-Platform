@@ -65,6 +65,44 @@ public sealed class NpgsqlTenantResourceProvisionerTests
     }
 
     [Fact]
+    public async Task RejectsOwnerCredentialWithWrongDeterministicRole()
+    {
+        var provisioner = CreateProvisioner();
+        var tenantId = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var valid = Credentials(databaseName,
+            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull");
+        var invalid = valid with
+        {
+            OwnerConnectionString =
+                $"Host=localhost;Database={databaseName};Username=wrong_owner;Password=owner-secret;SSL Mode=VerifyFull"
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provisioner.EnsureDatabaseAndRolesAsync(
+                tenantId, Guid.NewGuid(), databaseName, invalid, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RejectsOwnerCredentialWithoutStrictTls()
+    {
+        var provisioner = CreateProvisioner();
+        var tenantId = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var valid = Credentials(databaseName,
+            $"Host=localhost;Database={databaseName};Username={databaseName}_app;Password=app-secret;SSL Mode=VerifyFull");
+        var invalid = valid with
+        {
+            OwnerConnectionString =
+                $"Host=localhost;Database={databaseName};Username={databaseName}_owner;Password=owner-secret;SSL Mode=Require"
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provisioner.EnsureDatabaseAndRolesAsync(
+                tenantId, Guid.NewGuid(), databaseName, invalid, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RejectsInvalidTenantDatabaseIdentityBeforeConnecting()
     {
         var provisioner = CreateProvisioner();
