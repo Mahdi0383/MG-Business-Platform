@@ -329,6 +329,94 @@ public sealed class StaffAdministrationServiceTests
     }
 
     [Fact]
+    public async Task StaleContext_CannotReadOrMutateAfterBranchGrantRemovalOrBranchDeactivation()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId, store.SecondBranchId],
+            "owner", "Store Owner", OwnerPassword);
+        var login = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(login);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var mainContext = await resolver.ResolveAsync(login.Token, store.MainBranchId);
+        var secondContext = await resolver.ResolveAsync(login.Token, store.SecondBranchId);
+        Assert.NotNull(mainContext);
+        Assert.NotNull(secondContext);
+
+        var secondGrant = await store.Db.StaffBranchAccess.SingleAsync(
+            x => x.StaffUserId == login.Identity.StaffUserId && x.BranchId == store.SecondBranchId);
+        store.Db.StaffBranchAccess.Remove(secondGrant);
+        var mainBranch = await store.Db.Branches.SingleAsync(x => x.Id == store.MainBranchId);
+        mainBranch.IsActive = false;
+        await store.Db.SaveChangesAsync();
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        using (StaffRequestContextScope.Push(secondContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ListStaffAsync());
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-grant", "Blocked Grant", "Blocked-Grant-Passphrase-2026!",
+                    "Cashier", [store.SecondBranchId]));
+        }
+
+        using (StaffRequestContextScope.Push(mainContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ListStaffAsync());
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-branch", "Blocked Branch", "Blocked-Branch-Passphrase-2026!",
+                    "Cashier", [store.MainBranchId]));
+        }
+
+        Assert.Empty(await store.Db.StaffUsers.AsNoTracking()
+            .Where(x => x.UserNameNormalized == "BLOCKED-GRANT"
+                || x.UserNameNormalized == "BLOCKED-BRANCH")
+            .ToListAsync());
+    }
+
+    [Fact]
+    public async Task StaleContext_CannotReadOrMutateAfterBusinessDeactivation()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId], "owner", "Store Owner", OwnerPassword);
+        var login = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(login);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var staleContext = await resolver.ResolveAsync(login.Token);
+        Assert.NotNull(staleContext);
+
+        var business = await store.Db.Businesses.SingleAsync(x => x.Id == store.BusinessId);
+        business.IsActive = false;
+        await store.Db.SaveChangesAsync();
+
+        var administration = new StaffAdministrationService(store.Db, hasher);
+        using (StaffRequestContextScope.Push(staleContext!))
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.ListStaffAsync());
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                administration.CreateStaffAsync(
+                    "blocked-business", "Blocked Business", "Blocked-Business-Passphrase-2026!",
+                    "Cashier", [store.MainBranchId]));
+        }
+
+        Assert.Empty(await store.Db.StaffUsers.AsNoTracking()
+            .Where(x => x.UserNameNormalized == "BLOCKED-BUSINESS").ToListAsync());
+    }
+
+    [Fact]
     public async Task ChangeOwnPassword_RequiresCurrentCredentialAndRevokesAllSessions()
     {
         await using var store = await TestStore.CreateAsync();
