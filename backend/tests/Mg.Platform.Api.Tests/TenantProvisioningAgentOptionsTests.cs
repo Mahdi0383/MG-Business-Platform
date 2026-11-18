@@ -15,13 +15,18 @@ public sealed class TenantProvisioningAgentOptionsTests
         Assert.Null(TenantProvisioningAgentOptions.From(configuration));
     }
 
-    [Fact]
-    public void RejectsNonHttpsAgentAddress()
+    [Theory]
+    [InlineData("http://provisioner.internal/")]
+    [InlineData("https://user:password@provisioner.internal/")]
+    [InlineData("https://provisioner.internal/api")]
+    [InlineData("https://provisioner.internal/?target=other")]
+    [InlineData("https://provisioner.internal/#fragment")]
+    public void RejectsInvalidAgentAddress(string address)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Provisioning:Agent:Address"] = "http://provisioner.internal/",
+                ["Provisioning:Agent:Address"] = address,
                 ["Provisioning:Agent:ClientCertificatePath"] = "/not/read.pfx",
                 ["Provisioning:Agent:ClientCertificatePassword"] = "not-a-real-secret"
             })
