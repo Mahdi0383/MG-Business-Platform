@@ -118,17 +118,25 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 tenantId, CancellationToken.None));
 
             // Only PostgreSQL 17's exact bootstrap ADMIN edge is tolerated.
-            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            foreach (var unsafeOptions in new[]
             {
-                await admin.OpenAsync();
-                await using var replaceBootstrap = new NpgsqlCommand(
-                    $"REVOKE {quotedRole} FROM {quotedControlRole}; " +
-                    $"GRANT {quotedRole} TO {quotedControlRole} WITH ADMIN FALSE, INHERIT FALSE, SET FALSE",
-                    admin);
-                await replaceBootstrap.ExecuteNonQueryAsync();
+                "WITH ADMIN FALSE, INHERIT FALSE, SET FALSE",
+                "WITH ADMIN TRUE, INHERIT TRUE, SET FALSE",
+                "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
+            })
+            {
+                await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+                {
+                    await admin.OpenAsync();
+                    await using var replaceBootstrap = new NpgsqlCommand(
+                        $"REVOKE {quotedRole} FROM {quotedControlRole}; " +
+                        $"GRANT {quotedRole} TO {quotedControlRole} {unsafeOptions}",
+                        admin);
+                    await replaceBootstrap.ExecuteNonQueryAsync();
+                }
+                Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                    tenantId, CancellationToken.None));
             }
-            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
-                tenantId, CancellationToken.None));
             await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
