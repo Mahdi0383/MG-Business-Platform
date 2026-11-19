@@ -1,13 +1,18 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Threading.RateLimiting;
+using Mg.Platform.Api.Data;
+using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -63,6 +68,33 @@ public sealed class CreatorOidcBearerIntegrationTests
         using var response = await client.GetAsync("/secure");
 
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ActualBusinessRegistryEndpointRejectsMissingBearerToken()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
+
+        using var response = await client.GetAsync("/api/v1/platform/businesses/");
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ActualBusinessRegistryEndpointForbidsBusinessOwnerToken()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
+        var token = CreateToken(rsa, Issuer, Audience, "BusinessOwner");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/platform/businesses/");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -179,10 +211,17 @@ public sealed class CreatorOidcBearerIntegrationTests
             JwtBearerDefaults.AuthenticationScheme,
             options => options.ConfigurationManager = configurationManager);
         builder.Services.AddCreatorAuthorization();
+        builder.Services.AddDbContext<PlatformDbContext>(options =>
+            options.UseNpgsql("Host=127.0.0.1;Database=mg_test;Username=mg_test;Password=not-used"));
+        builder.Services.AddScoped<BusinessRegistryService>();
+        builder.Services.AddRateLimiter(options =>
+            options.AddPolicy("creator-bootstrap", _ => RateLimitPartition.GetNoLimiter("creator-tests")));
 
         var app = builder.Build();
+        app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.MapPlatformEndpoints();
         app.MapGet("/secure", async context =>
         {
             context.Response.StatusCode = StatusCodes.Status200OK;
