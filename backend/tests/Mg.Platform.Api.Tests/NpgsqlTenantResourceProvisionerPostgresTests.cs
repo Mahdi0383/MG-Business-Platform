@@ -52,6 +52,12 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.Credentials, CancellationToken.None);
 
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+        using (var publicAclDriftHandler = fixture.CreateAgentHandler())
+            Assert.False(await publicAclDriftHandler.IsReadyAsync(CancellationToken.None));
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
         await fixture.AddUnexpectedBootstrapMembershipAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: false);
         await fixture.RemoveUnexpectedBootstrapMembershipAsync();
@@ -297,6 +303,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 WHERE role.rolname = current_user;
                 """, connection);
             return (string)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task SetPublicTemporaryPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} TEMPORARY ON DATABASE \"{new NpgsqlConnectionStringBuilder(adminConnectionString).Database}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task AddUnexpectedBootstrapMembershipAsync()
