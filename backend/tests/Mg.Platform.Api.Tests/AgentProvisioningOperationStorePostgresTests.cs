@@ -270,7 +270,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantId, Guid.NewGuid(), databaseName,
             _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-one")));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, Guid.NewGuid(), databaseName,
                 _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-two"))));
@@ -290,7 +290,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantA, idempotencyKey, databaseA,
             _ => ValueTask.FromResult(Fixture.Credentials(databaseA, "secret-one")));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantB, idempotencyKey, databaseB,
                 _ => ValueTask.FromResult(Fixture.Credentials(databaseB, "secret-two"))));
