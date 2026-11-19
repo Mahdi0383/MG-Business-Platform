@@ -67,6 +67,41 @@ public sealed class CreatorAuthenticationConfigurationTests
             CreatorAuthenticationConfiguration.From(configuration));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("mg platform")]
+    [InlineData("mg\\nplatform")]
+    [InlineData("mg\\tplatform")]
+    public void RejectsBlankOrMalformedAudience(string audience)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Authority"] = "https://identity.example.com/",
+                ["Authentication:Audience"] = audience
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CreatorAuthenticationConfiguration.From(configuration));
+    }
+
+    [Fact]
+    public void RejectsAudienceLongerThanTwoHundredCharacters()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Authority"] = "https://identity.example.com/",
+                ["Authentication:Audience"] = new string('a', 201)
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CreatorAuthenticationConfiguration.From(configuration));
+    }
+
     [Fact]
     public void NormalizesValidHttpsIssuerAndAudience()
     {
