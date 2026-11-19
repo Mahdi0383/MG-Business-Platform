@@ -44,7 +44,8 @@ CREATE ROLE mg_agent_control
 Use a separate migration identity to apply `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql` to the agent control database. The API project copies this reviewed source artifact into its output as `agent-database/migrations/001_agent_provisioning_ledger.sql`; that output path is not a second source migration. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. PostgreSQL grants CONNECT and TEMP on databases to PUBLIC by default, so revoke those inherited database privileges before granting the agent role its explicit access. Grant only:
 
 ```sql
-REVOKE ALL PRIVILEGES ON DATABASE mg_agent_control FROM PUBLIC;\nGRANT CONNECT ON DATABASE mg_agent_control TO mg_agent_control;
+REVOKE ALL PRIVILEGES ON DATABASE mg_agent_control FROM PUBLIC;
+GRANT CONNECT ON DATABASE mg_agent_control TO mg_agent_control;
 GRANT USAGE ON SCHEMA mg_agent TO mg_agent_control;
 GRANT SELECT, INSERT, UPDATE
     ON TABLE mg_agent.provisioning_operations TO mg_agent_control;
