@@ -39,6 +39,14 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             migration.Version, migration.Sha256, CancellationToken.None);
 
         Assert.True(verified);
+        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: true);
+        Assert.False(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: false);
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
         await fixture.AssertOwnerRoleIsRestrictedAsync();
         await fixture.AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync();
     }
@@ -320,6 +328,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 WHERE role.rolname = current_user;
                 """, connection);
             return (string)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task SetTenantPublicTemporaryPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} TEMPORARY ON DATABASE \"{DatabaseName}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task SetPublicTemporaryPrivilegeAsync(bool grant)
