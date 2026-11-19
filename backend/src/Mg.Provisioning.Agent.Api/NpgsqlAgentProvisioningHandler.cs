@@ -126,11 +126,17 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
             cancellationToken);
     }
 
-    public Task<int> RewrapStoredCredentialsAsync(
+    public async Task<int> RewrapStoredCredentialsAsync(
         int batchSize, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        return operationStore.RewrapStoredCredentialsAsync(batchSize, cancellationToken);
+
+        // Credential rewrapping mutates the protected provisioning ledger too.
+        // Apply the same live least-privilege gate as tenant provisioning.
+        if (!await IsReadyAsync(cancellationToken))
+            throw new InvalidOperationException("Agent provisioning dependencies are not ready.");
+
+        return await operationStore.RewrapStoredCredentialsAsync(batchSize, cancellationToken);
     }
 
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
