@@ -9,7 +9,7 @@ public static class PlatformEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/platform/businesses")
             .WithTags("MG Creator — Business Registry")
-            .RequireAuthorization("mg-creator")
+            .RequireAuthorization(CreatorAuthorizationExtensions.PolicyName)
             .RequireRateLimiting("creator-bootstrap");
 
         group.MapGet("/", async (BusinessRegistryService registry, CancellationToken ct) =>
