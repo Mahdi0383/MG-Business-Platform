@@ -11,6 +11,7 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 - [ ] Confirm request-size limits and per-certificate rate limits are active at the deployed ingress and application layers.
 
 ## 2. PostgreSQL separation and least privilege
+- [ ] Verify the control role has no granted memberships and no outgoing role membership except PostgreSQL 17's automatic bootstrap ADMIN edge (superuser grantor, ADMIN=true, INHERIT=false, SET=false); readiness must fail closed for any other membership.
 - [ ] Create a dedicated agent-control database. It must not be the platform registry database or any tenant database.
 - [ ] Apply the agent ledger migration using a separate migration identity.
 - [ ] Configure the runtime control identity as non-superuser, NOINHERIT, non-replication and NOBYPASSRLS, with only the reviewed CREATEDB/CREATEROLE capabilities.
