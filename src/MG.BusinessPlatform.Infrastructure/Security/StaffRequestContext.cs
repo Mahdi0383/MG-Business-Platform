@@ -36,6 +36,7 @@ public sealed class StaffRequestContext
         Guid businessId,
         Guid branchId,
         Guid staffUserId,
+        Guid sessionId,
         string userName,
         string displayName,
         string role,
@@ -44,6 +45,7 @@ public sealed class StaffRequestContext
         BusinessId = businessId;
         BranchId = branchId;
         StaffUserId = staffUserId;
+        SessionId = sessionId;
         UserName = userName;
         DisplayName = displayName;
         Role = role;
@@ -53,6 +55,7 @@ public sealed class StaffRequestContext
     public Guid BusinessId { get; }
     public Guid BranchId { get; }
     public Guid StaffUserId { get; }
+    public Guid SessionId { get; }
     public string UserName { get; }
     public string DisplayName { get; }
     public string Role { get; }
@@ -104,6 +107,7 @@ public sealed class StaffRequestContextResolver(
             businessId,
             selectedBranch,
             identity.StaffUserId,
+            identity.SessionId,
             identity.UserName,
             identity.DisplayName,
             identity.Role,
