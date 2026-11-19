@@ -1,4 +1,5 @@
 using Mg.Platform.Api.Security;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,7 +11,7 @@ namespace Mg.Platform.Api.Tests;
 public sealed class CreatorAuthenticationRegistrationTests
 {
     [Fact]
-    public void RegistersHttpsAuthorityAudienceAndStrictMetadataSettings()
+    public async Task RegistersHttpsAuthorityAudienceAndStrictMetadataSettings()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -32,6 +33,15 @@ public sealed class CreatorAuthenticationRegistrationTests
         Assert.Equal("mg-platform-api", options.Audience);
         Assert.True(options.RequireHttpsMetadata);
         Assert.False(options.MapInboundClaims);
+        Assert.True(options.TokenValidationParameters.ValidateIssuer);
+        Assert.True(options.TokenValidationParameters.ValidateAudience);
+        Assert.True(options.TokenValidationParameters.ValidateLifetime);
+        Assert.True(options.TokenValidationParameters.RequireSignedTokens);
+        Assert.True(options.TokenValidationParameters.RequireExpirationTime);
+
+        var defaultScheme = await provider.GetRequiredService<IAuthenticationSchemeProvider>()
+            .GetDefaultAuthenticateSchemeAsync();
+        Assert.Equal(JwtBearerDefaults.AuthenticationScheme, defaultScheme?.Name);
     }
 
     [Fact]
