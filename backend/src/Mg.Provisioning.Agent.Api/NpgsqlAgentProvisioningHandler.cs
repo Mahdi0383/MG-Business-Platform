@@ -220,7 +220,14 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                                       AND NOT membership.admin_option
                                   ))
                        ),
-                       current_user
+                       current_user,
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       )
                 FROM pg_roles role
                 JOIN pg_database database ON database.datname = current_database()
                 JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
@@ -252,7 +259,9 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                 && !string.Equals(reader.GetString(18), reader.GetString(22), StringComparison.Ordinal)
                 && !string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
                 && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
-                && reader.GetBoolean(21);
+                && reader.GetBoolean(21)
+                && !reader.GetBoolean(23)
+                && reader.GetBoolean(24);
         }
         catch (NpgsqlException)
         {
