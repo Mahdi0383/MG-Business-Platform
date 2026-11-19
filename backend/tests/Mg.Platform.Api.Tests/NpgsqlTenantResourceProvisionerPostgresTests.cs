@@ -277,12 +277,12 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                     has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER')::text,
                     has_database_privilege(current_user, current_database(), 'CREATE')::text,
                     has_database_privilege(current_user, current_database(), 'TEMPORARY')::text,
-                    NOT EXISTS (
+                    (NOT EXISTS (
                         SELECT 1
                         FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                         WHERE database_acl.grantee = 0
                           AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
-                    )::text,
+                    ))::text,
                     pg_get_userbyid(database.datdba),
                     pg_get_userbyid(schema.nspowner),
                     pg_get_userbyid(ledger.relowner),
