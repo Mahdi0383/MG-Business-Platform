@@ -171,14 +171,169 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                        NOT EXISTS (
                            SELECT 1
                            FROM pg_auth_members membership
-                           JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
                            WHERE membership.roleid = role.oid
                               OR (membership.member = role.oid
                                   AND NOT (
-                                      grantor_role.rolsuper
+                                      -- PostgreSQL 17's immutable bootstrap grant
+                                      -- created by the superuser that creates this role.
+                                      EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.rolsuper
+                                      )
                                       AND membership.admin_option
                                       AND NOT membership.inherit_option
                                       AND NOT membership.set_option
+                                  )
+                                  AND NOT (
+                                      -- The provisioner needs SET-only access to each
+                                      -- UUID-bound tenant owner role to create its database.
+                                      -- Do not allow arbitrary memberships or inherited rights.
+                                      EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          JOIN pg_roles owner_role ON owner_role.oid = membership.roleid
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.oid = role.oid
+                                            AND owner_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_owner
+                       current_user
+                FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+                JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
+                WHERE role.rolname = current_user;
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return false;
+
+            return reader.GetBoolean(0)
+                && !reader.GetBoolean(1)
+                && reader.GetBoolean(2)
+                && reader.GetBoolean(3)
+                && !reader.GetBoolean(4)
+                && !reader.GetBoolean(5)
+                && !reader.GetBoolean(6)
+                && reader.GetBoolean(7)
+                && reader.GetBoolean(8)
+                && !reader.GetBoolean(9)
+                && reader.GetBoolean(10)
+                && reader.GetBoolean(11)
+                && reader.GetBoolean(12)
+                && !reader.GetBoolean(13)
+                && !reader.GetBoolean(14)
+                && !reader.GetBoolean(15)
+                && !reader.GetBoolean(16)
+                && !reader.GetBoolean(17)
+                && !string.Equals(reader.GetString(18), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
+                && reader.GetBoolean(21);
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        dataSource.Dispose();
+        credentialProtector.Dispose();
+        disposed = true;
+    }
+
+    private static string GenerateCredentialPassword() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+    }
+}
+
+                                            AND owner_role.rolcanlogin
+                                            AND NOT owner_role.rolsuper
+                                            AND NOT owner_role.rolcreatedb
+                                            AND NOT owner_role.rolcreaterole
+                                            AND NOT owner_role.rolreplication
+                                            AND NOT owner_role.rolbypassrls
+                                            AND NOT owner_role.rolinherit
+                                            AND shobj_description(owner_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(owner_role.rolname from '^mg_tenant_([0-9a-f]{32})_owner
+                       current_user
+                FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+                JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
+                WHERE role.rolname = current_user;
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return false;
+
+            return reader.GetBoolean(0)
+                && !reader.GetBoolean(1)
+                && reader.GetBoolean(2)
+                && reader.GetBoolean(3)
+                && !reader.GetBoolean(4)
+                && !reader.GetBoolean(5)
+                && !reader.GetBoolean(6)
+                && reader.GetBoolean(7)
+                && reader.GetBoolean(8)
+                && !reader.GetBoolean(9)
+                && reader.GetBoolean(10)
+                && reader.GetBoolean(11)
+                && reader.GetBoolean(12)
+                && !reader.GetBoolean(13)
+                && !reader.GetBoolean(14)
+                && !reader.GetBoolean(15)
+                && !reader.GetBoolean(16)
+                && !reader.GetBoolean(17)
+                && !string.Equals(reader.GetString(18), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
+                && reader.GetBoolean(21);
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        dataSource.Dispose();
+        credentialProtector.Dispose();
+        disposed = true;
+    }
+
+    private static string GenerateCredentialPassword() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+    }
+}
+) ||
+                                                ':owner:v1'
+                                      )
+                                      AND membership.set_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.admin_option
                                   ))
                        ),
                        current_user
