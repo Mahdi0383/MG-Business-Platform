@@ -1,5 +1,4 @@
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
@@ -11,7 +10,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("Platform")
     ?? throw new InvalidOperationException("ConnectionStrings:Platform is required.");
-var creatorAuthentication = CreatorAuthenticationConfiguration.From(builder.Configuration);
 
 builder.Services.AddDbContext<PlatformDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
