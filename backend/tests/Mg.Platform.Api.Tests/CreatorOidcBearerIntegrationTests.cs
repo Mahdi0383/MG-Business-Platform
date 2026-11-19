@@ -173,7 +173,9 @@ public sealed class CreatorOidcBearerIntegrationTests
             issuer,
             audience,
             platformRole is null ? [] : [new Claim(CreatorAuthorizationExtensions.PlatformRoleClaim, platformRole)],
-            DateTime.UtcNow.AddMinutes(-1),
+            expiresAt.HasValue && expiresAt.Value <= DateTime.UtcNow
+                ? expiresAt.Value.AddMinutes(-5)
+                : DateTime.UtcNow.AddMinutes(-1),
             expiresAt ?? DateTime.UtcNow.AddMinutes(5),
             credentials);
 
