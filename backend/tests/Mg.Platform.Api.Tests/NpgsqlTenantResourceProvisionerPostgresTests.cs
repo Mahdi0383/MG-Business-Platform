@@ -393,7 +393,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, controlRoleName }.Where(role => role is not null))
             {
                 var format = new NpgsqlCommand("SELECT format('DROP ROLE IF EXISTS %I', @role);", connection);
-                format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role);
+                format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role!);
                 var ddl = (string)(await format.ExecuteScalarAsync())!;
                 await using var drop = new NpgsqlCommand(ddl, connection);
                 await drop.ExecuteNonQueryAsync();
