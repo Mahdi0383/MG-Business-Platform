@@ -93,6 +93,13 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
+
+        // Readiness is a live security invariant, not only an orchestrator health hint.
+        // Re-check the restricted control identity and ledger privileges immediately
+        // before any tenant database/role side effect so privilege drift fails closed.
+        if (!await IsReadyAsync(cancellationToken))
+            throw new InvalidOperationException("Agent provisioning dependencies are not ready.");
+
         return await coordinator.ProvisionAsync(
             request,
             token =>
