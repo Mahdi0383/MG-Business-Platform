@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Mg.Provisioning.Agent.Api;
 using Mg.Provisioning.Agent.Core;
 using Npgsql;
 using NpgsqlTypes;
