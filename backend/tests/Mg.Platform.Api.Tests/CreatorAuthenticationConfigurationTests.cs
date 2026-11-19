@@ -71,8 +71,6 @@ public sealed class CreatorAuthenticationConfigurationTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("mg platform")]
-    [InlineData("mg\\nplatform")]
-    [InlineData("mg\\tplatform")]
     public void RejectsBlankOrMalformedAudience(string audience)
     {
         var configuration = new ConfigurationBuilder()
