@@ -51,7 +51,15 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddScoped<BusinessRegistryService>();
 builder.Services.AddScoped<TenantProvisioningLeaseService>();
-builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>();
+builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>(client =>
+    client.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        ConnectTimeout = TimeSpan.FromSeconds(10),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    });
 var provisioningAgentOptions = TenantProvisioningAgentOptions.From(builder.Configuration);
 if (provisioningAgentOptions is not null)
 {
