@@ -57,6 +57,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await fixture.RemoveUnexpectedBootstrapMembershipAsync();
         await fixture.AddUnexpectedMembershipAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+
+        using var rejectedHandler = fixture.CreateAgentHandler();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rejectedHandler.ProvisionAsync(
+                new AgentProvisioningRequest(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rejectedHandler.RewrapStoredCredentialsAsync(10, CancellationToken.None));
     }
 
     [Fact]
@@ -218,6 +225,16 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 await applyGrants.ExecuteNonQueryAsync();
             }
 
+            using var handler = CreateAgentHandler();
+            var ready = await handler.IsReadyAsync(CancellationToken.None);
+            if (expected)
+                Assert.True(ready, await GetReadinessDiagnosticAsync());
+            else
+                Assert.False(ready);
+        }
+
+        public NpgsqlAgentProvisioningHandler CreateAgentHandler()
+        {
             var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
@@ -228,13 +245,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 })
                 .Build();
 
-            using var handler = NpgsqlAgentProvisioningHandler.TryCreate(configuration, AppContext.BaseDirectory);
-            Assert.NotNull(handler);
-            var ready = await handler.IsReadyAsync(CancellationToken.None);
-            if (expected)
-                Assert.True(ready, await GetReadinessDiagnosticAsync());
-            else
-                Assert.False(ready);
+            return NpgsqlAgentProvisioningHandler.TryCreate(configuration, AppContext.BaseDirectory)
+                ?? throw new InvalidOperationException("Test agent handler configuration was not accepted.");
         }
 
         private async Task<string> GetReadinessDiagnosticAsync()
