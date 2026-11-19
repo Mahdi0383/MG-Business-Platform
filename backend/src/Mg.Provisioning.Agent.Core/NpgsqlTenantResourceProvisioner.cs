@@ -371,7 +371,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(reader.GetString(13), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
             || !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
             || await reader.ReadAsync(cancellationToken))
-            throw new InvalidOperationException("Tenant owner database identity or restricted role verification failed.");
+            throw new AgentProvisioningConflictException("Tenant owner database identity or restricted role verification failed.");
     }
 
     private async Task VerifyControlRoleAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
@@ -431,7 +431,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || state.Inherit
             || (login && (state.MemberOfAnyRole || state.MemberOfUnexpectedRole))
             || (!login && state.MemberOfUnexpectedRole))
-            throw new InvalidOperationException("Existing tenant role has an unexpected identity, privilege or membership state.");
+            throw new AgentProvisioningConflictException("Existing tenant role has an unexpected identity, privilege or membership state.");
 
         if (login)
         {
@@ -451,7 +451,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken, transaction)
             ?? throw new InvalidOperationException("Tenant owner role was not created.");
         if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
-            throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
+            throw new AgentProvisioningConflictException("Tenant owner role has an unexpected role membership.");
 
         // PostgreSQL 17 creates an immutable bootstrap-superuser ADMIN membership for
         // the CREATEROLE identity that creates a role (INHERIT FALSE, SET FALSE).
@@ -495,7 +495,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var hasUnsafeMembership = checkReader.GetBoolean(1);
         await checkReader.CloseAsync();
         if (hasUnsafeMembership)
-            throw new InvalidOperationException("Tenant owner role control membership has unsafe INHERIT, SET, ADMIN or grantor options.");
+            throw new AgentProvisioningConflictException("Tenant owner role control membership has unsafe INHERIT, SET, ADMIN or grantor options.");
         if (hasSetOnlyMembership)
             return;
 
@@ -543,7 +543,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var verifiedUnsafeMembership = verifyReader.GetBoolean(1);
         await verifyReader.CloseAsync();
         if (!verifiedSetOnlyMembership || verifiedUnsafeMembership)
-            throw new InvalidOperationException("Tenant owner role lacks the required isolated SET-only membership path.");
+            throw new AgentProvisioningConflictException("Tenant owner role lacks the required isolated SET-only membership path.");
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
@@ -596,26 +596,26 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         else
         {
             if (!string.Equals(state.Owner, ownerRole, StringComparison.Ordinal))
-                throw new InvalidOperationException("Existing tenant database owner does not match the immutable tenant owner role.");
+                throw new AgentProvisioningConflictException("Existing tenant database owner does not match the immutable tenant owner role.");
 
             if (string.IsNullOrEmpty(state.Comment))
             {
                 // Recover only the crash window after CREATE DATABASE and before its marker.
                 if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
-                    throw new InvalidOperationException("Unmarked tenant database is not empty and cannot be safely adopted.");
+                    throw new AgentProvisioningConflictException("Unmarked tenant database is not empty and cannot be safely adopted.");
                 await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
                 state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
             }
             else if (!string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Existing tenant database immutable marker does not match.");
+                throw new AgentProvisioningConflictException("Existing tenant database immutable marker does not match.");
             }
         }
 
         if (state is null
             || !string.Equals(state.Owner, ownerRole, StringComparison.Ordinal)
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
-            throw new InvalidOperationException("Tenant database owner or immutable database marker verification failed.");
+            throw new AgentProvisioningConflictException("Tenant database owner or immutable database marker verification failed.");
 
         await ConfigureDatabaseAccessAsync(ownerConnectionString, databaseName, appRole, cancellationToken);
     }
@@ -729,7 +729,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || reader.GetInt32(1) != migration.Version
             || !string.Equals(reader.GetString(2), migration.Sha256, StringComparison.OrdinalIgnoreCase)
             || await reader.ReadAsync(cancellationToken))
-            throw new InvalidOperationException("Tenant database identity or baseline migration checksum does not match the reviewed artifact.");
+            throw new AgentProvisioningConflictException("Tenant database identity or baseline migration checksum does not match the reviewed artifact.");
     }
 
     private async Task ApplyRuntimeGrantsAsync(
