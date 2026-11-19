@@ -100,6 +100,27 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
 
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var enableInheritance = new NpgsqlCommand(
+                    $"ALTER ROLE {quotedRole} INHERIT", admin);
+                await enableInheritance.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var disableInheritance = new NpgsqlCommand(
+                    $"ALTER ROLE {quotedRole} NOINHERIT", admin);
+                await disableInheritance.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
             Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 Guid.NewGuid(), CancellationToken.None));
 
