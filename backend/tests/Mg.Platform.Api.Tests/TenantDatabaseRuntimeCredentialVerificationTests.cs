@@ -33,10 +33,14 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
         };
         var quotedDatabase = $"\"{databaseName}\"";
         var quotedRole = $"\"{roleName}\"";
+        var controlRoleName = "mg_agent_control_" + Guid.NewGuid().ToString("N")[..12];
+        var quotedControlRole = $"\"{controlRoleName}\"";
+        var controlPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var holderRoleName = $"mg_runtime_holder_{Guid.NewGuid():N}";
         var quotedHolderRole = $"\"{holderRoleName}\"";
         var databaseCreated = false;
         var roleCreated = false;
+        var controlRoleCreated = false;
         var holderRoleCreated = false;
 
         try
@@ -48,6 +52,14 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                     $"CREATE ROLE {quotedRole} LOGIN PASSWORD '{password}' NOINHERIT", admin);
                 await createRole.ExecuteNonQueryAsync();
                 roleCreated = true;
+                await using var createControlRole = new NpgsqlCommand(
+                    $"CREATE ROLE {quotedControlRole} LOGIN PASSWORD '{controlPassword}' " +
+                    "CREATEDB CREATEROLE NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS", admin);
+                await createControlRole.ExecuteNonQueryAsync();
+                controlRoleCreated = true;
+                await using var grantBootstrapMembership = new NpgsqlCommand(
+                    $"GRANT {quotedRole} TO {quotedControlRole} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE", admin);
+                await grantBootstrapMembership.ExecuteNonQueryAsync();
                 await using var createDatabase = new NpgsqlCommand(
                     $"CREATE DATABASE {quotedDatabase} OWNER postgres", admin);
                 await createDatabase.ExecuteNonQueryAsync();
@@ -334,6 +346,12 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 await using var dropHolderRole = new NpgsqlCommand(
                     $"DROP ROLE IF EXISTS {quotedHolderRole}", admin);
                 await dropHolderRole.ExecuteNonQueryAsync();
+            }
+            if (controlRoleCreated)
+            {
+                await using var dropControlRole = new NpgsqlCommand(
+                    $"DROP ROLE IF EXISTS {quotedControlRole}", admin);
+                await dropControlRole.ExecuteNonQueryAsync();
             }
             if (roleCreated)
             {
