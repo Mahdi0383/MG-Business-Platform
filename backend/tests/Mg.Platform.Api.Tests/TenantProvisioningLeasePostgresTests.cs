@@ -188,6 +188,37 @@ public sealed class TenantProvisioningLeasePostgresTests
     }
 
     [Fact]
+    public async Task IneligibleBusinessStateRollsBackJobCompletion()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var (business, job) = await fixture.AddBusinessAndJobAsync("activation-rollback");
+
+        await using var context = fixture.CreateContext();
+        var service = new TenantProvisioningLeaseService(context);
+        var claimed = await service.ClaimNextAsync(
+            "worker-rollback", TimeSpan.FromMinutes(1), CancellationToken.None);
+        Assert.NotNull(claimed);
+
+        var storedBusiness = await context.Businesses.SingleAsync(item => item.Id == business.Id);
+        storedBusiness.Status = "Suspended";
+        await context.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.MarkSucceededAsync(
+            job.Id, "worker-rollback", claimed.LeaseToken!.Value, CancellationToken.None));
+
+        var storedJob = await context.TenantProvisioningJobs.AsNoTracking()
+            .SingleAsync(item => item.Id == job.Id);
+        var unchangedBusiness = await context.Businesses.AsNoTracking()
+            .SingleAsync(item => item.Id == business.Id);
+
+        Assert.Equal(TenantProvisioningStatus.Running, storedJob.Status);
+        Assert.Equal("worker-rollback", storedJob.LeaseOwner);
+        Assert.Equal(claimed.LeaseToken, storedJob.LeaseToken);
+        Assert.Equal("Suspended", unchangedBusiness.Status);
+        Assert.Null(unchangedBusiness.ActivatedAtUtc);
+    }
+
+    [Fact]
     public async Task SuccessfulCompletionActivatesBusinessAtomically()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
