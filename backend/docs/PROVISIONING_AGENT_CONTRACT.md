@@ -1,6 +1,6 @@
 # Isolated tenant provisioning agent contract
 
-Status: API client adapter implemented; agent service is not implemented or deployed. This document is the acceptance contract for that separate service.
+Status: The isolated mTLS agent HTTP host, conditional PostgreSQL handler registration, encrypted idempotency ledger integration and tenant resource provisioner are implemented in the repository and covered by CI. The service is not approved for production deployment; the operational acceptance gates below remain mandatory.
 
 ## Network and identity
 
@@ -91,7 +91,7 @@ The agent core now includes `NpgsqlTenantResourceProvisioner`. It is not yet reg
 - The migration runner uses the exact packaged artifact bytes and checksum, sets transaction/session-local tenant identity and migration checksum, verifies an existing migration rather than re-running it, and applies the baseline as the tenant owner. It can safely resume if the migration committed but the coordinator did not persist its next phase.
 - Runtime verification independently checks the tenant marker, exact migration checksum/version, database and schema owner, runtime role attributes/memberships, immutable-table privileges, no owned tables/functions, and required customer CRUD.
 
-The agent HTTP host still has no `IAgentProvisioningHandler` registration. Therefore it reports not-ready and returns 503 even though the core provisioner now exists. Before wiring it, add a real TLS-enabled PostgreSQL integration environment, crash injection around CREATE DATABASE/role/migration/grant boundaries, and live secret-manager key loading/rotation. Never enable the central API worker until those tests pass.
+The agent HTTP host conditionally registers `NpgsqlAgentProvisioningHandler` only when the dedicated control-database connection, packaged tenant migration artifact and complete AES-256 key ring are configured. `/health/ready` remains 503 when the handler is absent or live PostgreSQL readiness checks fail. The host enforces HTTPS with mandatory client certificates, certificate allowlisting, strict request parsing, request-size limits and per-certificate rate limiting. Repository CI exercises the host/handler and PostgreSQL 17 TLS integration path; this does not replace production secret-manager delivery, crash-injection, rotation, backup/restore or deployment-topology acceptance.
 
 ## Safe HTTP error mapping
 
@@ -113,7 +113,7 @@ The agent HTTP host still has no `IAgentProvisioningHandler` registration. There
 9. API retries agent 429/5xx safely and does not activate until Vault readback and independent verification succeeds.
 10. Backup/restore and credential rotation are tested before production rollout.
 
-The API adapter and its tests do not satisfy these agent acceptance gates. Keep Provisioning:WorkerEnabled=false until every gate passes in a disposable environment.
+The API adapter, agent host and repository integration tests do not by themselves satisfy production acceptance. Keep Provisioning:WorkerEnabled=false until every gate passes in a disposable environment and the evidence is attached to the release record.
 
 
 ### PostgreSQL 17 creator membership caveat
