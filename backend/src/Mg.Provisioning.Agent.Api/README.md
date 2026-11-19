@@ -18,7 +18,7 @@ The HTTP surface is intentionally narrow:
 - `GET /health/ready`
 - `POST /internal/v1/tenant-databases`
 
-The POST endpoint accepts only the exact JSON fields `tenantId`, `idempotencyKey` and `databaseName`; rejects unknown/duplicate properties and mismatched UUID-derived database names; caps request bodies at 4 KiB; and rate-limits each client certificate. Error responses contain stable codes only. Exception messages, SQL and credentials are never logged.
+The POST endpoint accepts only the exact JSON fields `tenantId`, `idempotencyKey` and `databaseName`; rejects unknown/duplicate properties and mismatched UUID-derived database names; caps request bodies at 4 KiB; and rate-limits each client certificate. Idempotency-key reuse or immutable tenant-resource marker conflicts return HTTP 409 with `IDEMPOTENCY_CONFLICT`; these are permanent failures, not retryable service outages. Other error responses contain stable codes only. Exception messages, SQL and credentials are never logged.
 
 
 ## Enabling the real handler
