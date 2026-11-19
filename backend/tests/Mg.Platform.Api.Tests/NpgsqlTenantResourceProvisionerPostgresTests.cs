@@ -216,8 +216,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 await using var grants = new NpgsqlCommand(
                     """
                     SELECT format(
-                        'GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO %I;',
-                        current_database(), @role, @role, @role);
+                        'REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC; GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO %I;',
+                        current_database(), current_database(), @role, @role, @role);
                     """, admin);
                 grants.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
                 var grantSql = (string)(await grants.ExecuteScalarAsync())!;
@@ -270,6 +270,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                     has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'REFERENCES')::text,
                     has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER')::text,
                     has_database_privilege(current_user, current_database(), 'CREATE')::text,
+                    has_database_privilege(current_user, current_database(), 'TEMPORARY')::text,
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                        WHERE database_acl.grantee = 0
+                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                    )::text,
                     pg_get_userbyid(database.datdba),
                     pg_get_userbyid(schema.nspowner),
                     pg_get_userbyid(ledger.relowner),
