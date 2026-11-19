@@ -226,7 +226,54 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
             using var handler = NpgsqlAgentProvisioningHandler.TryCreate(configuration, AppContext.BaseDirectory);
             Assert.NotNull(handler);
-            Assert.Equal(expected, await handler.IsReadyAsync(CancellationToken.None));
+            var ready = await handler.IsReadyAsync(CancellationToken.None);
+            if (expected)
+                Assert.True(ready, await GetReadinessDiagnosticAsync());
+            else
+                Assert.False(ready);
+        }
+
+        private async Task<string> GetReadinessDiagnosticAsync()
+        {
+            await using var connection = new NpgsqlConnection(controlConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT concat_ws('|',
+                    role.rolcanlogin::text, role.rolsuper::text, role.rolcreatedb::text,
+                    role.rolcreaterole::text, role.rolreplication::text, role.rolbypassrls::text,
+                    role.rolinherit::text,
+                    (to_regclass('mg_agent.provisioning_operations') IS NOT NULL)::text,
+                    has_schema_privilege(current_user, 'mg_agent', 'USAGE')::text,
+                    has_schema_privilege(current_user, 'mg_agent', 'CREATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'REFERENCES')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER')::text,
+                    has_database_privilege(current_user, current_database(), 'CREATE')::text,
+                    pg_get_userbyid(database.datdba),
+                    pg_get_userbyid(schema.nspowner),
+                    pg_get_userbyid(ledger.relowner),
+                    COALESCE((SELECT string_agg(
+                        format('target=%s grantor=%s admin=%s inherit=%s set=%s marker=%s',
+                            target.rolname, grantor.rolname, m.admin_option, m.inherit_option,
+                            m.set_option, COALESCE(shobj_description(target.oid, 'pg_authid'), 'NULL')),
+                        '; ')
+                        FROM pg_auth_members m
+                        JOIN pg_roles target ON target.oid = m.roleid
+                        JOIN pg_roles grantor ON grantor.oid = m.grantor
+                        WHERE m.member = role.oid OR m.roleid = role.oid), 'none')
+                )
+                FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+                JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
+                WHERE role.rolname = current_user;
+                """, connection);
+            return (string)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task AddUnexpectedMembershipAsync()
