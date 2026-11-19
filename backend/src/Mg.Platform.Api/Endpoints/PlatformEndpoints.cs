@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Contracts;
+using Mg.Platform.Api.Security;
 
 namespace Mg.Platform.Api.Endpoints;
 
