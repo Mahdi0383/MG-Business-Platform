@@ -35,7 +35,7 @@ Success response is returned only over the authenticated mTLS channel:
 }
 ```
 
-The connection string is an application-role credential, not an owner or provisioning credential. It must identify exactly the requested database, use a distinct non-login database owner and a separate login role, and require PostgreSQL TLS certificate validation (VerifyCA or VerifyFull). The API stores it in Vault and does not persist it in the central registry or job record.
+The connection string is an application-role credential, not an owner or provisioning credential. It must identify exactly the requested database, use a distinct LOGIN owner role whose credential remains isolated inside the agent, and a separate least-privilege LOGIN application role. Both connections require PostgreSQL TLS certificate validation (VerifyCA or VerifyFull); only the application-role connection string is returned to the API. The API stores it in Vault and does not persist it in the central registry or job record.
 
 ## Idempotency and lifecycle
 
