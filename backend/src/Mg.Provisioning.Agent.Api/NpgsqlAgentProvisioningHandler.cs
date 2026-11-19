@@ -235,8 +235,8 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                 && !reader.GetBoolean(15)
                 && !reader.GetBoolean(16)
                 && !reader.GetBoolean(17)
-                && !string.Equals(reader.GetString(18), reader.GetString(21), StringComparison.Ordinal)
-                && !string.Equals(reader.GetString(19), reader.GetString(21), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(18), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
                 && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
                 && reader.GetBoolean(21);
         }
