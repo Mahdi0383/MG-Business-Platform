@@ -142,6 +142,16 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                            FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                            WHERE database_acl.grantee = 0
                              AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_proc routine
+                           JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                           CROSS JOIN LATERAL aclexplode(
+                               COALESCE(routine.proacl, acldefault('f', routine.proowner))) AS function_acl
+                           WHERE namespace.nspname = 'mg'
+                             AND function_acl.grantee = 0
+                             AND function_acl.privilege_type = 'EXECUTE'
                        )
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
@@ -191,7 +201,8 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(30)
                 && !reader.GetBoolean(31)
                 && !reader.GetBoolean(32)
-                && reader.GetBoolean(33);
+                && reader.GetBoolean(33)
+                && reader.GetBoolean(34);
         }
         catch (NpgsqlException)
         {
