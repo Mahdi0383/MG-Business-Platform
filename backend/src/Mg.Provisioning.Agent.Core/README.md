@@ -1,6 +1,6 @@
 # MG provisioning agent core
 
-This project contains security primitives and the durable operation ledger for the separately deployed tenant provisioning agent. It is deliberately not registered in the MG Platform API and does not enable the API worker.
+This project contains security primitives and the durable operation ledger used by the separately hosted `Mg.Provisioning.Agent.Api`. The core library is not registered in the customer-facing MG Platform API; the platform API calls the separate agent over mTLS through its HTTP adapter. The platform worker remains disabled by default until production acceptance is complete.
 
 ## Agent database
 
@@ -10,4 +10,4 @@ The ledger serializes each tenant operation with a PostgreSQL transaction-scoped
 
 Encryption key material must be supplied by an external runtime secret manager. Do not place keys in appsettings, source control, this database, container image layers or logs. Retain old key IDs while any row still references them.
 
-The operation ledger is a durable replay primitive, not a complete agent service. It does not itself create databases, roles, apply tenant migrations, enforce mTLS, manage a PostgreSQL control role or prove end-to-end recovery. Those remain separate acceptance gates in `backend/docs/PROVISIONING_AGENT_CONTRACT.md`.
+The operation ledger is one component of the agent service. The sibling `Mg.Provisioning.Agent.Api` project supplies the mTLS HTTP host and conditionally wires the ledger to `NpgsqlTenantResourceProvisioner`, which creates UUID-derived tenant databases/roles, applies the packaged baseline and verifies runtime access. Repository integration tests exercise this path against TLS-enabled PostgreSQL 17. Production secret-manager delivery/rotation for the agent key ring, exhaustive crash-injection, backup/restore, deployment topology and operational sign-off remain mandatory acceptance gates in `backend/docs/PROVISIONING_AGENT_CONTRACT.md`.
