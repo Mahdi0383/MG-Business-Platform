@@ -95,6 +95,11 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 }
                 await using var migration = new NpgsqlCommand(migrationSql, ownerConnection);
                 await migration.ExecuteNonQueryAsync();
+                await using var revokePublicFunctions = new NpgsqlCommand(
+                    "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC; " +
+                    "ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
+                    ownerConnection);
+                await revokePublicFunctions.ExecuteNonQueryAsync();
                 await using var grantRuntime = new NpgsqlCommand(
                     $"GRANT USAGE ON SCHEMA mg TO {quotedRole}; " +
                     $"GRANT SELECT ON mg.tenant_identity, mg.schema_migrations TO {quotedRole}",
@@ -172,7 +177,8 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             {
                 await admin.OpenAsync();
                 await using var createPublicFunction = new NpgsqlCommand(
-                    "CREATE FUNCTION mg.runtime_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+                    "CREATE FUNCTION mg.runtime_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1'; " +
+                    "GRANT EXECUTE ON FUNCTION mg.runtime_probe() TO PUBLIC",
                     admin);
                 await createPublicFunction.ExecuteNonQueryAsync();
             }
