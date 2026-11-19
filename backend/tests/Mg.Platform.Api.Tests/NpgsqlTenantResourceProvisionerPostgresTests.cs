@@ -52,6 +52,9 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.Credentials, CancellationToken.None);
 
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.AddUnexpectedBootstrapMembershipAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+        await fixture.RemoveUnexpectedBootstrapMembershipAsync();
         await fixture.AddUnexpectedMembershipAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: false);
     }
@@ -93,6 +96,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
         private string? unexpectedMembershipHolderRoleName;
+        private string? unexpectedBootstrapRoleName;
         private readonly string applicationRoleName;
 
         private Fixture(
@@ -274,6 +278,39 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 WHERE role.rolname = current_user;
                 """, connection);
             return (string)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task AddUnexpectedBootstrapMembershipAsync()
+        {
+            var roleName = "mg_unmarked_role_" + Guid.NewGuid().ToString("N")[..12];
+            unexpectedBootstrapRoleName = roleName;
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('CREATE ROLE %I NOLOGIN; GRANT %I TO %I WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;', @role, @role, @control);",
+                admin);
+            format.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RemoveUnexpectedBootstrapMembershipAsync()
+        {
+            if (unexpectedBootstrapRoleName is null)
+                return;
+
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('REVOKE %I FROM %I; DROP ROLE %I;', @role, @control, @role);", admin);
+            format.Parameters.AddWithValue("role", NpgsqlDbType.Text, unexpectedBootstrapRoleName);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
+            unexpectedBootstrapRoleName = null;
         }
 
         public async Task AddUnexpectedMembershipAsync()
@@ -463,7 +500,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 }
             }
 
-            foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, controlRoleName }.Where(role => role is not null))
+            foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, unexpectedBootstrapRoleName, controlRoleName }.Where(role => role is not null))
             {
                 var format = new NpgsqlCommand("SELECT format('DROP ROLE IF EXISTS %I', @role);", connection);
                 format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role!);
