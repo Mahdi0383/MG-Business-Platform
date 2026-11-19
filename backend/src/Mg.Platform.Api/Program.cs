@@ -25,12 +25,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.RequireHttpsMetadata = true;
         options.MapInboundClaims = false;
     });
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("mg-creator", policy =>
-        policy.RequireAuthenticatedUser()
-            .RequireClaim("mg_platform_role", "PlatformOwner", "PlatformAdministrator"));
-});
+builder.Services.AddCreatorAuthorization();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy);
 builder.Services.AddRateLimiter(options =>
