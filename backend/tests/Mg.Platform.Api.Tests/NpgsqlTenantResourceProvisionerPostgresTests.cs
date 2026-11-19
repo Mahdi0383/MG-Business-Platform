@@ -545,6 +545,16 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 await drop.ExecuteNonQueryAsync();
                 await format.DisposeAsync();
             }
+
+            // Restore PostgreSQL's default database ACL for other tests/local runs.
+            await using (var restorePublic = new NpgsqlCommand(
+                "SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', current_database());",
+                connection))
+            {
+                var ddl = (string)(await restorePublic.ExecuteScalarAsync())!;
+                await using var grant = new NpgsqlCommand(ddl, connection);
+                await grant.ExecuteNonQueryAsync();
+            }
         }
     }
 }
