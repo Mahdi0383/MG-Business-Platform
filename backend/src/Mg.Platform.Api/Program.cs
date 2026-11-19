@@ -17,14 +17,7 @@ builder.Services.AddDbContext<PlatformDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = creatorAuthentication.Authority.AbsoluteUri.TrimEnd('/');
-        options.Audience = creatorAuthentication.Audience;
-        options.RequireHttpsMetadata = true;
-        options.MapInboundClaims = false;
-    });
+builder.Services.AddCreatorAuthentication(builder.Configuration);
 builder.Services.AddCreatorAuthorization();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy);
