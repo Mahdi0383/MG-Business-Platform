@@ -79,7 +79,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await fixture.CreateRoleWithCommentAsync(
             $"{fixture.DatabaseName}_owner", "mg-tenant:wrong:owner:v1");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Provisioner.EnsureDatabaseAndRolesAsync(
                 fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
                 fixture.Credentials, CancellationToken.None));
@@ -96,7 +96,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.Credentials, CancellationToken.None);
         await fixture.SetDatabaseCommentAsync("mg-tenant:wrong:database:v1");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Provisioner.EnsureDatabaseAndRolesAsync(
                 fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
                 fixture.Credentials, CancellationToken.None));
