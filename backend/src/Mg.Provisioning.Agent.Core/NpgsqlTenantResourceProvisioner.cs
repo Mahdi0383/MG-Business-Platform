@@ -780,7 +780,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 'REVOKE ALL ON SCHEMA mg FROM PUBLIC;
                  REVOKE ALL ON ALL TABLES IN SCHEMA mg FROM PUBLIC;
                  REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC;
-                 ALTER DEFAULT PRIVILEGES IN SCHEMA mg REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+                 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
                  GRANT USAGE ON SCHEMA mg TO %I;
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg.business_settings, mg.users, mg.customers, mg.user_roles, mg.role_permissions, mg.outbox_messages TO %I;
                  GRANT SELECT ON TABLE mg.roles, mg.permissions, mg.tenant_identity, mg.schema_migrations, mg.audit_events TO %I;',
