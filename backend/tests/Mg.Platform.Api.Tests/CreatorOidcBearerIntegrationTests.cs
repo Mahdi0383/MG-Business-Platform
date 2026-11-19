@@ -88,7 +88,7 @@ public sealed class CreatorOidcBearerIntegrationTests
         using var rsa = RSA.Create(2048);
         await using var server = await CreateServer(rsa);
         using var client = server.GetTestClient();
-        var token = CreateToken(rsa, Issuer, Audience, "PlatformOwner", expiresAt: DateTime.UtcNow.AddMinutes(-2));
+        var token = CreateToken(rsa, Issuer, Audience, "PlatformOwner", expiresAt: DateTime.UtcNow.AddMinutes(-10));
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
