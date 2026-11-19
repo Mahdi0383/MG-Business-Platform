@@ -10,6 +10,7 @@ on:
       - 'backend/src/Mg.Provisioning.Agent.Core/**'
       - 'backend/src/Mg.Provisioning.Agent.Api/**'
       - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
+      - 'backend/docs/PROVISIONING_AGENT_OPERATIONS_ACCEPTANCE.md'
       - 'backend/tests/Mg.Platform.Api.Tests/**'
       - 'backend/tests/scripts/enable-postgres-tls.sh'
       - '.github/workflows/tenant-provisioning-tests.yml'
