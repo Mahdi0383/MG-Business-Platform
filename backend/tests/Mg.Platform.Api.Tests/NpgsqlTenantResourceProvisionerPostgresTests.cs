@@ -388,7 +388,33 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
             var dropDatabase = $"DROP DATABASE IF EXISTS \"{DatabaseName}\";";
             await using (var command = new NpgsqlCommand(dropDatabase, connection))
-                await command.ExecuteNonQueryAsync();
+                await command.ExecuteNonQuery();
+
+            await using (var databaseRevoke = new NpgsqlCommand(
+                "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I;', current_database(), @role);",
+                connection))
+            {
+                databaseRevoke.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                var ddl = (string)(await databaseRevoke.ExecuteScalarAsync())!;
+                await using var revoke = new NpgsqlCommand(ddl, connection);
+                await revoke.ExecuteNonQueryAsync();
+            }
+
+            await using (var schemaExists = new NpgsqlCommand(
+                "SELECT to_regnamespace('mg_agent') IS NOT NULL AND to_regclass('mg_agent.provisioning_operations') IS NOT NULL;",
+                connection))
+            {
+                if ((bool)(await schemaExists.ExecuteScalarAsync())!)
+                {
+                    await using var privilegeFormat = new NpgsqlCommand(
+                        "SELECT format('REVOKE ALL ON SCHEMA mg_agent FROM %I; REVOKE ALL ON TABLE mg_agent.provisioning_operations FROM %I;', @role, @role);",
+                        connection);
+                    privilegeFormat.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                    var ddl = (string)(await privilegeFormat.ExecuteScalarAsync())!;
+                    await using var revoke = new NpgsqlCommand(ddl, connection);
+                    await revoke.ExecuteNonQueryAsync();
+                }
+            }
 
             foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, controlRoleName }.Where(role => role is not null))
             {
