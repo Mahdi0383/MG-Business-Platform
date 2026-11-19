@@ -47,6 +47,19 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
             fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
             migration.Version, migration.Sha256, CancellationToken.None));
+
+        await fixture.CreateTenantFunctionAsync();
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicFunctionExecutePrivilegeAsync(grant: true);
+        Assert.False(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicFunctionExecutePrivilegeAsync(grant: false);
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
         await fixture.AssertOwnerRoleIsRestrictedAsync();
         await fixture.AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync();
     }
@@ -328,6 +341,29 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 WHERE role.rolname = current_user;
                 """, connection);
             return (string)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task CreateTenantFunctionAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "CREATE FUNCTION mg.runtime_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1';",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicFunctionExecutePrivilegeAsync(bool grant)
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} EXECUTE ON ALL FUNCTIONS IN SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
+                connection);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task SetTenantPublicTemporaryPrivilegeAsync(bool grant)
