@@ -93,7 +93,7 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_database_privilege(current_user, current_database(), 'CREATE'),
                        database.datdba = role.oid,
                        role.rolcanlogin,
-                       EXISTS (SELECT 1 FROM pg_auth_members membership WHERE membership.member = role.oid),
+                       EXISTS (SELECT 1 FROM pg_auth_members membership WHERE membership.member = role.oid OR membership.roleid = role.oid),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'INSERT'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
