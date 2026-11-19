@@ -98,6 +98,49 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task CoordinatorReleasesTenantLockAndResumesAfterCancellation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var enteredProvisioning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var interruptedProvisioner = new FakeResourceProvisioner
+        {
+            OnEnsure = async token =>
+            {
+                enteredProvisioning.TrySetResult();
+                await Task.Delay(Timeout.Infinite, token);
+            }
+        };
+        var interruptedCoordinator = new AgentProvisioningCoordinator(
+            fixture.Store, interruptedProvisioner, LoadMigration());
+        ValueTask<AgentProvisioningCredentials> CredentialFactory(CancellationToken _) =>
+            ValueTask.FromResult(Fixture.Credentials($"mg_tenant_{tenantId:N}", "cancel-resume-secret"));
+
+        using var cancellation = new CancellationTokenSource();
+        var interrupted = interruptedCoordinator.ProvisionAsync(
+            new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory, cancellation.Token);
+        await enteredProvisioning.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => interrupted);
+        Assert.Equal("Prepared", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+
+        var recoveryProvisioner = new FakeResourceProvisioner();
+        var recoveryCoordinator = new AgentProvisioningCoordinator(
+            fixture.Store, recoveryProvisioner, LoadMigration());
+        var recovered = await recoveryCoordinator.ProvisionAsync(
+            new AgentProvisioningRequest(tenantId, idempotencyKey), CredentialFactory);
+
+        Assert.Contains("cancel-resume-secret", recovered, StringComparison.Ordinal);
+        Assert.Equal(1, interruptedProvisioner.EnsureCalls);
+        Assert.Equal(1, recoveryProvisioner.EnsureCalls);
+        Assert.Equal(1, recoveryProvisioner.MigrationCalls);
+        Assert.Equal(1, recoveryProvisioner.VerifyCalls);
+        Assert.Equal("Verified", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+    }
+
+    [Fact]
     public void MigrationLoaderRejectsMissingPackagedArtifact()
     {
         var missingDirectory = Path.Combine(Path.GetTempPath(), "mg-agent-missing-" + Guid.NewGuid().ToString("N"));
