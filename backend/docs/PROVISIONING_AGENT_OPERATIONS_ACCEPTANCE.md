@@ -17,7 +17,8 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 - [ ] Create a dedicated agent-control database. It must not be the platform registry database or any tenant database.
 - [ ] Apply the agent ledger migration using a separate migration identity.
 - [ ] Configure the runtime control identity as non-superuser, NOINHERIT, non-replication and NOBYPASSRLS, with only the reviewed CREATEDB/CREATEROLE capabilities.
-- [ ] Revoke all database privileges on the agent control database from PUBLIC (including PostgreSQL's default CONNECT and TEMP); grant the runtime control identity only CONNECT. Verify PUBLIC has no CONNECT, CREATE or TEMP privilege.\n- [ ] Ensure the runtime control identity does not own the control database, mg_agent schema or ledger table.
+- [ ] Revoke all database privileges on the agent control database from PUBLIC (including PostgreSQL's default CONNECT and TEMP); grant the runtime control identity only CONNECT. Verify PUBLIC has no CONNECT, CREATE or TEMP privilege.
+- [ ] Ensure the runtime control identity does not own the control database, mg_agent schema or ledger table.
 - [ ] Grant only CONNECT, schema USAGE and SELECT/INSERT/UPDATE on the operation ledger. Do not grant TEMP, DELETE, TRUNCATE, schema CREATE or object ownership.
 - [ ] Use SSL Mode=VerifyCA or VerifyFull with a trusted CA. Require without certificate validation is not accepted.
 - [ ] Capture the live /health/ready response and the database privilege audit as release evidence.
