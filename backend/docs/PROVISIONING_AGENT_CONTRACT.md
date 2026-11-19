@@ -67,7 +67,7 @@ A successful agent response can be lost after the database side effects complete
 - If the API loses its response, it retries the same key and receives the same credential. The API then performs its Vault CAS write/readback and its own independent tenant/runtime-role verification before the central job can complete.
 
 
-## Implemented agent-core primitives (not a deployed agent)
+## Implemented agent core and HTTP host (not production deployed)
 
 The repository now contains `backend/src/Mg.Provisioning.Agent.Core`:
 - `AgentCredentialProtector`: AES-256-GCM envelopes with 96-bit random nonces, 128-bit tags, strict UTF-8, zeroed plaintext/key buffers, key IDs for rotation, and AAD binding tenant UUID, idempotency UUID, deterministic database name and key ID.
@@ -76,12 +76,12 @@ The repository now contains `backend/src/Mg.Provisioning.Agent.Core`:
 - Agent-owned database migration: `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql`. Apply it to a separate agent control database. It is not a migration for the MG central registry or a tenant database.
 - PostgreSQL integration tests execute the checked-in ledger migration and exercise replay, concurrent duplicate requests, key reuse conflicts, failed preparation recovery and monotonic phase progression.
 
-The agent service, mTLS server/API, operation reconciliation loop, restricted PostgreSQL control role, actual resource creation/migration runner, secret-manager key loading/rotation and crash-injection tests after each external side effect remain unimplemented. Do not interpret the core library or its tests as end-to-end provisioning. Keep the platform worker disabled.
+The mTLS HTTP host, conditional handler registration, durable operation coordinator, PostgreSQL tenant resource creation, tenant migration runner and runtime verification are implemented in the repository. They are not yet deployed or accepted for production. Production secret-manager integration (the current host reads its configured key ring from application configuration), automated key rotation, exhaustive crash-injection after every external side effect, production control-role bootstrap/audit, backup/restore rehearsal and deployment/network acceptance remain outstanding. Do not interpret green CI as production approval. Keep the platform worker disabled.
 
 
 ## PostgreSQL resource provisioner implementation
 
-The agent core now includes `NpgsqlTenantResourceProvisioner`. It is not yet registered in the HTTP host, but its contract and safety boundaries are implemented:
+The agent core includes `NpgsqlTenantResourceProvisioner`, which is wired through `NpgsqlAgentProvisioningHandler` when its required configuration and packaged migration are available. Its contract and safety boundaries are implemented:
 
 - The control connection must use `VerifyCA` or `VerifyFull`, have a password, and identify a non-superuser login with `CREATEDB` and `CREATEROLE`; the role must not have replication, BYPASSRLS or inherited privileges. Control connections disable pooling to avoid session-role leakage.
 - Tenant names are deterministic: database `mg_tenant_{tenantUuid:N}`, owner role `mg_tenant_{tenantUuid:N}_owner`, runtime role `mg_tenant_{tenantUuid:N}_app`.
@@ -97,7 +97,7 @@ The agent HTTP host conditionally registers `NpgsqlAgentProvisioningHandler` onl
 
 - 400, 401, 403, 404: rejected request/identity/configuration; return no sensitive details.
 - 409: idempotency key reused with a different request or conflicting existing tenant resources.
-- 429, 5xx, timeout: retryable service failure with a correlation ID.
+- 429, 5xx, timeout: retryable service failure; return only the documented stable error code and never expose provider details.
 - Never return SQL, database host credentials, raw exception text or secret-manager values in error responses.
 
 ## Required end-to-end tests before enabling the worker
