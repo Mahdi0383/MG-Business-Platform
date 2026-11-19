@@ -1,5 +1,4 @@
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
@@ -13,26 +12,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("Platform")
     ?? throw new InvalidOperationException("ConnectionStrings:Platform is required.");
-var creatorAuthentication = CreatorAuthenticationConfiguration.From(builder.Configuration);
 
 builder.Services.AddDbContext<PlatformDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = creatorAuthentication.Authority.AbsoluteUri.TrimEnd('/');
-        options.Audience = creatorAuthentication.Audience;
-        options.RequireHttpsMetadata = true;
-        options.MapInboundClaims = false;
-    });
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("mg-creator", policy =>
-        policy.RequireAuthenticatedUser()
-            .RequireClaim("mg_platform_role", "PlatformOwner", "PlatformAdministrator"));
-});
+builder.Services.AddCreatorAuthentication(builder.Configuration);
+builder.Services.AddCreatorAuthorization();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy);
 builder.Services.AddRateLimiter(options =>
