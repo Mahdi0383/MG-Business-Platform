@@ -11,7 +11,7 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 - [ ] Confirm request-size limits and per-certificate rate limits are active at the deployed ingress and application layers.
 
 ## 2. PostgreSQL separation and least privilege
-- [ ] Verify the control role has no incoming role memberships and no outgoing membership except PostgreSQL 17's automatic bootstrap ADMIN edge (superuser grantor, ADMIN=true, INHERIT=false, SET=false) and the provisioner's exact SET-only memberships to UUID-named, marker-verified tenant-owner roles (control-role grantor, ADMIN=false, INHERIT=false, SET=true). Readiness must fail closed for every other membership, including malformed or unmarked owner roles.
+- [ ] Verify the control role has no incoming role memberships and no outgoing membership except PostgreSQL 17's automatic bootstrap ADMIN edge to UUID-derived, marker-verified tenant owner/application roles (superuser grantor, ADMIN=true, INHERIT=false, SET=false) and the provisioner's exact SET-only memberships to marked tenant-owner roles (control-role grantor, ADMIN=false, INHERIT=false, SET=true). Readiness must fail closed for every other membership, including unmarked bootstrap targets.
 - [ ] Confirm the agent re-runs the complete live readiness/least-privilege check immediately before every provisioning operation; a previously healthy process must not continue after control-role privilege drift.
 - [ ] Confirm credential-rewrap maintenance also re-runs the live readiness/least-privilege check before mutating the protected provisioning ledger.
 - [ ] Create a dedicated agent-control database. It must not be the platform registry database or any tenant database.
