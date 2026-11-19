@@ -33,8 +33,11 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
         };
         var quotedDatabase = $"\"{databaseName}\"";
         var quotedRole = $"\"{roleName}\"";
+        var holderRoleName = $"mg_runtime_holder_{Guid.NewGuid():N}";
+        var quotedHolderRole = $"\"{holderRoleName}\"";
         var databaseCreated = false;
         var roleCreated = false;
+        var holderRoleCreated = false;
 
         try
         {
@@ -117,6 +120,28 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 await using var disableInheritance = new NpgsqlCommand(
                     $"ALTER ROLE {quotedRole} NOINHERIT", admin);
                 await disableInheritance.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var createHolder = new NpgsqlCommand(
+                    $"CREATE ROLE {quotedHolderRole} NOLOGIN; GRANT {quotedRole} TO {quotedHolderRole}", admin);
+                await createHolder.ExecuteNonQueryAsync();
+                holderRoleCreated = true;
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokeHolder = new NpgsqlCommand(
+                    $"REVOKE {quotedRole} FROM {quotedHolderRole}; DROP ROLE {quotedHolderRole}", admin);
+                await revokeHolder.ExecuteNonQueryAsync();
+                holderRoleCreated = false;
             }
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
@@ -283,6 +308,12 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 await using var dropDatabase = new NpgsqlCommand(
                     $"DROP DATABASE IF EXISTS {quotedDatabase}", admin);
                 await dropDatabase.ExecuteNonQueryAsync();
+            }
+            if (holderRoleCreated)
+            {
+                await using var dropHolderRole = new NpgsqlCommand(
+                    $"DROP ROLE IF EXISTS {quotedHolderRole}", admin);
+                await dropHolderRole.ExecuteNonQueryAsync();
             }
             if (roleCreated)
             {
