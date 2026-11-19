@@ -22,13 +22,15 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
         if (await db.Businesses.AnyAsync(x => x.Slug == slug, cancellationToken))
             return (null, true);
 
+        var tenantId = Guid.NewGuid();
         var tenant = new BusinessTenant
         {
+            Id = tenantId,
             Name = name,
             Slug = slug,
             Status = "PendingProvisioning",
             // Only a secret-manager reference is stored here, never a connection string/password.
-            DatabaseSecretReference = $"tenants/{slug}/postgres"
+            DatabaseSecretReference = $"tenants/{tenantId:N}/postgres"
         };
 
         var provisioningJob = new TenantProvisioningJob

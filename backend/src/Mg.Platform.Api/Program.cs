@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Security;
+using Mg.Platform.Api.Secrets;
+using Mg.Platform.Api.Provisioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -34,6 +36,37 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 builder.Services.AddScoped<BusinessRegistryService>();
+builder.Services.AddScoped<TenantProvisioningLeaseService>();
+builder.Services.AddHttpClient<ITenantSecretStore, VaultKv2TenantSecretStore>();
+var provisioningAgentOptions = TenantProvisioningAgentOptions.From(builder.Configuration);
+if (provisioningAgentOptions is not null)
+{
+    builder.Services.AddSingleton(provisioningAgentOptions);
+    builder.Services.AddHttpClient<ITenantDatabaseProvisioner, HttpTenantDatabaseProvisioner>(client =>
+        {
+            client.BaseAddress = provisioningAgentOptions.Address;
+            client.Timeout = TimeSpan.FromSeconds(90);
+        })
+        .ConfigurePrimaryHttpMessageHandler(services =>
+        {
+            var options = services.GetRequiredService<TenantProvisioningAgentOptions>();
+            var handler = new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                ClientCertificateOptions = ClientCertificateOption.Manual
+            };
+            handler.ClientCertificates.Add(options.ClientCertificate);
+            return handler;
+        });
+    builder.Services.AddScoped<ITenantProvisioningHandler, TenantProvisioningHandler>();
+}
+if (builder.Configuration.GetValue<bool>("Provisioning:WorkerEnabled"))
+{
+    if (!builder.Services.Any(descriptor => descriptor.ServiceType == typeof(ITenantProvisioningHandler)))
+        throw new InvalidOperationException("Provisioning worker cannot be enabled until a reviewed ITenantProvisioningHandler is registered.");
+    builder.Services.AddHostedService<TenantProvisioningWorker>();
+}
 
 var app = builder.Build();
 

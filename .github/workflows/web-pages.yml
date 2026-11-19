@@ -30,6 +30,22 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: mg-ci-test-only
+          POSTGRES_DB: mg_platform_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mg_platform_tests"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MG_TEST_POSTGRES: Host=localhost;Port=5432;Database=mg_platform_tests;Username=postgres;Password=mg-ci-test-only
     permissions:
       contents: read
     steps:
@@ -39,8 +55,13 @@ jobs:
         uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
+      - name: Enable PostgreSQL TLS for strict certificate validation tests
+        run: bash backend/tests/scripts/enable-postgres-tls.sh
       - name: Restore and build backend
         run: dotnet build backend/src/Mg.Platform.Api/Mg.Platform.Api.csproj --configuration Release
+        working-directory: .
+      - name: Build isolated provisioning agent API
+        run: dotnet build backend/src/Mg.Provisioning.Agent.Api/Mg.Provisioning.Agent.Api.csproj --configuration Release
         working-directory: .
       - name: Run backend unit tests
         run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release

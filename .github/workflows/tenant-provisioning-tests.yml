@@ -1,0 +1,68 @@
+name: MG tenant provisioning safety tests
+
+on:
+  pull_request:
+    paths:
+      - 'backend/tenant-database/**'
+      - 'backend/database/migrations/**'
+      - 'backend/src/Mg.Platform.Api/Provisioning/**'
+      - 'backend/src/Mg.Platform.Api/Secrets/**'
+      - 'backend/src/Mg.Provisioning.Agent.Core/**'
+      - 'backend/src/Mg.Provisioning.Agent.Api/**'
+      - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
+      - 'backend/docs/PROVISIONING_AGENT_OPERATIONS_ACCEPTANCE.md'
+      - 'backend/tests/Mg.Platform.Api.Tests/**'
+      - 'backend/tests/scripts/enable-postgres-tls.sh'
+      - '.github/workflows/tenant-provisioning-tests.yml'
+  push:
+    branches: [main, 'feature/mg-business-web-foundation', 'feature/mg-provisioning-job-leases']
+    paths:
+      - 'backend/tenant-database/**'
+      - 'backend/database/migrations/**'
+      - 'backend/src/Mg.Platform.Api/Provisioning/**'
+      - 'backend/src/Mg.Platform.Api/Secrets/**'
+      - 'backend/src/Mg.Provisioning.Agent.Core/**'
+      - 'backend/src/Mg.Provisioning.Agent.Api/**'
+      - 'backend/docs/PROVISIONING_AGENT_CONTRACT.md'
+      - 'backend/tests/Mg.Platform.Api.Tests/**'
+      - '.github/workflows/tenant-provisioning-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mg-tenant-provisioning-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: mg-ci-test-only
+          POSTGRES_DB: mg_platform_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mg_platform_tests"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MG_TEST_POSTGRES: Host=localhost;Port=5432;Database=mg_platform_tests;Username=postgres;Password=mg-ci-test-only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Enable PostgreSQL TLS for strict certificate validation tests
+        run: bash backend/tests/scripts/enable-postgres-tls.sh
+      - name: Run provisioning and tenant schema integration tests
+        run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
