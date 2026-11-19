@@ -5,7 +5,7 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 ## 1. Isolation and identity
 - [ ] Deploy the agent as a separate service on a private network. Do not route it through the customer-facing ingress.
 - [ ] Restrict inbound traffic to the MG Platform API workload identity and the configured mTLS client-certificate allowlist.
-- [ ] Verify the server certificate chain, SAN, validity, Server Authentication EKU and Digital Signature usage from the API container.
+- [ ] Verify the server certificate chain, revocation status, SAN, validity, Server Authentication EKU and Digital Signature usage from the API container.
 - [ ] Verify the client certificate chain, validity, Client Authentication EKU, Digital Signature usage and exact allowlist match.
 - [ ] Confirm redirects and cookies are disabled on both the API-to-agent and Vault token HTTP clients; require bounded connect/request timeouts so bearer tokens are never forwarded to redirect targets.
 - [ ] Confirm request-size limits and per-certificate rate limits are active at the deployed ingress and application layers.
