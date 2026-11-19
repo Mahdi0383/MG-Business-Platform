@@ -174,8 +174,22 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                                       EXISTS (
                                           SELECT 1
                                           FROM pg_roles grantor_role
+                                          JOIN pg_roles target_role ON target_role.oid = membership.roleid
                                           WHERE grantor_role.oid = membership.grantor
                                             AND grantor_role.rolsuper
+                                            AND target_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_(owner|app)$'
+                                            AND target_role.rolcanlogin
+                                            AND NOT target_role.rolsuper
+                                            AND NOT target_role.rolcreatedb
+                                            AND NOT target_role.rolcreaterole
+                                            AND NOT target_role.rolreplication
+                                            AND NOT target_role.rolbypassrls
+                                            AND NOT target_role.rolinherit
+                                            AND shobj_description(target_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(target_role.rolname from '^mg_tenant_([0-9a-f]{32})_(owner|app)$') ||
+                                                CASE WHEN target_role.rolname ~ '_owner$'
+                                                     THEN ':owner:v1' ELSE ':application:v1' END
                                       )
                                       AND membership.admin_option
                                       AND NOT membership.inherit_option
