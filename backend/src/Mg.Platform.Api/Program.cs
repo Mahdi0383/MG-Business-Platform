@@ -76,6 +76,7 @@ if (provisioningAgentOptions is not null)
             {
                 AllowAutoRedirect = false,
                 UseCookies = false,
+                CheckCertificateRevocationList = true,
                 ClientCertificateOptions = ClientCertificateOption.Manual
             };
             handler.ClientCertificates.Add(options.ClientCertificate);
