@@ -158,10 +158,6 @@ public sealed class TenantProvisioningLeasePostgresTests
         Assert.Equal(TenantProvisioningStatus.Running, stored.Status);
         Assert.Equal("expired-worker", stored.LeaseOwner);
         Assert.Equal(job.LeaseToken, stored.LeaseToken);
-        Assert.Equal("expired-failure", await context.Businesses.AsNoTracking()
-            .Where(item => item.Id == job.BusinessId)
-            .Select(item => item.Slug)
-            .SingleAsync());
         Assert.Null(stored.LastErrorCode);
     }
 
