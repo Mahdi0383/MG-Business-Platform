@@ -78,6 +78,64 @@ public sealed class StaffAdministrationServiceTests
     }
 
     [Fact]
+    public async Task ReadOnlyStaffDirectory_IsRestrictedToCurrentBranch()
+    {
+        await using var store = await TestStore.CreateAsync();
+        var hasher = new StaffPasswordHasher();
+        var authentication = new StaffAuthenticationService(store.Db, hasher);
+        await authentication.CreateInitialOwnerAsync(
+            store.BusinessId, [store.MainBranchId, store.SecondBranchId],
+            "owner", "Store Owner", OwnerPassword);
+        var ownerLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "owner", OwnerPassword);
+        Assert.NotNull(ownerLogin);
+
+        var resolver = new StaffRequestContextResolver(store.Db, authentication);
+        var ownerContext = await resolver.ResolveAsync(ownerLogin.Token);
+        Assert.NotNull(ownerContext);
+        var administration = new StaffAdministrationService(store.Db, hasher);
+
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            await administration.CreateStaffAsync(
+                "cashier-a", "Main Branch Cashier", CashierPassword, "Cashier",
+                [store.MainBranchId, store.SecondBranchId]);
+            await administration.CreateStaffAsync(
+                "cashier-b", "Second Branch Cashier", "Second-Cashier-Passphrase-2026!",
+                "Cashier", [store.SecondBranchId]);
+            await administration.CreateStaffAsync(
+                "readonly-a", "Main Branch Reader", "ReadOnly-Passphrase-2026!",
+                "ReadOnly", [store.MainBranchId]);
+        }
+
+        var readOnlyLogin = await authentication.AuthenticateAsync(
+            store.BusinessId, "readonly-a", "ReadOnly-Passphrase-2026!");
+        Assert.NotNull(readOnlyLogin);
+        var readOnlyContext = await resolver.ResolveAsync(
+            readOnlyLogin.Token, store.MainBranchId);
+        Assert.NotNull(readOnlyContext);
+
+        using (StaffRequestContextScope.Push(readOnlyContext!))
+        {
+            var visibleStaff = await administration.ListStaffAsync();
+            Assert.Equal(3, visibleStaff.Count);
+            Assert.DoesNotContain(visibleStaff, x => x.UserName == "CASHIER-B");
+            Assert.All(visibleStaff, staff =>
+                Assert.Equal(new[] { store.MainBranchId }, staff.BranchIds));
+        }
+
+        using (StaffRequestContextScope.Push(ownerContext!))
+        {
+            var allStaff = await administration.ListStaffAsync();
+            Assert.Equal(4, allStaff.Count);
+            var owner = Assert.Single(allStaff, x => x.UserName == "OWNER");
+            Assert.Equal(
+                new[] { store.MainBranchId, store.SecondBranchId }.OrderBy(x => x),
+                owner.BranchIds);
+        }
+    }
+
+    [Fact]
     public async Task Cashier_CannotCreateOrManageStaff()
     {
         await using var store = await TestStore.CreateAsync();
