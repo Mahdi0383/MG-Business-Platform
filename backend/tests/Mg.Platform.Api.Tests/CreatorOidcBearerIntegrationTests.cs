@@ -38,6 +38,22 @@ public sealed class CreatorOidcBearerIntegrationTests
     }
 
     [Fact]
+    public async Task AcceptsSignedTokenWithPlatformAdministratorRole()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
+        var token = CreateToken(rsa, Issuer, Audience, "PlatformAdministrator");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("authorized", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task RejectsRequestWithoutBearerToken()
     {
         using var rsa = RSA.Create(2048);
