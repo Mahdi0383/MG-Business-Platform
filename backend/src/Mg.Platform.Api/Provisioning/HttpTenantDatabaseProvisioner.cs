@@ -112,7 +112,14 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_table_privilege(current_user, 'mg.schema_migrations', 'TRIGGER'),
                        has_table_privilege(current_user, 'mg.audit_events', 'REFERENCES'),
                        has_table_privilege(current_user, 'mg.audit_events', 'TRIGGER'),
-                       role.rolinherit
+                       role.rolinherit,
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       )
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
                 JOIN pg_roles AS role ON role.rolname = current_user
@@ -120,7 +127,7 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 WHERE identity.singleton = TRUE
                 GROUP BY identity.tenant_id, role.oid, role.rolsuper, role.rolcreatedb,
                          role.rolcreaterole, role.rolreplication, role.rolbypassrls,
-                         role.rolcanlogin, role.rolinherit, database.datdba
+                         role.rolcanlogin, role.rolinherit, database.datdba, database.datacl
                 """,
                 connection);
 
@@ -159,7 +166,9 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(28)
                 && !reader.GetBoolean(29)
                 && !reader.GetBoolean(30)
-                && !reader.GetBoolean(31);
+                && !reader.GetBoolean(31)
+                && !reader.GetBoolean(32)
+                && reader.GetBoolean(33);
         }
         catch (NpgsqlException)
         {
