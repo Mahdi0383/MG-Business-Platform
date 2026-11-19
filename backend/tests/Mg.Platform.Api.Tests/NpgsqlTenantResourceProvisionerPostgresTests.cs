@@ -2,10 +2,12 @@ using System.Security.Cryptography;
 using Mg.Provisioning.Agent.Core;
 using Npgsql;
 using NpgsqlTypes;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace Mg.Platform.Api.Tests;
 
+[Collection("AgentProvisioningPostgres")]
 public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 {
     [Fact]
@@ -41,6 +43,19 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task ReadinessAllowsOnlyMarkedSetOnlyOwnerMembershipsAndRejectsUnexpectedMemberships()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.AddUnexpectedMembershipAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+    }
+
+    [Fact]
     public async Task RejectsPreexistingOwnerRoleWithMismatchedImmutableMarkerWithoutCreatingDatabase()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -73,8 +88,10 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string adminConnectionString;
+        private readonly string controlConnectionString;
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
+        private string? unexpectedMembershipHolderRoleName;
         private readonly string applicationRoleName;
 
         private Fixture(
@@ -88,6 +105,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             string ownerConnectionString)
         {
             this.adminConnectionString = adminConnectionString;
+            this.controlConnectionString = controlConnectionString;
             this.controlRoleName = controlRoleName;
             TenantId = tenantId;
             IdempotencyKey = idempotencyKey;
@@ -170,6 +188,59 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+        }
+
+        public async Task AssertAgentHandlerReadinessAsync(bool expected)
+        {
+            var migrationPath = Path.Combine(
+                AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
+            var migrationSql = await File.ReadAllTextAsync(migrationPath);
+            await using (var admin = new NpgsqlConnection(adminConnectionString))
+            {
+                await admin.OpenAsync();
+                await using (var migration = new NpgsqlCommand(migrationSql, admin))
+                    await migration.ExecuteNonQueryAsync();
+
+                await using var grants = new NpgsqlCommand(
+                    """
+                    SELECT format(
+                        'GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg_agent.provisioning_operations TO %I;',
+                        current_database(), @role, @role, @role);
+                    """, admin);
+                grants.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                var grantSql = (string)(await grants.ExecuteScalarAsync())!;
+                await using var applyGrants = new NpgsqlCommand(grantSql, admin);
+                await applyGrants.ExecuteNonQueryAsync();
+            }
+
+            var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Agent:ControlDatabase:ConnectionString"] = controlConnectionString,
+                    ["Agent:CredentialEncryption:CurrentKeyId"] = "readiness-test-key",
+                    ["Agent:CredentialEncryption:Keys:readiness-test-key"] = key
+                })
+                .Build();
+
+            using var handler = NpgsqlAgentProvisioningHandler.TryCreate(configuration, AppContext.BaseDirectory);
+            Assert.NotNull(handler);
+            Assert.Equal(expected, await handler.IsReadyAsync(CancellationToken.None));
+        }
+
+        public async Task AddUnexpectedMembershipAsync()
+        {
+            var holderRole = "mg_unexpected_holder_" + Guid.NewGuid().ToString("N")[..12];
+            unexpectedMembershipHolderRoleName = holderRole;
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('CREATE ROLE %I NOLOGIN; GRANT %I TO %I;', @holder, @control, @holder);", admin);
+            format.Parameters.AddWithValue("holder", NpgsqlDbType.Text, holderRole);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task CreateRoleWithCommentAsync(string roleName, string comment)
@@ -318,7 +389,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using (var command = new NpgsqlCommand(dropDatabase, connection))
                 await command.ExecuteNonQueryAsync();
 
-            foreach (var role in new[] { applicationRoleName, ownerRoleName, controlRoleName })
+            foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, controlRoleName }.Where(role => role is not null))
             {
                 var format = new NpgsqlCommand("SELECT format('DROP ROLE IF EXISTS %I', @role);", connection);
                 format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role);
