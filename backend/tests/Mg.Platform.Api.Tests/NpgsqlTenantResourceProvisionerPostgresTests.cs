@@ -388,7 +388,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
             var dropDatabase = $"DROP DATABASE IF EXISTS \"{DatabaseName}\";";
             await using (var command = new NpgsqlCommand(dropDatabase, connection))
-                await command.ExecuteNonQuery();
+                await command.ExecuteNonQueryAsync();
 
             await using (var databaseRevoke = new NpgsqlCommand(
                 "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I;', current_database(), @role);",
