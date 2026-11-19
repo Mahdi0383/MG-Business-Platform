@@ -155,6 +155,19 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                        pg_get_userbyid(database.datdba),
                        pg_get_userbyid(schema.nspowner),
                        pg_get_userbyid(ledger.relowner),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_auth_members membership
+                           JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
+                           WHERE membership.roleid = role.oid
+                              OR (membership.member = role.oid
+                                  AND NOT (
+                                      grantor_role.rolsuper
+                                      AND membership.admin_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.set_option
+                                  ))
+                       ),
                        current_user
                 FROM pg_roles role
                 JOIN pg_database database ON database.datname = current_database()
@@ -184,9 +197,10 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                 && !reader.GetBoolean(15)
                 && !reader.GetBoolean(16)
                 && !reader.GetBoolean(17)
-                && !string.Equals(reader.GetString(18), reader.GetString(21), StringComparison.Ordinal)
-                && !string.Equals(reader.GetString(19), reader.GetString(21), StringComparison.Ordinal)
-                && !string.Equals(reader.GetString(20), reader.GetString(21), StringComparison.Ordinal);
+                && !string.Equals(reader.GetString(18), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
+                && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
+                && reader.GetBoolean(21);
         }
         catch (NpgsqlException)
         {
