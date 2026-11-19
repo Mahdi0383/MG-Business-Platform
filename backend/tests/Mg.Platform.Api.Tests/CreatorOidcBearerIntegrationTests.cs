@@ -38,6 +38,18 @@ public sealed class CreatorOidcBearerIntegrationTests
     }
 
     [Fact]
+    public async Task RejectsRequestWithoutBearerToken()
+    {
+        using var rsa = RSA.Create(2048);
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
+
+        using var response = await client.GetAsync("/secure");
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task RejectsTokenWithWrongIssuer()
     {
         using var rsa = RSA.Create(2048);
