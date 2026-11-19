@@ -44,6 +44,23 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RefusesToAdoptUnmarkedDatabaseContainingPublicFunction()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.SetDatabaseCommentAsync(null);
+        await fixture.CreatePublicFunctionAsync();
+
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ReadinessAllowsOnlyMarkedSetOnlyOwnerMembershipsAndRejectsUnexpectedMemberships()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -388,6 +405,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = @database);", connection);
             command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task CreatePublicFunctionAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "CREATE FUNCTION public.mg_untrusted_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1';",
+                connection);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task SetDatabaseCommentAsync(string? comment)
