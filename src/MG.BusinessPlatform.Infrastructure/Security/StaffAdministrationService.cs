@@ -29,8 +29,17 @@ public sealed class StaffAdministrationService(
         CancellationToken cancellationToken = default)
     {
         var context = await RequireContextAsync(StaffPermission.StaffRead, cancellationToken);
-        var users = await db.StaffUsers.AsNoTracking()
-            .Where(x => x.BusinessId == context.BusinessId)
+        var usersQuery = db.StaffUsers.AsNoTracking()
+            .Where(x => x.BusinessId == context.BusinessId);
+        if (!CanReadAllBusinessStaff(context.Role))
+        {
+            usersQuery = usersQuery.Where(user => db.StaffBranchAccess.Any(access =>
+                access.BusinessId == context.BusinessId
+                && access.StaffUserId == user.Id
+                && access.BranchId == context.BranchId));
+        }
+
+        var users = await usersQuery
             .OrderBy(x => x.UserNameNormalized)
             .Select(x => new
             {
@@ -45,9 +54,11 @@ public sealed class StaffAdministrationService(
             })
             .ToListAsync(cancellationToken);
 
-        var access = await db.StaffBranchAccess.AsNoTracking()
-            .Where(x => x.BusinessId == context.BusinessId)
-            .ToListAsync(cancellationToken);
+        var accessQuery = db.StaffBranchAccess.AsNoTracking()
+            .Where(x => x.BusinessId == context.BusinessId);
+        if (!CanReadAllBusinessStaff(context.Role))
+            accessQuery = accessQuery.Where(x => x.BranchId == context.BranchId);
+        var access = await accessQuery.ToListAsync(cancellationToken);
         return users.Select(user => new StaffUserSummary(
                 user.Id,
                 user.UserNameNormalized,
@@ -370,6 +381,10 @@ public sealed class StaffAdministrationService(
                 "Passwords must contain at least 12 characters and no more than 1,024 UTF-8 bytes.",
                 nameof(password));
     }
+
+    private static bool CanReadAllBusinessStaff(string role) =>
+        string.Equals(role, "Owner", StringComparison.Ordinal)
+        || string.Equals(role, "Administrator", StringComparison.Ordinal);
 
     private static bool IsAdministrator(string role) =>
         string.Equals(role, "Owner", StringComparison.Ordinal)
