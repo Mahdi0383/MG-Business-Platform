@@ -71,7 +71,7 @@ public sealed class AgentProvisioningOperationStore(
                     if (storedIdempotencyKey != idempotencyKey
                         || !string.Equals(storedDatabaseName, databaseName, StringComparison.Ordinal)
                         || !CryptographicOperations.FixedTimeEquals(storedRequestHash, requestHash))
-                        throw new InvalidOperationException(
+                        throw new AgentProvisioningConflictException(
                             "A conflicting provisioning operation already exists for this tenant.");
 
                     var stablePayload = credentialProtector.Unprotect(
@@ -133,7 +133,7 @@ public sealed class AgentProvisioningOperationStore(
                 reusedKey.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
                 var conflictingTenant = await reusedKey.ExecuteScalarAsync(cancellationToken);
                 if (conflictingTenant is Guid otherTenant && otherTenant != tenantId)
-                    throw new InvalidOperationException(
+                    throw new AgentProvisioningConflictException(
                         "The idempotency key is already assigned to another tenant.");
             }
 
