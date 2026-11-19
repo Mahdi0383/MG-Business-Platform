@@ -642,8 +642,27 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                     FROM pg_class relation
                     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
                     WHERE namespace.nspname = 'public'
-                      AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-                );
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_proc routine
+                    JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_type type
+                    JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_extension extension
+                    JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (SELECT 1 FROM pg_largeobject_metadata)
+                AND NOT EXISTS (SELECT 1 FROM pg_default_acl);
             """, connection);
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
