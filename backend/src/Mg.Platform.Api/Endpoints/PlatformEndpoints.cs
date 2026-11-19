@@ -10,19 +10,15 @@ public static class PlatformEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/platform/businesses")
             .WithTags("MG Creator — Business Registry")
+            .RequireAuthorization(CreatorAuthorizationExtensions.PolicyName)
             .RequireRateLimiting("creator-bootstrap");
 
-        group.MapGet("/", async (HttpRequest request, PlatformKeyAuthenticator auth,
+        group.MapGet("/", async (BusinessRegistryService registry, CancellationToken ct) =>
+            Results.Ok(await registry.ListAsync(ct)));
+
+        group.MapPost("/", async (CreateBusinessRequest request,
             BusinessRegistryService registry, CancellationToken ct) =>
         {
-            if (!Authorize(request, auth)) return Results.Unauthorized();
-            return Results.Ok(await registry.ListAsync(ct));
-        });
-
-        group.MapPost("/", async (CreateBusinessRequest request, HttpRequest http,
-            PlatformKeyAuthenticator auth, BusinessRegistryService registry, CancellationToken ct) =>
-        {
-            if (!Authorize(http, auth)) return Results.Unauthorized();
             if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 160)
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
@@ -42,7 +38,4 @@ public static class PlatformEndpoints
 
         return endpoints;
     }
-
-    private static bool Authorize(HttpRequest request, PlatformKeyAuthenticator auth) =>
-        auth.IsAuthorized(request.Headers["X-MG-Platform-Key"].FirstOrDefault());
 }

@@ -15,6 +15,8 @@ builder.Services.AddDbContext<PlatformDbContext>(options =>
     options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
+builder.Services.AddCreatorAuthentication(builder.Configuration);
+builder.Services.AddCreatorAuthorization();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy);
 builder.Services.AddRateLimiter(options =>
@@ -32,12 +34,13 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 builder.Services.AddScoped<BusinessRegistryService>();
-builder.Services.AddSingleton<PlatformKeyAuthenticator>();
 
 var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapOpenApi();
 
 app.MapGet("/health/live", () => Results.Ok(new { status = "live", service = "mg-platform-api" }))
