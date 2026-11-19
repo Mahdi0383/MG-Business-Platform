@@ -25,8 +25,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task AcceptsSignedTokenWithValidIssuerAudienceAndCreatorRole()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, Issuer, Audience, "PlatformOwner");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -41,8 +41,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task RejectsTokenWithWrongIssuer()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, "https://attacker.example.test", Audience, "PlatformOwner");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -56,8 +56,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task RejectsTokenWithWrongAudience()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, Issuer, "another-api", "PlatformOwner");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -71,8 +71,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task RejectsValidTokenWithoutCreatorAdministratorRole()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, Issuer, Audience, "BusinessOwner");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -86,8 +86,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task RejectsExpiredToken()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, Issuer, Audience, "PlatformOwner", expiresAt: DateTime.UtcNow.AddMinutes(-2));
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -101,8 +101,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     public async Task ForbidsAuthenticatedTokenWithoutPlatformRoleClaim()
     {
         using var rsa = RSA.Create(2048);
-        using var server = CreateServer(rsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(rsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(rsa, Issuer, Audience, null);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -117,8 +117,8 @@ public sealed class CreatorOidcBearerIntegrationTests
     {
         using var trustedRsa = RSA.Create(2048);
         using var untrustedRsa = RSA.Create(2048);
-        using var server = CreateServer(trustedRsa);
-        using var client = server.CreateClient();
+        await using var server = await CreateServer(trustedRsa);
+        using var client = server.GetTestClient();
         var token = CreateToken(untrustedRsa, Issuer, Audience, "PlatformOwner");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
@@ -128,7 +128,7 @@ public sealed class CreatorOidcBearerIntegrationTests
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private static TestServer CreateServer(RSA rsa)
+    private static async Task<WebApplication> CreateServer(RSA rsa)
     {
         var signingKey = new RsaSecurityKey(rsa) { KeyId = "mg-test-signing-key" };
         var oidcConfiguration = new OpenIdConnectConfiguration { Issuer = Issuer };
@@ -144,28 +144,25 @@ public sealed class CreatorOidcBearerIntegrationTests
             })
             .Build();
 
-        return new TestServer(new WebHostBuilder()
-            .ConfigureServices(services =>
-            {
-                services.AddLogging();
-                services.AddCreatorAuthentication(configuration);
-                services.PostConfigure<JwtBearerOptions>(
-                    JwtBearerDefaults.AuthenticationScheme,
-                    options => options.ConfigurationManager = configurationManager);
-                services.AddCreatorAuthorization();
-            })
-            .Configure(app =>
-            {
-                app.UseRouting();
-                app.UseAuthentication();
-                app.UseAuthorization();
-                app.UseEndpoints(endpoints =>
-                    endpoints.MapGet("/secure", async context =>
-                    {
-                        context.Response.StatusCode = StatusCodes.Status200OK;
-                        await context.Response.WriteAsync("authorized");
-                    }).RequireAuthorization(CreatorAuthorizationExtensions.PolicyName));
-            }));
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddCreatorAuthentication(configuration);
+        builder.Services.PostConfigure<JwtBearerOptions>(
+            JwtBearerDefaults.AuthenticationScheme,
+            options => options.ConfigurationManager = configurationManager);
+        builder.Services.AddCreatorAuthorization();
+
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapGet("/secure", async context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            await context.Response.WriteAsync("authorized");
+        }).RequireAuthorization(CreatorAuthorizationExtensions.PolicyName);
+
+        await app.StartAsync();
+        return app;
     }
 
     private static string CreateToken(RSA rsa, string issuer, string audience, string? platformRole, DateTime? expiresAt = null)
