@@ -139,6 +139,33 @@ public sealed class TenantProvisioningLeasePostgresTests
     }
 
     [Fact]
+    public async Task ExpiredLeaseCannotFailOrDeadLetterJob()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var job = await fixture.AddJobAsync("expired-failure", TenantProvisioningStatus.Running,
+            attempts: 8, leaseOwner: "expired-worker",
+            leaseExpiry: DateTimeOffset.UtcNow.AddMinutes(-1));
+
+        await using var context = fixture.CreateContext();
+        var service = new TenantProvisioningLeaseService(context);
+
+        Assert.False(await service.MarkFailedAsync(
+            job.Id, "expired-worker", job.LeaseToken!.Value,
+            "EXPIRED_WORKER_FAILURE", permanent: true, CancellationToken.None));
+
+        var stored = await context.TenantProvisioningJobs.AsNoTracking()
+            .SingleAsync(item => item.Id == job.Id);
+        Assert.Equal(TenantProvisioningStatus.Running, stored.Status);
+        Assert.Equal("expired-worker", stored.LeaseOwner);
+        Assert.Equal(job.LeaseToken, stored.LeaseToken);
+        Assert.Equal("expired-failure", await context.Businesses.AsNoTracking()
+            .Where(item => item.Id == job.BusinessId)
+            .Select(item => item.Slug)
+            .SingleAsync());
+        Assert.Null(stored.LastErrorCode);
+    }
+
+    [Fact]
     public async Task PermanentFailureMovesJobToDeadLetterAndReleasesLease()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
