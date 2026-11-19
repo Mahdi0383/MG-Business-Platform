@@ -83,6 +83,36 @@ public sealed class CreatorOidcBearerIntegrationTests
     }
 
     [Fact]
+    public async Task RejectsExpiredToken()
+    {
+        using var rsa = RSA.Create(2048);
+        using var server = CreateServer(rsa);
+        using var client = server.CreateClient();
+        var token = CreateToken(rsa, Issuer, Audience, "PlatformOwner", expiresAt: DateTime.UtcNow.AddMinutes(-2));
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ForbidsAuthenticatedTokenWithoutPlatformRoleClaim()
+    {
+        using var rsa = RSA.Create(2048);
+        using var server = CreateServer(rsa);
+        using var client = server.CreateClient();
+        var token = CreateToken(rsa, Issuer, Audience, null);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/secure");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task RejectsTokenSignedByUnknownKey()
     {
         using var trustedRsa = RSA.Create(2048);
@@ -138,16 +168,16 @@ public sealed class CreatorOidcBearerIntegrationTests
             }));
     }
 
-    private static string CreateToken(RSA rsa, string issuer, string audience, string platformRole)
+    private static string CreateToken(RSA rsa, string issuer, string audience, string? platformRole, DateTime? expiresAt = null)
     {
         var key = new RsaSecurityKey(rsa) { KeyId = "mg-test-signing-key" };
         var credentials = new SigningCredentials(key, SecurityAlgorithms.RsaSha256);
         var token = new JwtSecurityToken(
             issuer,
             audience,
-            [new Claim(CreatorAuthorizationExtensions.PlatformRoleClaim, platformRole)],
+            platformRole is null ? [] : [new Claim(CreatorAuthorizationExtensions.PlatformRoleClaim, platformRole)],
             DateTime.UtcNow.AddMinutes(-1),
-            DateTime.UtcNow.AddMinutes(5),
+            expiresAt ?? DateTime.UtcNow.AddMinutes(5),
             credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
