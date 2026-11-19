@@ -37,6 +37,18 @@ Run only against disposable PostgreSQL instances and isolated test certificates.
 - [ ] Expire/revoke the mTLS client certificate and verify the request is rejected before the handler runs.
 - [ ] Interrupt the platform worker during provisioning; lease expiry and fencing must prevent a stale worker from completing a reclaimed job.
 
+### Worker lifecycle and heartbeat fault injection
+Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
+- [ ] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires.
+- [ ] Force renewal to return false (lease reclaimed or token fenced); verify the handler cancellation token is cancelled and the worker never calls the success transition for that claim.
+- [ ] Make the heartbeat storage call fail or time out; verify the handler is cancelled, the claim is not marked succeeded/failed by the stale worker, and normal lease expiry/reclaim recovers the job.
+- [ ] Cancel host shutdown while the handler is blocked; verify cancellation propagates, heartbeat stops, and the worker does not mark the job successful during shutdown.
+- [ ] Make the handler ignore cancellation and return success after the lease is lost; verify the worker still refuses completion and the reclaimed claim remains protected by its new fencing token.
+- [ ] Race heartbeat renewal with handler completion repeatedly; verify completion succeeds only while the exact lease owner/token is still unexpired.
+- [ ] Verify heartbeat exceptions and handler exceptions are observable through sanitized logs/metrics without logging credentials or connection strings.
+
+The current PostgreSQL lease integration suite validates lease-store fencing and recovery. These worker-level orchestration checks are a separate acceptance gate; do not infer that they have passed from lease-store tests alone.
+
 ## 5. Platform worker rollout
 - [ ] Keep Provisioning:WorkerEnabled=false until all agent, database, secret-manager and fault-injection gates above pass.
 - [ ] Verify the platform API uses only the mTLS agent client credential and has no PostgreSQL cluster-administration credential.
