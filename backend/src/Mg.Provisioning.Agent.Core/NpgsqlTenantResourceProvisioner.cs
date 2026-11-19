@@ -181,7 +181,14 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                                WHERE namespace.nspname = 'mg' AND relation.relowner = role.oid),
                        EXISTS (SELECT 1 FROM pg_proc routine
                                JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
-                               WHERE namespace.nspname = 'mg' AND routine.proowner = role.oid)
+                               WHERE namespace.nspname = 'mg' AND routine.proowner = role.oid),
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       )
                 FROM mg.tenant_identity identity
                 JOIN mg.schema_migrations migration ON migration.version = @version
                 JOIN pg_roles role ON role.rolname = current_user
@@ -243,7 +250,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 && reader.GetBoolean(39)
                 && reader.GetBoolean(40)
                 && !reader.GetBoolean(41)
-                && !reader.GetBoolean(42);
+                && !reader.GetBoolean(42)
+                && !reader.GetBoolean(43)
+                && reader.GetBoolean(44);
         }
         catch (NpgsqlException)
         {
