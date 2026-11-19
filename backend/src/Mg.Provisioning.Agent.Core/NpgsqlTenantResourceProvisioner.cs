@@ -188,6 +188,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                            FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                            WHERE database_acl.grantee = 0
                              AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_proc routine
+                           JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                           CROSS JOIN LATERAL aclexplode(
+                               COALESCE(routine.proacl, acldefault('f', routine.proowner))) AS function_acl
+                           WHERE namespace.nspname = 'mg'
+                             AND function_acl.grantee = 0
+                             AND function_acl.privilege_type = 'EXECUTE'
                        )
                 FROM mg.tenant_identity identity
                 JOIN mg.schema_migrations migration ON migration.version = @version
@@ -252,7 +262,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 && !reader.GetBoolean(41)
                 && !reader.GetBoolean(42)
                 && !reader.GetBoolean(43)
-                && reader.GetBoolean(44);
+                && reader.GetBoolean(44)
+                && reader.GetBoolean(45);
         }
         catch (NpgsqlException)
         {
@@ -768,6 +779,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             SELECT format(
                 'REVOKE ALL ON SCHEMA mg FROM PUBLIC;
                  REVOKE ALL ON ALL TABLES IN SCHEMA mg FROM PUBLIC;
+                 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC;
+                 ALTER DEFAULT PRIVILEGES IN SCHEMA mg REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
                  GRANT USAGE ON SCHEMA mg TO %I;
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg.business_settings, mg.users, mg.customers, mg.user_roles, mg.role_permissions, mg.outbox_messages TO %I;
                  GRANT SELECT ON TABLE mg.roles, mg.permissions, mg.tenant_identity, mg.schema_migrations, mg.audit_events TO %I;',
