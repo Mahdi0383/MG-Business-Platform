@@ -53,6 +53,7 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 await createDatabase.ExecuteNonQueryAsync();
                 databaseCreated = true;
                 await using var grantConnect = new NpgsqlCommand(
+                    $"REVOKE ALL PRIVILEGES ON DATABASE {quotedDatabase} FROM PUBLIC; " +
                     $"GRANT CONNECT ON DATABASE {quotedDatabase} TO {quotedRole}", admin);
                 await grantConnect.ExecuteNonQueryAsync();
             }
@@ -101,6 +102,25 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             using var httpClient = new HttpClient(new RejectingHandler());
             var provisioner = new HttpTenantDatabaseProvisioner(httpClient);
 
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var grantPublicTemp = new NpgsqlCommand(
+                    $"GRANT TEMPORARY ON DATABASE {quotedDatabase} TO PUBLIC", admin);
+                await grantPublicTemp.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokePublicTemp = new NpgsqlCommand(
+                    $"REVOKE TEMPORARY ON DATABASE {quotedDatabase} FROM PUBLIC", admin);
+                await revokePublicTemp.ExecuteNonQueryAsync();
+            }
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
 
