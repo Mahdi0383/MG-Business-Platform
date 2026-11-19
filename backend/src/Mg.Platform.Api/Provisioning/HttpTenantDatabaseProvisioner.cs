@@ -93,7 +93,136 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_database_privilege(current_user, current_database(), 'CREATE'),
                        database.datdba = role.oid,
                        role.rolcanlogin,
-                       EXISTS (SELECT 1 FROM pg_auth_members membership WHERE membership.member = role.oid OR membership.roleid = role.oid),
+                       EXISTS (
+                           SELECT 1
+                           FROM pg_auth_members membership
+                           WHERE membership.member = role.oid
+                              OR (membership.roleid = role.oid
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM pg_roles control_role
+                                      JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
+                                      WHERE control_role.oid = membership.member
+                                        AND control_role.rolname ~ '^mg_agent_control(_[0-9a-f]{12})?
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'INSERT'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'INSERT'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'INSERT'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'UPDATE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'DELETE'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRUNCATE'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.tenant_identity', 'TRIGGER'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.schema_migrations', 'TRIGGER'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'REFERENCES'),
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRIGGER'),
+                       role.rolinherit,
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       )
+                FROM mg.tenant_identity AS identity
+                LEFT JOIN mg.schema_migrations AS migration ON TRUE
+                JOIN pg_roles AS role ON role.rolname = current_user
+                JOIN pg_database AS database ON database.datname = current_database()
+                WHERE identity.singleton = TRUE
+                GROUP BY identity.tenant_id, role.oid, role.rolsuper, role.rolcreatedb,
+                         role.rolcreaterole, role.rolreplication, role.rolbypassrls,
+                         role.rolcanlogin, role.rolinherit, database.datdba, database.datacl
+                """,
+                connection);
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                return false;
+
+            return reader.GetGuid(0) == tenantId
+                && reader.GetInt32(1) >= 1
+                && !reader.GetBoolean(2)
+                && !reader.GetBoolean(3)
+                && !reader.GetBoolean(4)
+                && !reader.GetBoolean(5)
+                && !reader.GetBoolean(6)
+                && reader.GetBoolean(7)
+                && !reader.GetBoolean(8)
+                && !reader.GetBoolean(9)
+                && !reader.GetBoolean(10)
+                && reader.GetBoolean(11)
+                && !reader.GetBoolean(12)
+                && !reader.GetBoolean(13)
+                && !reader.GetBoolean(14)
+                && !reader.GetBoolean(15)
+                && !reader.GetBoolean(16)
+                && !reader.GetBoolean(17)
+                && !reader.GetBoolean(18)
+                && !reader.GetBoolean(19)
+                && !reader.GetBoolean(20)
+                && !reader.GetBoolean(21)
+                && !reader.GetBoolean(22)
+                && !reader.GetBoolean(23)
+                && !reader.GetBoolean(24)
+                && !reader.GetBoolean(25)
+                && !reader.GetBoolean(26)
+                && !reader.GetBoolean(27)
+                && !reader.GetBoolean(28)
+                && !reader.GetBoolean(29)
+                && !reader.GetBoolean(30)
+                && !reader.GetBoolean(31)
+                && !reader.GetBoolean(32)
+                && reader.GetBoolean(33);
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static TenantProvisioningException MapAgentFailure(HttpStatusCode statusCode)
+    {
+        if (statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
+            || (int)statusCode >= 500)
+            return new TenantProvisioningException("TENANT_PROVISIONING_AGENT_UNAVAILABLE");
+
+        return new TenantProvisioningException(
+            statusCode == HttpStatusCode.Conflict
+                ? "TENANT_PROVISIONING_IDEMPOTENCY_CONFLICT"
+                : "TENANT_PROVISIONING_AGENT_REJECTED",
+            permanent: true);
+    }
+
+    private sealed record ProvisioningAgentResponse(string? ConnectionString);
+}
+
+                                        AND control_role.rolcanlogin
+                                        AND control_role.rolcreatedb
+                                        AND control_role.rolcreaterole
+                                        AND NOT control_role.rolsuper
+                                        AND NOT control_role.rolreplication
+                                        AND NOT control_role.rolbypassrls
+                                        AND NOT control_role.rolinherit
+                                        AND grantor_role.rolsuper
+                                        AND membership.admin_option
+                                        AND NOT membership.inherit_option
+                                        AND NOT membership.set_option
+                                  ))
+                       ),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'INSERT'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
