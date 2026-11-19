@@ -168,7 +168,7 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
 
-            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            await using (var admin = new NpgsqlConnection(tenantBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
                 await using var createPublicFunction = new NpgsqlCommand(
@@ -178,7 +178,7 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             }
             Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
-            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            await using (var admin = new NpgsqlConnection(tenantBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
                 await using var revokePublicFunction = new NpgsqlCommand(
