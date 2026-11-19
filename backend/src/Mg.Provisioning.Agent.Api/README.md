@@ -41,7 +41,7 @@ CREATE ROLE mg_agent_control
     NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS;
 ```
 
-Use a separate migration identity to apply `agent-database/migrations/001_agent_provisioning_ledger.sql` to the agent control database. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. Grant only:
+Use a separate migration identity to apply `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql` to the agent control database. The API project copies this reviewed source artifact into its output as `agent-database/migrations/001_agent_provisioning_ledger.sql`; that output path is not a second source migration. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. Grant only:
 
 ```sql
 GRANT CONNECT ON DATABASE mg_agent_control TO mg_agent_control;
