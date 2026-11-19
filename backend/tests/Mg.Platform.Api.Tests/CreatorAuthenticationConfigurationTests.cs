@@ -101,6 +101,23 @@ public sealed class CreatorAuthenticationConfigurationTests
     }
 
     [Fact]
+    public void AcceptsAudienceAtTheTwoHundredCharacterLimit()
+    {
+        var audience = new string('a', 200);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Authority"] = "https://identity.example.com/",
+                ["Authentication:Audience"] = audience
+            })
+            .Build();
+
+        var result = CreatorAuthenticationConfiguration.From(configuration);
+
+        Assert.Equal(audience, result.Audience);
+    }
+
+    [Fact]
     public void NormalizesValidHttpsIssuerAndAudience()
     {
         var configuration = new ConfigurationBuilder()
