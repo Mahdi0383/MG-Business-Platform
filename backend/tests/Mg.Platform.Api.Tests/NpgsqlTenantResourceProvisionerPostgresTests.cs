@@ -205,7 +205,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 await using var grants = new NpgsqlCommand(
                     """
                     SELECT format(
-                        'GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg_agent.provisioning_operations TO %I;',
+                        'GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO %I;',
                         current_database(), @role, @role, @role);
                     """, admin);
                 grants.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
