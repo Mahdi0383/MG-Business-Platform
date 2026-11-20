@@ -292,7 +292,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 Pooling = false
             };
 
-            return new Fixture(
+            var fixture = new Fixture(
                 admin.ConnectionString,
                 control.ConnectionString,
                 controlRole,
@@ -301,6 +301,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+            return fixture;
         }
 
         public async Task AssertAgentHandlerReadinessAsync(bool expected)
