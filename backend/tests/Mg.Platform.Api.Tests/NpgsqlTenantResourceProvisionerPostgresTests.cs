@@ -111,6 +111,56 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsControlRoleDriftAfterInitialReadinessBeforeFirstProvisioningMutation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_owner"));
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_app"));
+            Assert.False(await fixture.DatabaseExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RechecksControlRoleBoundaryBetweenRoleMutationsAndRollsBackPartialRoles()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.InstallPublicTemporaryDriftOnCreateRoleAsync();
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_owner"));
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_app"));
+            Assert.False(await fixture.DatabaseExistsAsync());
+        }
+        finally
+        {
+            await fixture.RemovePublicTemporaryDriftOnCreateRoleAsync();
+        }
+
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+    }
+
+    [Fact]
     public async Task RejectsPreexistingOwnerRoleWithMismatchedImmutableMarkerWithoutCreatingDatabase()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -148,6 +198,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private readonly string ownerRoleName;
         private string? unexpectedMembershipHolderRoleName;
         private string? unexpectedBootstrapRoleName;
+        private string? driftTriggerName;
+        private string? driftFunctionName;
         private readonly string applicationRoleName;
 
         private Fixture(
@@ -386,6 +438,52 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 $"{operation} TEMPORARY ON DATABASE \"{new NpgsqlConnectionStringBuilder(adminConnectionString).Database}\" " +
                 $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> RoleExistsAsync(string roleName)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = @role);", connection);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
+            return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task InstallPublicTemporaryDriftOnCreateRoleAsync()
+        {
+            driftTriggerName = "mg_test_role_drift_" + Guid.NewGuid().ToString("N")[..12];
+            driftFunctionName = "mg_test_role_drift_fn_" + Guid.NewGuid().ToString("N")[..12];
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            var sql = $"""
+                CREATE FUNCTION public.{driftFunctionName}() RETURNS event_trigger
+                LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+                AS $mg$
+                BEGIN
+                    EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO PUBLIC', current_database());
+                END;
+                $mg$;
+                CREATE EVENT TRIGGER {driftTriggerName}
+                ON ddl_command_end WHEN TAG IN ('CREATE ROLE')
+                EXECUTE FUNCTION public.{driftFunctionName}();
+                """;
+            await using var command = new NpgsqlCommand(sql, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RemovePublicTemporaryDriftOnCreateRoleAsync()
+        {
+            if (driftTriggerName is null || driftFunctionName is null)
+                return;
+
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            var sql = $"DROP EVENT TRIGGER IF EXISTS {driftTriggerName}; DROP FUNCTION IF EXISTS public.{driftFunctionName}();";
+            await using var command = new NpgsqlCommand(sql, connection);
+            await command.ExecuteNonQueryAsync();
+            driftTriggerName = null;
+            driftFunctionName = null;
         }
 
         public async Task AddUnexpectedBootstrapMembershipAsync()
