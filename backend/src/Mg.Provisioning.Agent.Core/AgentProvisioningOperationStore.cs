@@ -83,6 +83,7 @@ public sealed class AgentProvisioningOperationStore(
 
                     if (!string.Equals(encrypted.KeyId, credentialProtector.CurrentKeyId, StringComparison.Ordinal))
                     {
+                        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
                         var rewrapped = credentialProtector.Protect(
                             stablePayload, tenantId, idempotencyKey, databaseName);
                         try
@@ -144,6 +145,7 @@ public sealed class AgentProvisioningOperationStore(
             var envelope = credentialProtector.Protect(
                 payload, tenantId, idempotencyKey, databaseName);
 
+            await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
             await using (var insert = new NpgsqlCommand(
                 """
                 INSERT INTO mg_agent.provisioning_operations
@@ -200,6 +202,7 @@ public sealed class AgentProvisioningOperationStore(
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
         await using (var select = new NpgsqlCommand(
             """
             SELECT tenant_id, idempotency_key, database_name,
@@ -245,6 +248,7 @@ public sealed class AgentProvisioningOperationStore(
                     payload, row.TenantId, row.IdempotencyKey, row.DatabaseName);
                 try
                 {
+                    await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
                     await using var update = new NpgsqlCommand(
                         """
                         UPDATE mg_agent.provisioning_operations
@@ -369,6 +373,8 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Provisioning phase transitions must advance exactly one step.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
         await using var command = new NpgsqlCommand(
             """
             UPDATE mg_agent.provisioning_operations
@@ -376,7 +382,7 @@ public sealed class AgentProvisioningOperationStore(
             WHERE tenant_id = @tenant_id
               AND idempotency_key = @idempotency_key
               AND phase = @expected_phase;
-            """, connection);
+            """, connection, transaction);
         command.Parameters.AddWithValue("next_phase", NpgsqlDbType.Text, nextPhase);
         command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
         command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
@@ -385,6 +391,7 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static void ValidateCredentials(

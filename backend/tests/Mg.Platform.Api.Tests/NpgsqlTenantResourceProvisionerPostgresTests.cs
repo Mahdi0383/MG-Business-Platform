@@ -111,6 +111,63 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsControlRoleDriftAfterInitialReadinessBeforeFirstProvisioningMutation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_owner"));
+            Assert.False(await fixture.RoleExistsAsync(fixture.DatabaseName + "_app"));
+            Assert.False(await fixture.DatabaseExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RechecksControlRoleBoundaryBeforeProvisioningRetryAfterResourcesWereCreated()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        Assert.True(await fixture.RoleExistsAsync(fixture.DatabaseName + "_owner"));
+        Assert.True(await fixture.RoleExistsAsync(fixture.DatabaseName + "_app"));
+        Assert.True(await fixture.DatabaseExistsAsync());
+
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.RoleExistsAsync(fixture.DatabaseName + "_owner"));
+            Assert.True(await fixture.RoleExistsAsync(fixture.DatabaseName + "_app"));
+            Assert.True(await fixture.DatabaseExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
+        }
+
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+    }
+
+    [Fact]
     public async Task RejectsPreexistingOwnerRoleWithMismatchedImmutableMarkerWithoutCreatingDatabase()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -235,7 +292,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 Pooling = false
             };
 
-            return new Fixture(
+            var fixture = new Fixture(
                 admin.ConnectionString,
                 control.ConnectionString,
                 controlRole,
@@ -244,6 +301,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+            return fixture;
         }
 
         public async Task AssertAgentHandlerReadinessAsync(bool expected)
@@ -386,6 +445,16 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 $"{operation} TEMPORARY ON DATABASE \"{new NpgsqlConnectionStringBuilder(adminConnectionString).Database}\" " +
                 $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> RoleExistsAsync(string roleName)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = @role);", connection);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
+            return (bool)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task AddUnexpectedBootstrapMembershipAsync()
