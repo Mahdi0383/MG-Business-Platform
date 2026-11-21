@@ -20,6 +20,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
     private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
     private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
+    private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -31,12 +32,14 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterOwnerRoleCreated,
         Func<CancellationToken, Task>? afterApplicationRoleCreated = null,
         Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null,
-        Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null)
+        Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
+        Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
         this.afterOwnerMembershipEnsured = afterOwnerMembershipEnsured;
         this.afterDatabaseCreatedBeforeMarker = afterDatabaseCreatedBeforeMarker;
+        this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -814,6 +817,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             throw new AgentProvisioningConflictException("Tenant database owner or immutable database marker verification failed.");
 
+        if (afterDatabaseMarkerWrittenBeforeAccessConfiguration is not null)
+            await afterDatabaseMarkerWrittenBeforeAccessConfiguration(cancellationToken);
         await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
     }
 
