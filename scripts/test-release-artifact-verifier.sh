@@ -57,7 +57,8 @@ printf '%s  ../MG-Business-Platform-win-x64.zip\n' "$hash" > "$root/MG-Business-
 expect_rejected "manifest path traversal"
 
 make_fixture
-cat "$root/MG-Business-Platform-win-x64.zip.sha256" >> "$root/MG-Business-Platform-win-x64.zip.sha256"
+cp "$root/MG-Business-Platform-win-x64.zip.sha256" "$work/first-manifest-line"
+cat "$work/first-manifest-line" >> "$root/MG-Business-Platform-win-x64.zip.sha256"
 expect_rejected "multiple checksum lines"
 
 make_fixture
