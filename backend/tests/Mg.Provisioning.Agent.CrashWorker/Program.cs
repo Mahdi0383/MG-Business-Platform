@@ -52,7 +52,9 @@ if (string.Equals(mode, "tenant", StringComparison.Ordinal))
         PauseAt("after-database-marker-written-before-access-configuration"),
         PauseAt("after-tenant-baseline-applied-before-runtime-grants"),
         PauseAt("after-owner-readiness-before-tenant-baseline"),
-        PauseAt("after-runtime-grants-applied"));
+        PauseAt("after-runtime-grants-applied"),
+        PauseAt("after-database-public-acl-revoked-before-marker"),
+        PauseAt("after-database-access-configured-before-schema"));
 
     await provisioner.EnsureDatabaseAndRolesAsync(
         tenantId, idempotencyKey, databaseName, credentials, CancellationToken.None);
