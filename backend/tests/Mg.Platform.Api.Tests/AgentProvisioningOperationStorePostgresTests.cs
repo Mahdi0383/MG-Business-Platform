@@ -405,10 +405,18 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         foreach (var drift in new[]
         {
+            (Scope: "database", Privilege: "CONNECT"),
             (Scope: "database", Privilege: "TEMP"),
             (Scope: "database", Privilege: "CREATE"),
             (Scope: "schema", Privilege: "USAGE"),
-            (Scope: "schema", Privilege: "CREATE")
+            (Scope: "schema", Privilege: "CREATE"),
+            (Scope: "table", Privilege: "SELECT"),
+            (Scope: "table", Privilege: "INSERT"),
+            (Scope: "table", Privilege: "UPDATE"),
+            (Scope: "table", Privilege: "DELETE"),
+            (Scope: "table", Privilege: "TRUNCATE"),
+            (Scope: "table", Privilege: "REFERENCES"),
+            (Scope: "table", Privilege: "TRIGGER")
         })
         {
             try
@@ -577,6 +585,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         {
             var template = (scope, privilege, grant) switch
             {
+                ("database", "CONNECT", true) => "GRANT CONNECT ON DATABASE %I TO PUBLIC;",
+                ("database", "CONNECT", false) => "REVOKE CONNECT ON DATABASE %I FROM PUBLIC;",
                 ("database", "TEMP", true) => "GRANT TEMP ON DATABASE %I TO PUBLIC;",
                 ("database", "TEMP", false) => "REVOKE TEMP ON DATABASE %I FROM PUBLIC;",
                 ("database", "CREATE", true) => "GRANT CREATE ON DATABASE %I TO PUBLIC;",
@@ -585,6 +595,20 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 ("schema", "USAGE", false) => "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;",
                 ("schema", "CREATE", true) => "GRANT CREATE ON SCHEMA mg_agent TO PUBLIC;",
                 ("schema", "CREATE", false) => "REVOKE CREATE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("table", "SELECT", true) => "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "SELECT", false) => "REVOKE SELECT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "INSERT", true) => "GRANT INSERT ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "INSERT", false) => "REVOKE INSERT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "UPDATE", true) => "GRANT UPDATE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "UPDATE", false) => "REVOKE UPDATE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "DELETE", true) => "GRANT DELETE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "DELETE", false) => "REVOKE DELETE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "TRUNCATE", true) => "GRANT TRUNCATE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "TRUNCATE", false) => "REVOKE TRUNCATE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "REFERENCES", true) => "GRANT REFERENCES ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "REFERENCES", false) => "REVOKE REFERENCES ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "TRIGGER", true) => "GRANT TRIGGER ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "TRIGGER", false) => "REVOKE TRIGGER ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
                 _ => throw new ArgumentOutOfRangeException(nameof(privilege), "Unsupported PUBLIC ACL test privilege.")
             };
 
@@ -605,10 +629,12 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         {
             var sql = (scope, privilege) switch
             {
+                ("database", "CONNECT") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CONNECT');",
                 ("database", "TEMP") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'TEMP');",
                 ("database", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
                 ("schema", "USAGE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'USAGE');",
                 ("schema", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
+                ("table", _) => $"SELECT EXISTS (SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace, LATERAL aclexplode(COALESCE(t.relacl, acldefault('r', t.relowner))) a WHERE n.nspname = 'mg_agent' AND t.relname = 'provisioning_operations' AND a.grantee = 0 AND a.privilege_type = '{privilege}');",
                 _ => throw new ArgumentOutOfRangeException(nameof(privilege))
             };
             await using var connection = await dataSource.OpenConnectionAsync();
