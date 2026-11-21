@@ -230,7 +230,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                            SELECT 1
                            FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                            WHERE database_acl.grantee = 0
-                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                        ),
                        NOT EXISTS (
                            SELECT 1
@@ -420,7 +420,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        SELECT 1
                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                        WHERE database_acl.grantee = 0
-                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                          AND NOT (@allow_public_connect AND database_acl.privilege_type = 'CONNECT')
                    ),
                    NOT EXISTS (
@@ -559,7 +559,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        SELECT 1
                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                        WHERE database_acl.grantee = 0
-                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                    ),
                    NOT EXISTS (
                        SELECT 1
