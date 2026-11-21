@@ -547,7 +547,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !reader.GetBoolean(23)
             || !reader.GetBoolean(24)
             || !reader.GetBoolean(25))
-            throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
+            throw new InvalidOperationException($"Agent control-role membership, ACL, ownership or privilege boundary is not ready. State: {string.Join("|", Enumerable.Range(0, 26).Select(index => $"{index}={reader.GetValue(index)}"))}");
     }
 
     private async Task EnsureRoleAsync(
