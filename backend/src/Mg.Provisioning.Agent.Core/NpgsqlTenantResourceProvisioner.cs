@@ -840,7 +840,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             if (string.IsNullOrEmpty(state.Comment))
             {
                 // Recover only the crash window after CREATE DATABASE and before its marker.
-                if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
+                if (!await IsFreshDatabaseAsync(ownerConnectionString, databaseName, cancellationToken))
                     throw new AgentProvisioningConflictException("Unmarked tenant database is not empty and cannot be safely adopted.");
                 await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
                 state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
@@ -863,9 +863,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             await afterDatabaseAccessConfiguredBeforeSchema(cancellationToken);
     }
 
-    private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
+    private async Task<bool> IsFreshDatabaseAsync(
+        string ownerConnectionString, string databaseName, CancellationToken cancellationToken)
     {
-        var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+        // PUBLIC CONNECT is deliberately revoked before the immutable marker is written.
+        // Recovery must inspect the unmarked database through its owner, not the control role.
+        var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString)
         {
             Database = databaseName,
             Pooling = false
