@@ -303,6 +303,7 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Tenant and idempotency identifiers must be non-empty.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, null, cancellationToken);
         await using var command = new NpgsqlCommand(
             """
             SELECT phase
