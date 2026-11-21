@@ -139,13 +139,15 @@ Migration `backend/database/migrations/006_business_creation_idempotency.sql` cr
 
 The `POST /api/v1/platform/businesses/` endpoint now requires a non-empty UUID `Idempotency-Key` header and validated `iss` + `sub` claims. Same key + same creator + same normalized name/slug replays HTTP 201 for the same business ID and Location, with `Idempotency-Replayed: true`. A changed payload or creator identity returns HTTP 409. The API contract is documented in `backend/docs/PLATFORM_API_CONTRACT.md`; ADR-009 records the decision.
 
-Exact code/test SHA `2f1574ea91b7c33367bb6dae424aba2b8fe90462` (the current documentation-only head `6afde31f488b5a484a7d2c1426d9178279b2262b` was revalidated):
-- PostgreSQL 17 integration [run 44959639617](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959639617): **187 passed, 0 failed, 0 skipped**.
-- Backend/web [run 44959639818](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959639818): backend tests **187 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+Exact code/test head `6bf8eceba092ff8fba6e586a69e501d804cd472a`:
+- PostgreSQL 17 integration [run 44960616374](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960616374): **190 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44960616393](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960616393): backend tests **190 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
 
 Coverage includes normalized same-key replay, changed-payload and changed-creator conflicts, 16 concurrent identical idempotency requests yielding one business/job and 15 replays, TestServer response-body failure after commit followed by successful same-key retry, missing/empty key rejection, and the prior 16-way slug race, 31-request rate-limit burst, 401/403/400 authorization/validation cases.
 
 This is PostgreSQL/TestServer evidence, not production IdP/JWKS validation or an actual socket/ingress disconnect. A dedicated TestServer middleware throws during response-body delivery after the business/outbox/idempotency transaction commits; the client observes transport failure, then retries with the same key and receives the same business ID with `Idempotency-Replayed: true`. Clients must persist and reuse the key; no client may assume a request without the header will be accepted. Production OIDC, deployment of migration 006, response-loss fault injection through the production ingress, and staging remain release gates.
+
+The API readiness endpoint now includes `PlatformSchemaReadinessHealthCheck`: it verifies the registry, outbox and business-creation idempotency table, required hash/key columns and the named primary-key constraint. Missing or incomplete migration 006 returns Unhealthy. PostgreSQL tests prove healthy readiness with the schema and fail-closed readiness after dropping the idempotency table.
 
 
 ### Creator business idempotency and response-loss replay evidence
