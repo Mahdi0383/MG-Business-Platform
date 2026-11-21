@@ -319,7 +319,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         Assert.True(result.Acquired);
         Assert.Equal("provisioned", result.Value);
-        Assert.True(actionStarted.Task.Result);
+        Assert.True(await actionStarted.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
