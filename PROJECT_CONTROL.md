@@ -693,3 +693,23 @@ The historical entries below remain as an audit trail; statements that the agent
 - Current PR #166 head `2e9fd99d0dccfeb006be2db8acb7a8c3ed1ab259` updates acceptance evidence only after the green code/test SHA.
 - This is test-server evidence for middleware behavior, not production ingress/load testing. OIDC/JWKS, API idempotency/replay, real Vault/mTLS, monitoring and staging remain open. Keep provisioning worker disabled.
 
+
+## 11.11 Durable business registration idempotency — 2026-11-22
+
+- Draft PR #166 implements ADR-009 in `docs/DECISIONS.md`, migration `backend/database/migrations/006_business_creation_idempotency.sql`, model `BusinessCreationRequest`, EF mapping and API contract `backend/docs/PLATFORM_API_CONTRACT.md`.
+- `POST /api/v1/platform/businesses/` now requires a non-empty UUID `Idempotency-Key` and validated OIDC `iss` + `sub`. The DB stores SHA-256 hashes of creator identity and normalized name/slug, not raw identity or request body.
+- The idempotency row, business row and provisioning outbox job are written atomically. Same key/same creator/same normalized payload replays HTTP 201 for the same business ID/Location and adds `Idempotency-Replayed: true`; changed payload or creator returns 409. Records are retained for the business lifetime.
+- Concurrency behavior: 16 simultaneous same-key requests return one created resource and 15 replays. A race exposed that a same-key retry could see the slug after the winner committed but before its second key lookup; service now re-reads the idempotency record before treating the slug as an unrelated conflict.
+- A TestServer middleware deliberately throws during response-body delivery after the database transaction commits. The test verifies transport failure, one durable business/job/key row, then same-key retry successfully recovers the same business ID without duplicate writes.
+- Exact code/test SHA `2f1574ea91b7c33367bb6dae424aba2b8fe90462`: PostgreSQL 17 run `44959639617`, **187 passed, 0 failed, 0 skipped**; backend/web run `44959639818`, backend 187 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `d9c8ded2ee5126b87053c9c4f723ee7f94fa4d73` adds acceptance docs only after the green code/test SHA.
+- Production gates remain: controlled deployment of migration 006, real OIDC/JWKS issuer validation and staging, actual ingress/socket response-loss testing, real Vault token/process-kill/key rotation/backup-restore, deployed mTLS lifecycle, monitoring/metrics/alerts, privileged admin controls and staging. No merge/deploy; keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation tasks
+
+1. Add signed test JWTs and a local OIDC/JWKS test issuer to validate the real JwtBearer pipeline (signature, issuer, audience, expiry, role, subject) instead of relying only on test-auth handlers.
+2. Add actual socket-level response disconnect through a local Kestrel host or reverse-proxy harness after the business/outbox/idempotency commit, then retry with the same key.
+3. Add a safe deployment migration gate: API readiness must fail closed if migration 006 is absent or its checksum is unexpected; document rollback behavior for an API version requiring the new header.
+4. Add production secret-manager and mTLS deployment rehearsals, key rotation/restore, metrics/alerts and staging evidence.
+5. Keep `Provisioning:WorkerEnabled=false`; no merge/deploy without explicit authorization.
+
