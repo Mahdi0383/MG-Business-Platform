@@ -208,9 +208,25 @@ public sealed class AgentProvisioningOperationStore(
     /// Re-encrypts a bounded batch of stored credential bundles with the current key.
     /// Keep all historical keys in the configured key ring until this returns zero.
     /// </summary>
-    public async Task<int> RewrapStoredCredentialsAsync(
+    public Task<int> RewrapStoredCredentialsAsync(
+        int batchSize = 100,
+        CancellationToken cancellationToken = default) =>
+        RewrapStoredCredentialsCoreAsync(null, batchSize, cancellationToken);
+
+    internal Task<int> RewrapStoredCredentialsForTenantAsync(
+        Guid tenantId,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty)
+            throw new ArgumentException("Tenant identifier must be non-empty.", nameof(tenantId));
+        return RewrapStoredCredentialsCoreAsync(tenantId, batchSize, cancellationToken);
+    }
+
+    private async Task<int> RewrapStoredCredentialsCoreAsync(
+        Guid? tenantId,
+        int batchSize,
+        CancellationToken cancellationToken)
     {
         if (batchSize is < 1 or > 1000)
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Credential rewrap batch size must be between 1 and 1000.");
@@ -235,12 +251,14 @@ public sealed class AgentProvisioningOperationStore(
                    credential_ciphertext, credential_tag
             FROM mg_agent.provisioning_operations
             WHERE credential_key_id <> @current_key_id
+              AND (@tenant_id IS NULL OR tenant_id = @tenant_id)
             ORDER BY updated_at
             LIMIT @batch_size
             FOR UPDATE;
             """, connection, transaction))
         {
             select.Parameters.AddWithValue("current_key_id", NpgsqlDbType.Text, credentialProtector.CurrentKeyId);
+            select.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, (object?)tenantId ?? DBNull.Value);
             select.Parameters.AddWithValue("batch_size", NpgsqlDbType.Integer, batchSize);
             await using var reader = await select.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
