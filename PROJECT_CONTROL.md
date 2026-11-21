@@ -497,6 +497,34 @@ The historical entries below remain as an audit trail; statements that the agent
 - PR #158's centralized readiness verifier was audited during the continuation. Its initial SQL had an incorrect aclexplode privilege label (TEMP rather than PostgreSQL's TEMPORARY) and omitted PUBLIC grants on the mg_agent schema and operation ledger. The PR #158 branch now contains a correction and regression tests for PUBLIC schema USAGE and ledger SELECT grants at commit 8661aeaca8ca3aa5bd4110a4ebd2f9c303ac0457. This corrected child branch has not yet been integrated into #160 or validated by CI. Do not consume its older provisioner snapshot wholesale: it removes the later fault-injection hooks and must be semantically reconciled with the current #160 provisioner before integration.
 - Issue #157 remains open. Real child-process termination and restart/recovery at every external side-effect boundary, production secret-manager rotation/backup restore, deployed mTLS lifecycle, monitoring and administrator operational controls remain outstanding. Keep Provisioning:WorkerEnabled=false.
 
+## 11.4 Real process-kill crash/recovery tests — 2026-11-21
+
+- Draft PR #161: test/provisioning-process-kill-recovery → integration/provisioning-agent-security-stack-20261121.
+- Exact head: 09cbda662eba7ea37517ee7ba1ab18f358947ec8.
+- Added a dedicated crash-worker executable. Integration tests start it as a separate OS process, wait until it reaches a named external side-effect boundary, forcibly terminate the entire process tree, inspect durable PostgreSQL state, and retry through a fresh provisioner instance. This is process termination, not callback-thrown exceptions or graceful cancellation.
+- Eight hard-kill boundaries are covered:
+  1. after owner role creation (inside the role transaction);
+  2. after application role creation (inside the role transaction);
+  3. after owner membership setup (inside the role transaction);
+  4. after CREATE DATABASE but before the immutable marker;
+  5. after marker write but before database access configuration;
+  6. after owner readiness but before tenant baseline DDL;
+  7. after tenant baseline DDL but before runtime grants;
+  8. after runtime grants.
+- Added an explicit post-runtime-grants injection hook so the last external privilege mutation can be tested.
+- First exact-head run exposed three test assertion failures caused by querying schema mg before baseline creation. The implementation behavior was not the failure; the test now only queries runtime role grants after the schema exists.
+- Exact-head PostgreSQL 17 run 44923819539: **144 passed, 0 failed, 0 skipped**.
+- Exact-head backend/web run 44923819583: Release backend build passed; isolated agent API build 0 warnings/0 errors; backend tests 144 passed; frontend tests 20 passed; dependency audit passed; production bundle succeeded; Pages deployment skipped for PR.
+- Issue #157 received the evidence and remains open. These tests cover tenant-resource DDL/privilege side effects, not every ledger mutation. Remaining process-kill coverage must include operation-ledger insert, credential rewrap, phase updates, and any secret-manager boundary. Production secret-manager/key rotation and backup/restore, deployed mTLS lifecycle, monitoring/alerting and privileged administrator controls also remain outstanding.
+- Keep PR #161 Draft. No merge/deploy was performed. Keep Provisioning:WorkerEnabled=false.
+
+### Next continuation tasks
+
+1. Add real child-process kill/restart coverage for durable operation-ledger writes (prepared credential insert, credential rewrap, phase transitions) and prove idempotent recovery after each boundary.
+2. Reconcile PR #158's centralized readiness verifier into the current #160 stack only after preserving the newer fault-injection seams and all PUBLIC database/schema/ledger ACL checks. Its TEMPORARY ACL correction has not yet passed CI on the corrected branch.
+3. Run formatting and CodeQL on the #160/#161 stacked candidate after the parent PR quality-gate workflow change is available; keep all PRs Draft.
+4. Complete production secret-manager, backup/restore, mTLS, monitoring and administrator operational acceptance. Worker remains disabled.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
