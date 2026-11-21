@@ -55,12 +55,13 @@ public sealed class TenantProvisioningAgentOptions : IDisposable
             .OfType<X509KeyUsageExtension>()
             .Any(extension => extension.KeyUsages.HasFlag(X509KeyUsageFlags.DigitalSignature));
 
+        var nowUtc = DateTime.UtcNow;
         if (!certificate.HasPrivateKey
             || !hasClientAuthenticationEku
             || !hasNonCaBasicConstraints
             || !allowsDigitalSignature
-            || certificate.NotBefore > DateTime.UtcNow
-            || certificate.NotAfter <= DateTime.UtcNow)
+            || certificate.NotBefore.ToUniversalTime() > nowUtc
+            || certificate.NotAfter.ToUniversalTime() <= nowUtc)
         {
             certificate.Dispose();
             throw new InvalidOperationException("Provisioning agent client certificate is invalid or expired.");

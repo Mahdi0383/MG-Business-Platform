@@ -16,9 +16,36 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly string controlRoleName;
     private readonly string controlHost;
     private readonly int controlPort;
+    private readonly Func<CancellationToken, Task>? afterOwnerRoleCreated;
+    private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
+    private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
+    private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
+    private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
+    private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
+    private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
+        : this(controlConnectionString, afterOwnerRoleCreated: null)
     {
+    }
+
+    internal NpgsqlTenantResourceProvisioner(
+        string controlConnectionString,
+        Func<CancellationToken, Task>? afterOwnerRoleCreated,
+        Func<CancellationToken, Task>? afterApplicationRoleCreated = null,
+        Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null,
+        Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
+        Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
+        Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
+    {
+        this.afterOwnerRoleCreated = afterOwnerRoleCreated;
+        this.afterApplicationRoleCreated = afterApplicationRoleCreated;
+        this.afterOwnerMembershipEnsured = afterOwnerMembershipEnsured;
+        this.afterDatabaseCreatedBeforeMarker = afterDatabaseCreatedBeforeMarker;
+        this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
+        this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
+        this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -56,9 +83,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         {
             await EnsureRoleAsync(connection, roleTransaction, ownerRole, RoleMarker(tenantId, "owner"),
                 login: true, password: owner.Password, cancellationToken);
+            if (afterOwnerRoleCreated is not null)
+                await afterOwnerRoleCreated(cancellationToken);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
+            if (afterApplicationRoleCreated is not null)
+                await afterApplicationRoleCreated(cancellationToken);
             await EnsureOwnerRoleMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
+            if (afterOwnerMembershipEnsured is not null)
+                await afterOwnerMembershipEnsured(cancellationToken);
+            await VerifyControlRoleAsync(connection, cancellationToken, roleTransaction);
             await roleTransaction.CommitAsync(cancellationToken);
         }
         await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole,
@@ -94,12 +128,21 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         }
         else
         {
+            if (afterOwnerReadinessBeforeTenantBaseline is not null)
+                await afterOwnerReadinessBeforeTenantBaseline(cancellationToken);
+            // Revalidate immediately before the packaged migration performs DDL and data writes.
+            await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
             var sql = new UTF8Encoding(false, true).GetString(migration.GetSqlBytes().Span);
             await using var command = new NpgsqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync(cancellationToken);
             await VerifyExistingBaselineAsync(connection, tenantId, migration, cancellationToken);
         }
 
+        if (afterTenantBaselineAppliedBeforeRuntimeGrants is not null)
+            await afterTenantBaselineAppliedBeforeRuntimeGrants(cancellationToken);
+        // The baseline script commits its own transaction. Recheck the owner boundary
+        // after that externalized schema mutation and immediately before privilege grants.
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await ApplyRuntimeGrantsAsync(connection, appRole, cancellationToken);
     }
 
@@ -181,7 +224,24 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                                WHERE namespace.nspname = 'mg' AND relation.relowner = role.oid),
                        EXISTS (SELECT 1 FROM pg_proc routine
                                JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
-                               WHERE namespace.nspname = 'mg' AND routine.proowner = role.oid)
+                               WHERE namespace.nspname = 'mg' AND routine.proowner = role.oid),
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_proc routine
+                           JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                           CROSS JOIN LATERAL aclexplode(
+                               COALESCE(routine.proacl, acldefault('f', routine.proowner))) AS function_acl
+                           WHERE namespace.nspname = 'mg'
+                             AND function_acl.grantee = 0
+                             AND function_acl.privilege_type = 'EXECUTE'
+                       )
                 FROM mg.tenant_identity identity
                 JOIN mg.schema_migrations migration ON migration.version = @version
                 JOIN pg_roles role ON role.rolname = current_user
@@ -243,7 +303,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 && reader.GetBoolean(39)
                 && reader.GetBoolean(40)
                 && !reader.GetBoolean(41)
-                && !reader.GetBoolean(42);
+                && !reader.GetBoolean(42)
+                && !reader.GetBoolean(43)
+                && reader.GetBoolean(44)
+                && reader.GetBoolean(45);
         }
         catch (NpgsqlException)
         {
@@ -308,7 +371,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task VerifyTenantOwnerConnectionAsync(
-        NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
+        NpgsqlConnection connection,
+        Guid tenantId,
+        string databaseName,
+        CancellationToken cancellationToken,
+        bool allowPublicConnect = false,
+        bool requireDatabaseMarker = true,
+        bool allowPublicTemporary = false)
     {
         await using var command = new NpgsqlCommand(
             """
@@ -347,12 +416,33 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                                      AND NOT membership.inherit_option AND NOT membership.admin_option)
                              )),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
-                   COALESCE(shobj_description(database.oid, 'pg_database'), '')
+                   COALESCE(shobj_description(database.oid, 'pg_database'), ''),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                       WHERE database_acl.grantee = 0
+                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                         AND NOT (
+                             (@allow_public_connect AND database_acl.privilege_type = 'CONNECT')
+                             OR (@allow_public_temporary AND database_acl.privilege_type = 'TEMPORARY')
+                         )
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM pg_namespace tenant_schema
+                       CROSS JOIN LATERAL aclexplode(
+                           COALESCE(tenant_schema.nspacl, acldefault('n', tenant_schema.nspowner))) AS schema_acl
+                       WHERE tenant_schema.nspname = 'mg'
+                         AND schema_acl.grantee = 0
+                         AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                   )
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
             WHERE role.rolname = current_user;
             """, connection);
         command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
+        command.Parameters.AddWithValue("allow_public_connect", NpgsqlDbType.Boolean, allowPublicConnect);
+        command.Parameters.AddWithValue("allow_public_temporary", NpgsqlDbType.Boolean, allowPublicTemporary);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)
             || !string.Equals(reader.GetString(0), OwnerRoleName(tenantId), StringComparison.Ordinal)
@@ -369,19 +459,132 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !reader.GetBoolean(11)
             || reader.GetBoolean(12)
             || !string.Equals(reader.GetString(13), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
-            || !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || (requireDatabaseMarker
+                ? !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
+                : (!string.IsNullOrEmpty(reader.GetString(14))
+                    && !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)))
+            || !reader.GetBoolean(15)
+            || !reader.GetBoolean(16)
             || await reader.ReadAsync(cancellationToken))
-            throw new InvalidOperationException("Tenant owner database identity or restricted role verification failed.");
+            throw new AgentProvisioningConflictException("Tenant owner database identity or restricted role verification failed.");
     }
 
-    private async Task VerifyControlRoleAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    private async Task VerifyControlRoleAsync(
+        NpgsqlConnection connection,
+        CancellationToken cancellationToken,
+        NpgsqlTransaction? transaction = null)
     {
+        // Re-read the full control-plane boundary immediately before each mutation.
         await using var command = new NpgsqlCommand(
             """
-            SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
-                   rolreplication, rolbypassrls, rolinherit
-            FROM pg_roles WHERE rolname = current_user;
-            """, connection);
+            SELECT role.rolcanlogin,
+                   role.rolsuper,
+                   role.rolcreatedb,
+                   role.rolcreaterole,
+                   role.rolreplication,
+                   role.rolbypassrls,
+                   role.rolinherit,
+                   ledger.oid IS NOT NULL,
+                   has_schema_privilege(current_user, schema.oid, 'USAGE'),
+                   has_schema_privilege(current_user, schema.oid, 'CREATE'),
+                   has_table_privilege(current_user, ledger.oid, 'SELECT'),
+                   has_table_privilege(current_user, ledger.oid, 'INSERT'),
+                   has_table_privilege(current_user, ledger.oid, 'UPDATE'),
+                   has_table_privilege(current_user, ledger.oid, 'DELETE'),
+                   has_table_privilege(current_user, ledger.oid, 'TRUNCATE'),
+                   has_table_privilege(current_user, ledger.oid, 'REFERENCES'),
+                   has_table_privilege(current_user, ledger.oid, 'TRIGGER'),
+                   has_database_privilege(current_user, current_database(), 'CREATE'),
+                   has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                   pg_get_userbyid(database.datdba),
+                   pg_get_userbyid(schema.nspowner),
+                   pg_get_userbyid(ledger.relowner),
+                   current_user,
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       WHERE membership.roleid = role.oid
+                          OR (
+                              membership.member = role.oid
+                              AND NOT (
+                                  (
+                                      membership.admin_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.set_option
+                                      AND EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          JOIN pg_roles target_role ON target_role.oid = membership.roleid
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.rolsuper
+                                            AND target_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_(owner|app)$'
+                                            AND target_role.rolcanlogin
+                                            AND NOT target_role.rolsuper
+                                            AND NOT target_role.rolcreatedb
+                                            AND NOT target_role.rolcreaterole
+                                            AND NOT target_role.rolreplication
+                                            AND NOT target_role.rolbypassrls
+                                            AND NOT target_role.rolinherit
+                                            AND shobj_description(target_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(target_role.rolname from '^mg_tenant_([0-9a-f]{32})_(owner|app)$') ||
+                                                CASE WHEN target_role.rolname ~ '_owner$'
+                                                     THEN ':owner:v1' ELSE ':application:v1' END
+                                      )
+                                  )
+                                  OR
+                                  (
+                                      membership.set_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.admin_option
+                                      AND EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          JOIN pg_roles owner_role ON owner_role.oid = membership.roleid
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.oid = role.oid
+                                            AND owner_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_owner$'
+                                            AND owner_role.rolcanlogin
+                                            AND NOT owner_role.rolsuper
+                                            AND NOT owner_role.rolcreatedb
+                                            AND NOT owner_role.rolcreaterole
+                                            AND NOT owner_role.rolreplication
+                                            AND NOT owner_role.rolbypassrls
+                                            AND NOT owner_role.rolinherit
+                                            AND shobj_description(owner_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(owner_role.rolname from '^mg_tenant_([0-9a-f]{32})_owner$') ||
+                                                ':owner:v1'
+                                      )
+                                  )
+                              )
+                          )
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                       WHERE database_acl.grantee = 0
+                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) AS schema_acl
+                       WHERE schema_acl.grantee = 0
+                         AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(ledger.relacl, acldefault('r', ledger.relowner))) AS ledger_acl
+                       WHERE ledger_acl.grantee = 0
+                         AND ledger_acl.privilege_type IN
+                             ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+                   )
+            FROM pg_roles role
+            JOIN pg_database database ON database.datname = current_database()
+            JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+            JOIN pg_class ledger ON ledger.relnamespace = schema.oid AND ledger.relname = 'provisioning_operations'
+            WHERE role.rolname = current_user;
+            """, connection, transaction);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)
             || !reader.GetBoolean(0)
@@ -390,8 +593,27 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !reader.GetBoolean(3)
             || reader.GetBoolean(4)
             || reader.GetBoolean(5)
-            || reader.GetBoolean(6))
-            throw new InvalidOperationException("Agent database control role does not meet the restricted CREATEDB/CREATEROLE contract.");
+            || reader.GetBoolean(6)
+            || !reader.GetBoolean(7)
+            || !reader.GetBoolean(8)
+            || reader.GetBoolean(9)
+            || !reader.GetBoolean(10)
+            || !reader.GetBoolean(11)
+            || !reader.GetBoolean(12)
+            || reader.GetBoolean(13)
+            || reader.GetBoolean(14)
+            || reader.GetBoolean(15)
+            || reader.GetBoolean(16)
+            || reader.GetBoolean(17)
+            || reader.GetBoolean(18)
+            || string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
+            || string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
+            || string.Equals(reader.GetString(21), reader.GetString(22), StringComparison.Ordinal)
+            || !reader.GetBoolean(23)
+            || !reader.GetBoolean(24)
+            || !reader.GetBoolean(25)
+            || !reader.GetBoolean(26))
+            throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
     }
 
     private async Task EnsureRoleAsync(
@@ -406,6 +628,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetRoleStateAsync(connection, roleName, cancellationToken, transaction);
         if (state is null)
         {
+            await VerifyControlRoleAsync(connection, cancellationToken, transaction);
             var sql = login
                 ? await FormatSqlAsync(connection, transaction,
                     "SELECT format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role, @password);",
@@ -431,10 +654,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || state.Inherit
             || (login && (state.MemberOfAnyRole || state.MemberOfUnexpectedRole))
             || (!login && state.MemberOfUnexpectedRole))
-            throw new InvalidOperationException("Existing tenant role has an unexpected identity, privilege or membership state.");
+            throw new AgentProvisioningConflictException("Existing tenant role has an unexpected identity, privilege or membership state.");
 
         if (login)
         {
+            await VerifyControlRoleAsync(connection, cancellationToken, transaction);
             var alterSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('ALTER ROLE %I WITH PASSWORD %L', @role, @password);",
                 cancellationToken, ("role", roleName), ("password", password!));
@@ -451,7 +675,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetRoleStateAsync(connection, ownerRole, cancellationToken, transaction)
             ?? throw new InvalidOperationException("Tenant owner role was not created.");
         if (state.MemberOfAnyRole || state.MemberOfUnexpectedRole)
-            throw new InvalidOperationException("Tenant owner role has an unexpected role membership.");
+            throw new AgentProvisioningConflictException("Tenant owner role has an unexpected role membership.");
 
         // PostgreSQL 17 creates an immutable bootstrap-superuser ADMIN membership for
         // the CREATEROLE identity that creates a role (INHERIT FALSE, SET FALSE).
@@ -495,10 +719,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var hasUnsafeMembership = checkReader.GetBoolean(1);
         await checkReader.CloseAsync();
         if (hasUnsafeMembership)
-            throw new InvalidOperationException("Tenant owner role control membership has unsafe INHERIT, SET, ADMIN or grantor options.");
+            throw new AgentProvisioningConflictException("Tenant owner role control membership has unsafe INHERIT, SET, ADMIN or grantor options.");
         if (hasSetOnlyMembership)
             return;
 
+        await VerifyControlRoleAsync(connection, cancellationToken, transaction);
         var grantSql = await FormatSqlAsync(connection, transaction,
             "SELECT format('GRANT %I TO %I WITH INHERIT FALSE, SET TRUE', @role, @member);",
             cancellationToken, ("role", ownerRole), ("member", controlRoleName));
@@ -543,7 +768,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var verifiedUnsafeMembership = verifyReader.GetBoolean(1);
         await verifyReader.CloseAsync();
         if (!verifiedSetOnlyMembership || verifiedUnsafeMembership)
-            throw new InvalidOperationException("Tenant owner role lacks the required isolated SET-only membership path.");
+            throw new AgentProvisioningConflictException("Tenant owner role lacks the required isolated SET-only membership path.");
     }
 
     private async Task<RoleState?> GetRoleStateAsync(
@@ -586,38 +811,43 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         if (state is null)
         {
+            await VerifyControlRoleAsync(controlConnection, cancellationToken);
             var createSql = await FormatSqlAsync(controlConnection,
                 "SELECT format('CREATE DATABASE %I OWNER %I', @database, @owner);",
                 cancellationToken, ("database", databaseName), ("owner", ownerRole));
             await ExecuteDdlAsync(controlConnection, createSql, cancellationToken);
+            if (afterDatabaseCreatedBeforeMarker is not null)
+                await afterDatabaseCreatedBeforeMarker(cancellationToken);
             await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
             state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         }
         else
         {
             if (!string.Equals(state.Owner, ownerRole, StringComparison.Ordinal))
-                throw new InvalidOperationException("Existing tenant database owner does not match the immutable tenant owner role.");
+                throw new AgentProvisioningConflictException("Existing tenant database owner does not match the immutable tenant owner role.");
 
             if (string.IsNullOrEmpty(state.Comment))
             {
                 // Recover only the crash window after CREATE DATABASE and before its marker.
                 if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
-                    throw new InvalidOperationException("Unmarked tenant database is not empty and cannot be safely adopted.");
+                    throw new AgentProvisioningConflictException("Unmarked tenant database is not empty and cannot be safely adopted.");
                 await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
                 state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
             }
             else if (!string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("Existing tenant database immutable marker does not match.");
+                throw new AgentProvisioningConflictException("Existing tenant database immutable marker does not match.");
             }
         }
 
         if (state is null
             || !string.Equals(state.Owner, ownerRole, StringComparison.Ordinal)
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
-            throw new InvalidOperationException("Tenant database owner or immutable database marker verification failed.");
+            throw new AgentProvisioningConflictException("Tenant database owner or immutable database marker verification failed.");
 
-        await ConfigureDatabaseAccessAsync(ownerConnectionString, databaseName, appRole, cancellationToken);
+        if (afterDatabaseMarkerWrittenBeforeAccessConfiguration is not null)
+            await afterDatabaseMarkerWrittenBeforeAccessConfiguration(cancellationToken);
+        await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
     }
 
     private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
@@ -642,8 +872,27 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                     FROM pg_class relation
                     JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
                     WHERE namespace.nspname = 'public'
-                      AND relation.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-                );
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_proc routine
+                    JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_type type
+                    JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_extension extension
+                    JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+                    WHERE namespace.nspname = 'public'
+                )
+                AND NOT EXISTS (SELECT 1 FROM pg_largeobject_metadata)
+                AND NOT EXISTS (SELECT 1 FROM pg_default_acl);
             """, connection);
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
@@ -654,6 +903,21 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await VerifyTenantOwnerConnectionAsync(
+            connection, tenantId, databaseName, cancellationToken,
+            allowPublicConnect: true, requireDatabaseMarker: false, allowPublicTemporary: true);
+
+        // A newly created PostgreSQL database starts with PUBLIC CONNECT and TEMPORARY.
+        // Permit only those bootstrap defaults long enough to connect as the immutable
+        // owner, revoke every PUBLIC database privilege, then require the strict ACL
+        // boundary again before writing the immutable marker.
+        await using (var revokePublic = new NpgsqlCommand(
+            "REVOKE ALL ON DATABASE " + QuoteIdentifier(databaseName) + " FROM PUBLIC;", connection))
+            await revokePublic.ExecuteNonQueryAsync(cancellationToken);
+
+        await VerifyTenantOwnerConnectionAsync(
+            connection, tenantId, databaseName, cancellationToken,
+            requireDatabaseMarker: false);
         await using var command = new NpgsqlCommand("COMMENT ON DATABASE " + QuoteIdentifier(databaseName)
             + " IS '" + DatabaseMarker(tenantId) + "';", connection);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -677,11 +941,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task ConfigureDatabaseAccessAsync(
-        string ownerConnectionString, string databaseName, string appRole, CancellationToken cancellationToken)
+        string ownerConnectionString, Guid tenantId, string databaseName, string appRole, CancellationToken cancellationToken)
     {
         var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         var sql = await FormatSqlAsync(connection,
             """
             SELECT format(
@@ -729,7 +994,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || reader.GetInt32(1) != migration.Version
             || !string.Equals(reader.GetString(2), migration.Sha256, StringComparison.OrdinalIgnoreCase)
             || await reader.ReadAsync(cancellationToken))
-            throw new InvalidOperationException("Tenant database identity or baseline migration checksum does not match the reviewed artifact.");
+            throw new AgentProvisioningConflictException("Tenant database identity or baseline migration checksum does not match the reviewed artifact.");
     }
 
     private async Task ApplyRuntimeGrantsAsync(
@@ -740,6 +1005,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             SELECT format(
                 'REVOKE ALL ON SCHEMA mg FROM PUBLIC;
                  REVOKE ALL ON ALL TABLES IN SCHEMA mg FROM PUBLIC;
+                 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC;
+                 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
                  GRANT USAGE ON SCHEMA mg TO %I;
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg.business_settings, mg.users, mg.customers, mg.user_roles, mg.role_permissions, mg.outbox_messages TO %I;
                  GRANT SELECT ON TABLE mg.roles, mg.permissions, mg.tenant_identity, mg.schema_migrations, mg.audit_events TO %I;',

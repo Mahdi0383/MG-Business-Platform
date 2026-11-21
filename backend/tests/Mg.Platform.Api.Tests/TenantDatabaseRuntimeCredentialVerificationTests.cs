@@ -33,8 +33,15 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
         };
         var quotedDatabase = $"\"{databaseName}\"";
         var quotedRole = $"\"{roleName}\"";
+        var controlRoleName = "mg_agent_control_" + Guid.NewGuid().ToString("N")[..12];
+        var quotedControlRole = $"\"{controlRoleName}\"";
+        var controlPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        var holderRoleName = $"mg_runtime_holder_{Guid.NewGuid():N}";
+        var quotedHolderRole = $"\"{holderRoleName}\"";
         var databaseCreated = false;
         var roleCreated = false;
+        var controlRoleCreated = false;
+        var holderRoleCreated = false;
 
         try
         {
@@ -45,11 +52,20 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                     $"CREATE ROLE {quotedRole} LOGIN PASSWORD '{password}' NOINHERIT", admin);
                 await createRole.ExecuteNonQueryAsync();
                 roleCreated = true;
+                await using var createControlRole = new NpgsqlCommand(
+                    $"CREATE ROLE {quotedControlRole} LOGIN PASSWORD '{controlPassword}' " +
+                    "CREATEDB CREATEROLE NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS", admin);
+                await createControlRole.ExecuteNonQueryAsync();
+                controlRoleCreated = true;
+                await using var grantBootstrapMembership = new NpgsqlCommand(
+                    $"GRANT {quotedRole} TO {quotedControlRole} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE", admin);
+                await grantBootstrapMembership.ExecuteNonQueryAsync();
                 await using var createDatabase = new NpgsqlCommand(
                     $"CREATE DATABASE {quotedDatabase} OWNER postgres", admin);
                 await createDatabase.ExecuteNonQueryAsync();
                 databaseCreated = true;
                 await using var grantConnect = new NpgsqlCommand(
+                    $"REVOKE ALL PRIVILEGES ON DATABASE {quotedDatabase} FROM PUBLIC; " +
                     $"GRANT CONNECT ON DATABASE {quotedDatabase} TO {quotedRole}", admin);
                 await grantConnect.ExecuteNonQueryAsync();
             }
@@ -79,6 +95,11 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 }
                 await using var migration = new NpgsqlCommand(migrationSql, ownerConnection);
                 await migration.ExecuteNonQueryAsync();
+                await using var revokePublicFunctions = new NpgsqlCommand(
+                    "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC; " +
+                    "ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;",
+                    ownerConnection);
+                await revokePublicFunctions.ExecuteNonQueryAsync();
                 await using var grantRuntime = new NpgsqlCommand(
                     $"GRANT USAGE ON SCHEMA mg TO {quotedRole}; " +
                     $"GRANT SELECT ON mg.tenant_identity, mg.schema_migrations TO {quotedRole}",
@@ -100,6 +121,140 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
 
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
+
+            // Only PostgreSQL 17's exact bootstrap ADMIN edge is tolerated.
+            foreach (var unsafeOptions in new[]
+            {
+                "WITH ADMIN FALSE, INHERIT FALSE, SET FALSE",
+                "WITH ADMIN TRUE, INHERIT TRUE, SET FALSE",
+                "WITH ADMIN TRUE, INHERIT FALSE, SET TRUE"
+            })
+            {
+                await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+                {
+                    await admin.OpenAsync();
+                    await using var replaceBootstrap = new NpgsqlCommand(
+                        $"REVOKE {quotedRole} FROM {quotedControlRole}; " +
+                        $"GRANT {quotedRole} TO {quotedControlRole} {unsafeOptions}",
+                        admin);
+                    await replaceBootstrap.ExecuteNonQueryAsync();
+                }
+                Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                    tenantId, CancellationToken.None));
+            }
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var restoreBootstrap = new NpgsqlCommand(
+                    $"REVOKE {quotedRole} FROM {quotedControlRole}; " +
+                    $"GRANT {quotedRole} TO {quotedControlRole} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+                    admin);
+                await restoreBootstrap.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var grantPublicTemp = new NpgsqlCommand(
+                    $"GRANT TEMPORARY ON DATABASE {quotedDatabase} TO PUBLIC", admin);
+                await grantPublicTemp.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokePublicTemp = new NpgsqlCommand(
+                    $"REVOKE TEMPORARY ON DATABASE {quotedDatabase} FROM PUBLIC", admin);
+                await revokePublicTemp.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var grantPublicSchemaUsage = new NpgsqlCommand(
+                    "GRANT USAGE ON SCHEMA mg TO PUBLIC", owner);
+                await grantPublicSchemaUsage.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokePublicSchemaUsage = new NpgsqlCommand(
+                    "REVOKE USAGE ON SCHEMA mg FROM PUBLIC", owner);
+                await revokePublicSchemaUsage.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var createPublicFunction = new NpgsqlCommand(
+                    "CREATE FUNCTION mg.runtime_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1'; " +
+                    "GRANT EXECUTE ON FUNCTION mg.runtime_probe() TO PUBLIC",
+                    admin);
+                await createPublicFunction.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+            await using (var admin = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokePublicFunction = new NpgsqlCommand(
+                    "REVOKE ALL ON FUNCTION mg.runtime_probe() FROM PUBLIC", admin);
+                await revokePublicFunction.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var enableInheritance = new NpgsqlCommand(
+                    $"ALTER ROLE {quotedRole} INHERIT", admin);
+                await enableInheritance.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var disableInheritance = new NpgsqlCommand(
+                    $"ALTER ROLE {quotedRole} NOINHERIT", admin);
+                await disableInheritance.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var createHolder = new NpgsqlCommand(
+                    $"CREATE ROLE {quotedHolderRole} NOLOGIN; GRANT {quotedRole} TO {quotedHolderRole}", admin);
+                await createHolder.ExecuteNonQueryAsync();
+                holderRoleCreated = true;
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
+            await using (var admin = new NpgsqlConnection(adminBuilder.ConnectionString))
+            {
+                await admin.OpenAsync();
+                await using var revokeHolder = new NpgsqlCommand(
+                    $"REVOKE {quotedRole} FROM {quotedHolderRole}; DROP ROLE {quotedHolderRole}", admin);
+                await revokeHolder.ExecuteNonQueryAsync();
+                holderRoleCreated = false;
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
             Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 Guid.NewGuid(), CancellationToken.None));
 
@@ -262,6 +417,18 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
                 await using var dropDatabase = new NpgsqlCommand(
                     $"DROP DATABASE IF EXISTS {quotedDatabase}", admin);
                 await dropDatabase.ExecuteNonQueryAsync();
+            }
+            if (holderRoleCreated)
+            {
+                await using var dropHolderRole = new NpgsqlCommand(
+                    $"DROP ROLE IF EXISTS {quotedHolderRole}", admin);
+                await dropHolderRole.ExecuteNonQueryAsync();
+            }
+            if (controlRoleCreated)
+            {
+                await using var dropControlRole = new NpgsqlCommand(
+                    $"DROP ROLE IF EXISTS {quotedControlRole}", admin);
+                await dropControlRole.ExecuteNonQueryAsync();
             }
             if (roleCreated)
             {
