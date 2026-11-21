@@ -18,6 +18,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly int controlPort;
     private readonly Func<CancellationToken, Task>? afterOwnerRoleCreated;
     private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
+    private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
     private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
