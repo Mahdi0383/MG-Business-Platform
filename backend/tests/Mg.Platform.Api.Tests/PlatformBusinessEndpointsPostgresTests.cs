@@ -320,7 +320,8 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         if (post.TryGetProperty("parameters", out var operationParameters))
             parameters.AddRange(operationParameters.EnumerateArray());
         var header = parameters.Single(parameter =>
-            parameter.GetProperty("name").GetString() == "Idempotency-Key");
+            parameter.TryGetProperty("name", out var parameterName)
+            && parameterName.GetString() == "Idempotency-Key");
 
         Assert.Equal("header", header.GetProperty("in").GetString());
         Assert.True(header.GetProperty("required").GetBoolean());
