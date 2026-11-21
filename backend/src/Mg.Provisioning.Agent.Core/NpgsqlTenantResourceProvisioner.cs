@@ -367,7 +367,22 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                                      AND NOT membership.inherit_option AND NOT membership.admin_option)
                              )),
                    COALESCE(shobj_description(role.oid, 'pg_authid'), ''),
-                   COALESCE(shobj_description(database.oid, 'pg_database'), '')
+                   COALESCE(shobj_description(database.oid, 'pg_database'), ''),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                       WHERE database_acl.grantee = 0
+                         AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM pg_namespace tenant_schema
+                       CROSS JOIN LATERAL aclexplode(
+                           COALESCE(tenant_schema.nspacl, acldefault('n', tenant_schema.nspowner))) AS schema_acl
+                       WHERE tenant_schema.nspname = 'mg'
+                         AND schema_acl.grantee = 0
+                         AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                   )
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
             WHERE role.rolname = current_user;
@@ -390,6 +405,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || reader.GetBoolean(12)
             || !string.Equals(reader.GetString(13), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
             || !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || !reader.GetBoolean(15)
+            || !reader.GetBoolean(16)
             || await reader.ReadAsync(cancellationToken))
             throw new AgentProvisioningConflictException("Tenant owner database identity or restricted role verification failed.");
     }
