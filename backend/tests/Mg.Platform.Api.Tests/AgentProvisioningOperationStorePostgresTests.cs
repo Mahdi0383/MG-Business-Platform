@@ -279,6 +279,39 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task CredentialRewrapWaitsForControlPlaneMaintenanceLock()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "maintenance-lock-secret")));
+
+        var newKeyBytes = RandomNumberGenerator.GetBytes(32);
+        var newKey = Convert.ToBase64String(newKeyBytes);
+        CryptographicOperations.ZeroMemory(newKeyBytes);
+        using var rotatedProtector = new AgentCredentialProtector(
+            "test-key-v2",
+            new Dictionary<string, string>
+            {
+                ["test-key-v1"] = fixture.OriginalKeyMaterial,
+                ["test-key-v2"] = newKey
+            });
+        var rotatedStore = fixture.CreateStore(rotatedProtector);
+
+        await using var maintenanceConnection = await fixture.AcquireControlPlaneMaintenanceLockAsync();
+        var rewrap = rotatedStore.RewrapStoredCredentialsAsync(10);
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.False(rewrap.IsCompleted);
+
+        await maintenanceConnection.DisposeAsync();
+        Assert.Equal(1, await rewrap.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(0, await rotatedStore.RewrapStoredCredentialsAsync(10));
+    }
+
+    [Fact]
     public async Task ConcurrentDuplicateRequestsGenerateAndPersistOnlyOneCredential()
     {
         await using var fixture = await Fixture.CreateAsync();
