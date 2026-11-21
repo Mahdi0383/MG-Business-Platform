@@ -414,6 +414,9 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             try
             {
                 await fixture.SetPublicAclAsync(drift.Scope, drift.Privilege, grant: true);
+                Assert.True(
+                    await fixture.HasPublicAclAsync(drift.Scope, drift.Privilege),
+                    $"Test setup did not grant PUBLIC {drift.Privilege} on {drift.Scope}.");
 
                 var writeFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                     fixture.Store.GetOrCreatePreparedCredentialsAsync(
@@ -596,6 +599,21 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             }
             await using var command = new NpgsqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> HasPublicAclAsync(string scope, string privilege)
+        {
+            var sql = (scope, privilege) switch
+            {
+                ("database", "TEMP") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'TEMP');",
+                ("database", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
+                ("schema", "USAGE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'USAGE');",
+                ("schema", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
+                _ => throw new ArgumentOutOfRangeException(nameof(privilege))
+            };
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public static AgentProvisioningCredentials Credentials(string databaseName, string password) =>
