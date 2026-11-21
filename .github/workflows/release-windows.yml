@@ -1,6 +1,7 @@
 name: Verified Windows Release
 
 on:
+  pull_request:
   push:
     branches: [ main ]
   workflow_dispatch:
@@ -15,6 +16,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test-artifact-transfer:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Exercise strict checksum verifier against valid and invalid fixtures
+        run: bash scripts/test-release-artifact-verifier.sh release-fixture
+
+      - name: Upload synthetic release artifact fixture
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mg-release-artifact-contract-${{ github.sha }}
+          path: |
+            release-fixture/installer/**
+            release-fixture/*.zip
+            release-fixture/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  verify-artifact-transfer:
+    needs: test-artifact-transfer
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download synthetic release artifact fixture
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mg-release-artifact-contract-${{ github.sha }}
+          path: artifacts
+
+      - name: Verify artifacts after cross-job transfer
+        run: bash scripts/verify-release-artifacts.sh artifacts
+
   build-and-verify:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]'))
     runs-on: windows-latest
