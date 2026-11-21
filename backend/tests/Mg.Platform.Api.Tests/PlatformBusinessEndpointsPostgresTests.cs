@@ -319,13 +319,32 @@ public sealed class PlatformBusinessEndpointsPostgresTests
             parameters.AddRange(pathParameters.EnumerateArray());
         if (post.TryGetProperty("parameters", out var operationParameters))
             parameters.AddRange(operationParameters.EnumerateArray());
-        var header = parameters.Single(parameter =>
-            parameter.TryGetProperty("name", out var parameterName)
-            && parameterName.GetString() == "Idempotency-Key");
+        var header = parameters
+            .Select(parameter => parameter.TryGetProperty("$ref", out var reference)
+                ? ResolveOpenApiReference(document.RootElement, reference.GetString()!)
+                : parameter)
+            .Single(parameter => parameter.TryGetProperty("name", out var parameterName)
+                && parameterName.GetString() == "Idempotency-Key");
 
         Assert.Equal("header", header.GetProperty("in").GetString());
         Assert.True(header.GetProperty("required").GetBoolean());
         Assert.Contains("UUID", header.GetProperty("description").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static JsonElement ResolveOpenApiReference(JsonElement document, string reference)
+    {
+        if (!reference.StartsWith("#/", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Unsupported OpenAPI reference: {reference}");
+
+        var current = document;
+        foreach (var segment in reference[2..].Split('/'))
+        {
+            var propertyName = segment.Replace("~1", "/", StringComparison.Ordinal)
+                .Replace("~0", "~", StringComparison.Ordinal);
+            current = current.GetProperty(propertyName);
+        }
+
+        return current;
     }
 
     private static IHost CreateHost(string connectionString, string? loseFirstResponseForKey = null) =>
