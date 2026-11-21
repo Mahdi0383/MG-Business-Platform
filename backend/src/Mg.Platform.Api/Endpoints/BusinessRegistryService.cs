@@ -43,7 +43,12 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
                 previous, creatorIdentityHash, requestFingerprint, cancellationToken);
 
         if (await db.Businesses.AnyAsync(x => x.Slug == slug, cancellationToken))
-            return (null, true, false);
+        {
+            // A same-key concurrent request may have committed after the first key lookup.
+            // Resolve the key again before treating the existing slug as an unrelated conflict.
+            return await ResolveConcurrentInsertAsync(
+                idempotencyKey, creatorIdentityHash, requestFingerprint, cancellationToken);
+        }
 
         var tenantId = Guid.NewGuid();
         var tenant = new BusinessTenant
