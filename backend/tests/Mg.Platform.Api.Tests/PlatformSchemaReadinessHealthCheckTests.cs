@@ -26,7 +26,7 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await using var context = fixture.CreateContext();
         var check = new PlatformSchemaReadinessHealthCheck(context);
 
-        var result = await check.CheckHealthAsync(CreateContext());
+        var result = await check.CheckHealthAsync(CreateContext(check));
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
         Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
