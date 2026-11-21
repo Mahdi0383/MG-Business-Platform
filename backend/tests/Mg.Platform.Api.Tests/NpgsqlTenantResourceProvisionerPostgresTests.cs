@@ -220,6 +220,35 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesOwnerDatabaseAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterTenantBaselineApplied(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+            Assert.False(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -399,6 +428,14 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
                 afterDatabaseCreatedBeforeMarker: null,
                 afterDatabaseMarkerWrittenBeforeAccessConfiguration: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterTenantBaselineApplied(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: null,
+                afterTenantBaselineAppliedBeforeRuntimeGrants: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
@@ -708,6 +745,26 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             command.Parameters.AddWithValue("owner", NpgsqlDbType.Text, ownerRoleName);
             command.Parameters.AddWithValue("app", NpgsqlDbType.Text, applicationRoleName);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task<bool> TenantBaselineMigrationExistsAsync()
+        {
+            await using var owner = new NpgsqlConnection(Credentials.OwnerConnectionString);
+            await owner.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT to_regclass('mg.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM mg.schema_migrations WHERE version = 1 AND name = 'tenant_core_baseline');",
+                owner);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantRuntimeRoleHasSchemaUsageAsync()
+        {
+            await using var owner = new NpgsqlConnection(Credentials.OwnerConnectionString);
+            await owner.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_schema_privilege(@role, 'mg', 'USAGE');", owner);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, $"mg_tenant_{TenantId:N}_app");
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public async Task<bool> TenantPublicDatabaseAclIsRestrictedAsync()
