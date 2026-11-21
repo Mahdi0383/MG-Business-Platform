@@ -173,6 +173,25 @@ public sealed class TenantDatabaseRuntimeCredentialVerificationTests
             Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
                 tenantId, CancellationToken.None));
 
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var grantPublicSchemaUsage = new NpgsqlCommand(
+                    "GRANT USAGE ON SCHEMA mg TO PUBLIC", owner);
+                await grantPublicSchemaUsage.ExecuteNonQueryAsync();
+            }
+            Assert.False(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+            await using (var owner = new NpgsqlConnection(tenantBuilder.ConnectionString))
+            {
+                await owner.OpenAsync();
+                await using var revokePublicSchemaUsage = new NpgsqlCommand(
+                    "REVOKE USAGE ON SCHEMA mg FROM PUBLIC", owner);
+                await revokePublicSchemaUsage.ExecuteNonQueryAsync();
+            }
+            Assert.True(await provisioner.VerifyAsync(runtimeBuilder.ConnectionString,
+                tenantId, CancellationToken.None));
+
             await using (var admin = new NpgsqlConnection(tenantBuilder.ConnectionString))
             {
                 await admin.OpenAsync();
