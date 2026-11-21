@@ -19,7 +19,7 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
             await using var context = fixture.CreateContext();
             var result = await new BusinessRegistryService(context).CreateAsync(
                 new CreateBusinessRequest($"Cafe {index}", "same-cafe"),
-                CancellationToken.None);
+                Guid.NewGuid(), "https://issuer.test", $"creator-{index}", CancellationToken.None);
             return (result.Conflict, result.Business?.Id);
         }
 
@@ -46,7 +46,7 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
             await using var context = fixture.CreateContext();
             var result = await new BusinessRegistryService(context).CreateAsync(
                 new CreateBusinessRequest($"Cafe {index}", $"cafe-{index}"),
-                CancellationToken.None);
+                Guid.NewGuid(), "https://issuer.test", $"creator-{index}", CancellationToken.None);
             Assert.False(result.Conflict);
             return result.Business!.Id;
         }
@@ -60,6 +60,98 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
     }
 
     [Fact]
+    public async Task SameIdempotencyKeyAndPayloadReplaysOriginalBusinessWithoutCreatingAnotherJob()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var key = Guid.NewGuid();
+        var request = new CreateBusinessRequest("Replay Cafe", "replay-cafe");
+
+        await using var firstContext = fixture.CreateContext();
+        var first = await new BusinessRegistryService(firstContext).CreateAsync(
+            request, key, "https://issuer.test", "creator-subject-1", CancellationToken.None);
+
+        await using var retryContext = fixture.CreateContext();
+        var retry = await new BusinessRegistryService(retryContext).CreateAsync(
+            request with { Name = " Replay Cafe ", Slug = "REPLAY-CAFE" },
+            key, "https://issuer.test", "creator-subject-1", CancellationToken.None);
+
+        Assert.False(first.Conflict);
+        Assert.False(first.Replayed);
+        Assert.False(retry.Conflict);
+        Assert.True(retry.Replayed);
+        Assert.Equal(first.Business!.Id, retry.Business!.Id);
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
+    }
+
+    [Fact]
+    public async Task IdempotencyKeyCannotBeReusedForDifferentPayloadOrCreator()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var key = Guid.NewGuid();
+        await using (var firstContext = fixture.CreateContext())
+        {
+            var first = await new BusinessRegistryService(firstContext).CreateAsync(
+                new CreateBusinessRequest("Original Cafe", "original-cafe"),
+                key, "https://issuer.test", "creator-one", CancellationToken.None);
+            Assert.False(first.Conflict);
+        }
+
+        await using (var changedPayloadContext = fixture.CreateContext())
+        {
+            var changedPayload = await new BusinessRegistryService(changedPayloadContext).CreateAsync(
+                new CreateBusinessRequest("Changed Cafe", "changed-cafe"),
+                key, "https://issuer.test", "creator-one", CancellationToken.None);
+            Assert.True(changedPayload.Conflict);
+            Assert.Null(changedPayload.Business);
+        }
+
+        await using (var changedCreatorContext = fixture.CreateContext())
+        {
+            var changedCreator = await new BusinessRegistryService(changedCreatorContext).CreateAsync(
+                new CreateBusinessRequest("Original Cafe", "original-cafe"),
+                key, "https://issuer.test", "creator-two", CancellationToken.None);
+            Assert.True(changedCreator.Conflict);
+            Assert.Null(changedCreator.Business);
+        }
+
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentSameIdempotencyKeyRequestsReplayOneCommittedBusiness()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var key = Guid.NewGuid();
+
+        async Task<(Guid? BusinessId, bool Conflict, bool Replayed)> CreateAsync()
+        {
+            await using var context = fixture.CreateContext();
+            var result = await new BusinessRegistryService(context).CreateAsync(
+                new CreateBusinessRequest("Concurrent Replay Cafe", "concurrent-replay-cafe"),
+                key, "https://issuer.test", "creator-subject", CancellationToken.None);
+            return (result.Business?.Id, result.Conflict, result.Replayed);
+        }
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => CreateAsync()));
+
+        Assert.All(results, result =>
+        {
+            Assert.False(result.Conflict);
+            Assert.NotNull(result.BusinessId);
+            Assert.Equal(results[0].BusinessId, result.BusinessId);
+        });
+        Assert.Single(results, result => !result.Replayed);
+        Assert.Equal(15, results.Count(result => result.Replayed));
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
+    }
+
+    [Fact]
     public async Task OutboxInsertFailureRollsBackBusinessRegistryInsert()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
@@ -70,7 +162,7 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
 
         await Assert.ThrowsAsync<DbUpdateException>(() => registry.CreateAsync(
             new CreateBusinessRequest("Atomic Cafe", "atomic-cafe"),
-            CancellationToken.None));
+            Guid.NewGuid(), "https://issuer.test", "atomic-creator", CancellationToken.None));
 
         Assert.Equal(0, await fixture.CountBusinessesAsync());
         Assert.Equal(0, await fixture.CountJobsAsync());
@@ -137,6 +229,14 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                         completed_at_utc timestamptz NULL,
                         last_error_code varchar(80) NULL
                     );
+                    CREATE TABLE business_creation_requests (
+                        idempotency_key uuid NOT NULL,
+                        creator_identity_hash char(64) NOT NULL,
+                        request_fingerprint char(64) NOT NULL,
+                        business_id uuid NOT NULL REFERENCES business_tenants(id) ON DELETE RESTRICT,
+                        created_at_utc timestamptz NOT NULL,
+                        CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key)
+                    );
                     """, connection);
                 await command.ExecuteNonQueryAsync();
             }
@@ -159,6 +259,8 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
 
         public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
         public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
         public Task<int> CountDistinctIdempotencyKeysAsync() =>
             ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
 
