@@ -152,8 +152,8 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                            WHERE namespace.nspname = 'mg'
                              AND function_acl.grantee = 0
                              AND function_acl.privilege_type = 'EXECUTE'
-                       )
-,                       NOT EXISTS (
+                       ),
+                       NOT EXISTS (
                            SELECT 1
                            FROM pg_namespace tenant_schema
                            CROSS JOIN LATERAL aclexplode(
