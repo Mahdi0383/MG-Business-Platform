@@ -1,11 +1,14 @@
 using System.Security.Cryptography;
+using Mg.Provisioning.Agent.Api;
 using Mg.Provisioning.Agent.Core;
 using Npgsql;
 using NpgsqlTypes;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace Mg.Platform.Api.Tests;
 
+[Collection("AgentProvisioningPostgres")]
 public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 {
     [Fact]
@@ -36,8 +39,438 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             migration.Version, migration.Sha256, CancellationToken.None);
 
         Assert.True(verified);
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true);
+        Assert.False(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+
+        await fixture.CreateTenantFunctionAsync();
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicFunctionExecutePrivilegeAsync(grant: true);
+        Assert.False(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        await fixture.SetTenantPublicFunctionExecutePrivilegeAsync(grant: false);
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
         await fixture.AssertOwnerRoleIsRestrictedAsync();
         await fixture.AssertRuntimeRoleIsNotOwnerOrPrivilegedAsync();
+    }
+
+    [Fact]
+    public async Task RefusesProvisioningWhenControlDatabasePublicAclDriftsBeforeRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+
+        Assert.False(await fixture.DatabaseExistsAsync());
+        Assert.False(await fixture.TenantRolesExistAsync());
+    }
+
+    [Fact]
+    public async Task RefusesProvisioningWhenControlSchemaPublicAclDriftsBeforeRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+
+        Assert.False(await fixture.DatabaseExistsAsync());
+        Assert.False(await fixture.TenantRolesExistAsync());
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+    }
+
+    [Fact]
+    public async Task RefusesProvisioningWhenControlLedgerPublicReadOrWriteAclDriftsBeforeRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        foreach (var privilege in new[] { "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER" })
+        {
+            try
+            {
+                await fixture.SetControlLedgerPublicPrivilegeAsync(privilege, grant: true);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                        fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                        fixture.Credentials, CancellationToken.None));
+
+                Assert.False(await fixture.DatabaseExistsAsync());
+                Assert.False(await fixture.TenantRolesExistAsync());
+            }
+            finally
+            {
+                await fixture.SetControlLedgerPublicPrivilegeAsync(privilege, grant: false);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AgentHandlerReadinessRejectsPublicSchemaAndLedgerAclGrants()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        try
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: true);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RevalidatesControlSchemaAclAfterOwnerRoleMutationBeforeApplicationRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterOwnerRoleCreated(async _ =>
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RevalidatesControlSchemaAclAfterApplicationRoleMutationBeforeOwnerMembershipGrant()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterApplicationRoleCreated(async _ =>
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RevalidatesControlSchemaAclAfterOwnerMembershipMutationBeforeRoleTransactionCommit()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterOwnerMembershipEnsured(async _ =>
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RefusesToMarkNewTenantDatabaseWhenPublicCreateAclDriftsAfterCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseCreatedBeforeMarker(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.DatabaseMarkerMatchesAsync());
+            Assert.True(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RevalidatesOwnerDatabaseAclBeforeAccessConfigurationAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseMarkerWritten(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
+    }
+
+    [Fact]
+    public async Task RejectsPublicConnectDriftAfterDatabaseMarkerBeforeAccessConfigurationAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseMarkerWritten(async _ =>
+            await fixture.SetTenantPublicConnectPrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+            Assert.True(await fixture.TenantPublicConnectPrivilegeExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicConnectPrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
+    }
+
+    [Fact]
+    public async Task RevalidatesOwnerSchemaAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterTenantBaselineApplied(async _ =>
+            await fixture.SetTenantPublicSchemaCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+            Assert.False(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicSchemaCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
+    [Fact]
+    public async Task RevalidatesOwnerDatabaseAclImmediatelyBeforeTenantBaselineDdlAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterOwnerReadiness(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.False(await fixture.TenantBaselineMigrationExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+    }
+
+    [Fact]
+    public async Task RevalidatesOwnerDatabaseAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterTenantBaselineApplied(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+            Assert.False(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
+    [Fact]
+    public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.AddUnexpectedMembershipAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+
+        Assert.False(await fixture.DatabaseExistsAsync());
+        Assert.False(await fixture.TenantRolesExistAsync());
+    }
+
+    [Fact]
+    public async Task RefusesToApplyTenantBaselineWhenPublicDatabaseCreateAclDrifts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+            fixture.Provisioner.ApplyTenantSchemaAsync(
+                fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+
+        Assert.False(await fixture.TenantSchemaExistsAsync());
+
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantSchemaExistsAsync());
+    }
+
+    [Fact]
+    public async Task RefusesToAdoptUnmarkedDatabaseContainingPublicFunction()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.SetDatabaseCommentAsync(null);
+        await fixture.CreatePublicFunctionAsync();
+
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ReadinessAllowsOnlyMarkedSetOnlyOwnerMembershipsAndRejectsUnexpectedMemberships()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: true);
+        using (var publicAclDriftHandler = fixture.CreateAgentHandler())
+            Assert.False(await publicAclDriftHandler.IsReadyAsync(CancellationToken.None));
+        await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        await fixture.AddUnexpectedBootstrapMembershipAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+        await fixture.RemoveUnexpectedBootstrapMembershipAsync();
+        await fixture.AddUnexpectedMembershipAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+
+        using var rejectedHandler = fixture.CreateAgentHandler();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rejectedHandler.ProvisionAsync(
+                new AgentProvisioningRequest(Guid.NewGuid(), Guid.NewGuid()), CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rejectedHandler.RewrapStoredCredentialsAsync(10, CancellationToken.None));
     }
 
     [Fact]
@@ -47,7 +480,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await fixture.CreateRoleWithCommentAsync(
             $"{fixture.DatabaseName}_owner", "mg-tenant:wrong:owner:v1");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Provisioner.EnsureDatabaseAndRolesAsync(
                 fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
                 fixture.Credentials, CancellationToken.None));
@@ -64,7 +497,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.Credentials, CancellationToken.None);
         await fixture.SetDatabaseCommentAsync("mg-tenant:wrong:database:v1");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Provisioner.EnsureDatabaseAndRolesAsync(
                 fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
                 fixture.Credentials, CancellationToken.None));
@@ -73,9 +506,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string adminConnectionString;
+        private readonly string controlConnectionString;
         private readonly string controlRoleName;
         private readonly string ownerRoleName;
+        private string? unexpectedMembershipHolderRoleName;
+        private string? unexpectedBootstrapRoleName;
         private readonly string applicationRoleName;
+        private bool agentLedgerInitialized;
 
         private Fixture(
             string adminConnectionString,
@@ -88,6 +525,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             string ownerConnectionString)
         {
             this.adminConnectionString = adminConnectionString;
+            this.controlConnectionString = controlConnectionString;
             this.controlRoleName = controlRoleName;
             TenantId = tenantId;
             IdempotencyKey = idempotencyKey;
@@ -105,6 +543,49 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public string ApplicationConnectionString => Credentials.ApplicationConnectionString;
         private string OwnerConnectionString => Credentials.OwnerConnectionString;
         public NpgsqlTenantResourceProvisioner Provisioner { get; }
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterOwnerRoleCreated(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterApplicationRoleCreated(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null, afterApplicationRoleCreated: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterOwnerMembershipEnsured(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterDatabaseCreatedBeforeMarker(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterDatabaseMarkerWritten(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterTenantBaselineApplied(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: null,
+                afterTenantBaselineAppliedBeforeRuntimeGrants: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterOwnerReadiness(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: null,
+                afterTenantBaselineAppliedBeforeRuntimeGrants: null,
+                afterOwnerReadinessBeforeTenantBaseline: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
@@ -161,7 +642,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 Pooling = false
             };
 
-            return new Fixture(
+            var fixture = new Fixture(
                 admin.ConnectionString,
                 control.ConnectionString,
                 controlRole,
@@ -170,6 +651,289 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+            return fixture;
+        }
+
+        public async Task AssertAgentHandlerReadinessAsync(bool expected)
+        {
+            if (!agentLedgerInitialized)
+            {
+                var migrationPath = Path.Combine(
+                    AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
+                var migrationSql = await File.ReadAllTextAsync(migrationPath);
+                await using var admin = new NpgsqlConnection(adminConnectionString);
+                await admin.OpenAsync();
+                await using (var migration = new NpgsqlCommand(migrationSql, admin))
+                    await migration.ExecuteNonQueryAsync();
+
+                await using var grants = new NpgsqlCommand(
+                    """
+                    SELECT format(
+                        'REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC; GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO %I;',
+                        current_database(), current_database(), @role, @role, @role);
+                    """, admin);
+                grants.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                var grantSql = (string)(await grants.ExecuteScalarAsync())!;
+                await using var applyGrants = new NpgsqlCommand(grantSql, admin);
+                await applyGrants.ExecuteNonQueryAsync();
+                agentLedgerInitialized = true;
+            }
+
+            using var handler = CreateAgentHandler();
+            var ready = await handler.IsReadyAsync(CancellationToken.None);
+            if (expected)
+                Assert.True(ready, await GetReadinessDiagnosticAsync());
+            else
+                Assert.False(ready);
+        }
+
+        public NpgsqlAgentProvisioningHandler CreateAgentHandler()
+        {
+            var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Agent:ControlDatabase:ConnectionString"] = controlConnectionString,
+                    ["Agent:CredentialEncryption:CurrentKeyId"] = "readiness-test-key",
+                    ["Agent:CredentialEncryption:Keys:readiness-test-key"] = key
+                })
+                .Build();
+
+            return NpgsqlAgentProvisioningHandler.TryCreate(configuration, AppContext.BaseDirectory)
+                ?? throw new InvalidOperationException("Test agent handler configuration was not accepted.");
+        }
+
+        private async Task<string> GetReadinessDiagnosticAsync()
+        {
+            await using var connection = new NpgsqlConnection(controlConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT concat_ws('|',
+                    role.rolcanlogin::text, role.rolsuper::text, role.rolcreatedb::text,
+                    role.rolcreaterole::text, role.rolreplication::text, role.rolbypassrls::text,
+                    role.rolinherit::text,
+                    (to_regclass('mg_agent.provisioning_operations') IS NOT NULL)::text,
+                    has_schema_privilege(current_user, 'mg_agent', 'USAGE')::text,
+                    has_schema_privilege(current_user, 'mg_agent', 'CREATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'REFERENCES')::text,
+                    has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER')::text,
+                    has_database_privilege(current_user, current_database(), 'CREATE')::text,
+                    has_database_privilege(current_user, current_database(), 'TEMPORARY')::text,
+                    (NOT EXISTS (
+                        SELECT 1
+                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                        WHERE database_acl.grantee = 0
+                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                    ))::text,
+                    pg_get_userbyid(database.datdba),
+                    pg_get_userbyid(schema.nspowner),
+                    pg_get_userbyid(ledger.relowner),
+                    COALESCE((SELECT string_agg(
+                        format('target=%s grantor=%s admin=%s inherit=%s set=%s marker=%s',
+                            target.rolname, grantor.rolname, m.admin_option, m.inherit_option,
+                            m.set_option, COALESCE(shobj_description(target.oid, 'pg_authid'), 'NULL')),
+                        '; ')
+                        FROM pg_auth_members m
+                        JOIN pg_roles target ON target.oid = m.roleid
+                        JOIN pg_roles grantor ON grantor.oid = m.grantor
+                        WHERE m.member = role.oid OR m.roleid = role.oid), 'none')
+                )
+                FROM pg_roles role
+                JOIN pg_database database ON database.datname = current_database()
+                JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
+                JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
+                WHERE role.rolname = current_user;
+                """, connection);
+            return (string)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task CreateTenantFunctionAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "CREATE FUNCTION mg.runtime_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1';",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicFunctionExecutePrivilegeAsync(bool grant)
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} EXECUTE ON ALL FUNCTIONS IN SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicSchemaCreatePrivilegeAsync(bool grant)
+        {
+            var builder = new NpgsqlConnectionStringBuilder(adminConnectionString)
+            {
+                Database = DatabaseName,
+                Pooling = false
+            };
+            await using var admin = new NpgsqlConnection(builder.ConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} CREATE ON SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicConnectPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} CONNECT ON DATABASE \"{DatabaseName}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> TenantPublicConnectPrivilegeExistsAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                    WHERE database.datname = @database
+                      AND database_acl.grantee = 0
+                      AND database_acl.privilege_type = 'CONNECT'
+                );
+                """, admin);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task SetTenantPublicCreatePrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} CREATE ON DATABASE \"{DatabaseName}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> TenantSchemaExistsAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(adminConnectionString)
+            {
+                Database = DatabaseName,
+                Pooling = false
+            };
+            await using var admin = new NpgsqlConnection(builder.ConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT to_regnamespace('mg') IS NOT NULL;", admin);
+            return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task SetControlSchemaPublicUsagePrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} USAGE ON SCHEMA mg_agent {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public Task SetControlLedgerPublicSelectPrivilegeAsync(bool grant) =>
+            SetControlLedgerPublicPrivilegeAsync("SELECT", grant);
+
+        public async Task SetControlLedgerPublicPrivilegeAsync(string privilege, bool grant)
+        {
+            if (privilege is not ("SELECT" or "INSERT" or "UPDATE" or "DELETE" or "TRUNCATE" or "REFERENCES" or "TRIGGER"))
+                throw new ArgumentOutOfRangeException(nameof(privilege));
+
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} {privilege} ON TABLE mg_agent.provisioning_operations {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetPublicTemporaryPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} TEMPORARY ON DATABASE \"{new NpgsqlConnectionStringBuilder(adminConnectionString).Database}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task AddUnexpectedBootstrapMembershipAsync()
+        {
+            var roleName = "mg_unmarked_role_" + Guid.NewGuid().ToString("N")[..12];
+            unexpectedBootstrapRoleName = roleName;
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('CREATE ROLE %I NOLOGIN; GRANT %I TO %I WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;', @role, @role, @control);",
+                admin);
+            format.Parameters.AddWithValue("role", NpgsqlDbType.Text, roleName);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RemoveUnexpectedBootstrapMembershipAsync()
+        {
+            if (unexpectedBootstrapRoleName is null)
+                return;
+
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('REVOKE %I FROM %I; DROP ROLE %I;', @role, @control, @role);", admin);
+            format.Parameters.AddWithValue("role", NpgsqlDbType.Text, unexpectedBootstrapRoleName);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
+            unexpectedBootstrapRoleName = null;
+        }
+
+        public async Task AddUnexpectedMembershipAsync()
+        {
+            var holderRole = "mg_unexpected_holder_" + Guid.NewGuid().ToString("N")[..12];
+            unexpectedMembershipHolderRoleName = holderRole;
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var format = new NpgsqlCommand(
+                "SELECT format('CREATE ROLE %I NOLOGIN; GRANT %I TO %I;', @holder, @control, @holder);", admin);
+            format.Parameters.AddWithValue("holder", NpgsqlDbType.Text, holderRole);
+            format.Parameters.AddWithValue("control", NpgsqlDbType.Text, controlRoleName);
+            var ddl = (string)(await format.ExecuteScalarAsync())!;
+            await using var command = new NpgsqlCommand(ddl, admin);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task CreateRoleWithCommentAsync(string roleName, string comment)
@@ -188,6 +952,76 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await command.ExecuteNonQueryAsync();
         }
 
+        public async Task<bool> TenantRolesExistAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN (@owner, @app));", connection);
+            command.Parameters.AddWithValue("owner", NpgsqlDbType.Text, ownerRoleName);
+            command.Parameters.AddWithValue("app", NpgsqlDbType.Text, applicationRoleName);
+            return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task<bool> TenantBaselineMigrationExistsAsync()
+        {
+            await using var owner = new NpgsqlConnection(Credentials.OwnerConnectionString);
+            await owner.OpenAsync();
+            await using (var existence = new NpgsqlCommand(
+                "SELECT to_regclass('mg.schema_migrations') IS NOT NULL;", owner))
+            {
+                if (!(bool)(await existence.ExecuteScalarAsync() ?? false))
+                    return false;
+            }
+
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM mg.schema_migrations WHERE version = 1 AND name = 'tenant_core_baseline');",
+                owner);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantRuntimeRoleHasSchemaUsageAsync()
+        {
+            await using var owner = new NpgsqlConnection(Credentials.OwnerConnectionString);
+            await owner.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_schema_privilege(@role, 'mg', 'USAGE');", owner);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, $"mg_tenant_{TenantId:N}_app");
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantPublicDatabaseAclIsRestrictedAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT NOT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                    WHERE database.datname = @database
+                      AND database_acl.grantee = 0
+                      AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                );
+                """, admin);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> DatabaseMarkerMatchesAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT COALESCE(shobj_description(oid, 'pg_database'), '') = @marker FROM pg_database WHERE datname = @database;",
+                admin);
+            command.Parameters.AddWithValue("marker", NpgsqlDbType.Text, "mg-tenant:" + TenantId.ToString("N") + ":database:v1");
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
         public async Task<bool> DatabaseExistsAsync()
         {
             await using var connection = new NpgsqlConnection(adminConnectionString);
@@ -196,6 +1030,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = @database);", connection);
             command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task CreatePublicFunctionAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(OwnerConnectionString) { Pooling = false };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "CREATE FUNCTION public.mg_untrusted_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1';",
+                connection);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task SetDatabaseCommentAsync(string? comment)
@@ -318,14 +1163,50 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using (var command = new NpgsqlCommand(dropDatabase, connection))
                 await command.ExecuteNonQueryAsync();
 
-            foreach (var role in new[] { applicationRoleName, ownerRoleName, controlRoleName })
+            await using (var databaseRevoke = new NpgsqlCommand(
+                "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I;', current_database(), @role);",
+                connection))
+            {
+                databaseRevoke.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                var ddl = (string)(await databaseRevoke.ExecuteScalarAsync())!;
+                await using var revoke = new NpgsqlCommand(ddl, connection);
+                await revoke.ExecuteNonQueryAsync();
+            }
+
+            await using (var schemaExists = new NpgsqlCommand(
+                "SELECT to_regnamespace('mg_agent') IS NOT NULL AND to_regclass('mg_agent.provisioning_operations') IS NOT NULL;",
+                connection))
+            {
+                if ((bool)(await schemaExists.ExecuteScalarAsync())!)
+                {
+                    await using var privilegeFormat = new NpgsqlCommand(
+                        "SELECT format('REVOKE ALL ON SCHEMA mg_agent FROM %I; REVOKE ALL ON TABLE mg_agent.provisioning_operations FROM %I;', @role, @role);",
+                        connection);
+                    privilegeFormat.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                    var ddl = (string)(await privilegeFormat.ExecuteScalarAsync())!;
+                    await using var revoke = new NpgsqlCommand(ddl, connection);
+                    await revoke.ExecuteNonQueryAsync();
+                }
+            }
+
+            foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, unexpectedBootstrapRoleName, controlRoleName }.Where(role => role is not null))
             {
                 var format = new NpgsqlCommand("SELECT format('DROP ROLE IF EXISTS %I', @role);", connection);
-                format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role);
+                format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role!);
                 var ddl = (string)(await format.ExecuteScalarAsync())!;
                 await using var drop = new NpgsqlCommand(ddl, connection);
                 await drop.ExecuteNonQueryAsync();
                 await format.DisposeAsync();
+            }
+
+            // Restore PostgreSQL's default database ACL for other tests/local runs.
+            await using (var restorePublic = new NpgsqlCommand(
+                "SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', current_database());",
+                connection))
+            {
+                var ddl = (string)(await restorePublic.ExecuteScalarAsync())!;
+                await using var grant = new NpgsqlCommand(ddl, connection);
+                await grant.ExecuteNonQueryAsync();
             }
         }
     }

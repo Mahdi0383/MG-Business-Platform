@@ -5,17 +5,23 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 ## 1. Isolation and identity
 - [ ] Deploy the agent as a separate service on a private network. Do not route it through the customer-facing ingress.
 - [ ] Restrict inbound traffic to the MG Platform API workload identity and the configured mTLS client-certificate allowlist.
-- [ ] Verify the server certificate chain, SAN, validity, Server Authentication EKU and Digital Signature usage from the API container.
+- [ ] Verify the server certificate chain, revocation status, SAN, validity, Server Authentication EKU and Digital Signature usage from the API container.
 - [ ] Verify the client certificate chain, validity, Client Authentication EKU, Digital Signature usage and exact allowlist match.
-- [ ] Confirm redirects and cookies are disabled on the API-to-agent HTTP handler.
+- [ ] Confirm redirects and cookies are disabled on both the API-to-agent and Vault token HTTP clients; require bounded connect/request timeouts so bearer tokens are never forwarded to redirect targets.
 - [ ] Confirm request-size limits and per-certificate rate limits are active at the deployed ingress and application layers.
 
 ## 2. PostgreSQL separation and least privilege
+- [ ] Verify the control role has no incoming role memberships and no outgoing membership except PostgreSQL 17's automatic bootstrap ADMIN edge to UUID-derived, marker-verified tenant owner/application roles (superuser grantor, ADMIN=true, INHERIT=false, SET=false) and the provisioner's exact SET-only memberships to marked tenant-owner roles (control-role grantor, ADMIN=false, INHERIT=false, SET=true). Readiness must fail closed for every other membership, including unmarked bootstrap targets.
+- [ ] Verify each tenant runtime application role has no outgoing membership and only the unavoidable incoming bootstrap ADMIN edge from the isolated control identity (superuser grantor, ADMIN=true, INHERIT=false, SET=false); it must have no SET/INHERIT path.
+- [ ] Verify PUBLIC has no EXECUTE on any function in `mg` and owner-scoped default privileges prevent future `mg` functions from becoming PUBLIC-executable.
+- [ ] Confirm the agent re-runs the complete live readiness/least-privilege check immediately before every provisioning operation; a previously healthy process must not continue after control-role privilege drift.
+- [ ] Confirm credential-rewrap maintenance also re-runs the live readiness/least-privilege check before mutating the protected provisioning ledger.
 - [ ] Create a dedicated agent-control database. It must not be the platform registry database or any tenant database.
 - [ ] Apply the agent ledger migration using a separate migration identity.
 - [ ] Configure the runtime control identity as non-superuser, NOINHERIT, non-replication and NOBYPASSRLS, with only the reviewed CREATEDB/CREATEROLE capabilities.
+- [ ] Revoke all database privileges on the agent control database from PUBLIC (including PostgreSQL's default CONNECT and TEMP); grant the runtime control identity only CONNECT. Verify PUBLIC has no CONNECT, CREATE or TEMP privilege.
 - [ ] Ensure the runtime control identity does not own the control database, mg_agent schema or ledger table.
-- [ ] Grant only CONNECT, schema USAGE and SELECT/INSERT/UPDATE on the operation ledger. Do not grant DELETE, TRUNCATE, schema CREATE or object ownership.
+- [ ] Grant only CONNECT, schema USAGE and SELECT/INSERT/UPDATE on the operation ledger. Do not grant TEMP, DELETE, TRUNCATE, schema CREATE or object ownership.
 - [ ] Use SSL Mode=VerifyCA or VerifyFull with a trusted CA. Require without certificate validation is not accepted.
 - [ ] Capture the live /health/ready response and the database privilege audit as release evidence.
 

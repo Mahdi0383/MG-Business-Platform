@@ -313,7 +313,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantId, Guid.NewGuid(), databaseName,
             _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-one")));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantId, Guid.NewGuid(), databaseName,
                 _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "secret-two"))));
@@ -333,10 +333,36 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantA, idempotencyKey, databaseA,
             _ => ValueTask.FromResult(Fixture.Credentials(databaseA, "secret-one")));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
             fixture.Store.GetOrCreatePreparedCredentialsAsync(
                 tenantB, idempotencyKey, databaseB,
                 _ => ValueTask.FromResult(Fixture.Credentials(databaseB, "secret-two"))));
+    }
+
+    [Fact]
+    public async Task TenantProvisioningWaitsForControlPlaneMaintenanceLock()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var maintenanceConnection = await fixture.AcquireControlPlaneMaintenanceLockAsync();
+        var actionStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var execution = fixture.Store.TryExecuteTenantExclusiveAsync(
+            Guid.NewGuid(),
+            _ =>
+            {
+                actionStarted.TrySetResult(true);
+                return Task.FromResult("provisioned");
+            });
+
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.False(actionStarted.Task.IsCompleted);
+
+        await maintenanceConnection.DisposeAsync();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Acquired);
+        Assert.Equal("provisioned", result.Value);
+        Assert.True(await actionStarted.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Fact]
@@ -403,6 +429,92 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             tenantId, idempotencyKey, databaseName,
             _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "retry-secret")));
         Assert.Contains("retry-secret", created.ApplicationConnectionString, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RevalidatesPublicLedgerAclAfterCredentialFactoryBeforePreparedInsert()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+
+        try
+        {
+            var insertFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                    tenantId, idempotencyKey, databaseName,
+                    async _ =>
+                    {
+                        await fixture.SetPublicLedgerSelectAsync(grant: true);
+                        return Fixture.Credentials(databaseName, "acl-drift-secret");
+                    }));
+            Assert.Contains("ACL boundary changed", insertFailure.Message, StringComparison.Ordinal);
+
+            var readFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+            Assert.Contains("ACL boundary changed", readFailure.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await fixture.SetPublicLedgerSelectAsync(grant: false);
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+    }
+
+    [Fact]
+    public async Task RejectsPublicDatabaseAndSchemaAclDriftBeforeLedgerReadsAndWrites()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+
+        foreach (var drift in new[]
+        {
+            (Scope: "database", Privilege: "CONNECT"),
+            (Scope: "database", Privilege: "TEMPORARY"),
+            (Scope: "database", Privilege: "CREATE"),
+            (Scope: "schema", Privilege: "USAGE"),
+            (Scope: "schema", Privilege: "CREATE"),
+            (Scope: "table", Privilege: "SELECT"),
+            (Scope: "table", Privilege: "INSERT"),
+            (Scope: "table", Privilege: "UPDATE"),
+            (Scope: "table", Privilege: "DELETE"),
+            (Scope: "table", Privilege: "TRUNCATE"),
+            (Scope: "table", Privilege: "REFERENCES"),
+            (Scope: "table", Privilege: "TRIGGER")
+        })
+        {
+            try
+            {
+                await fixture.SetPublicAclAsync(drift.Scope, drift.Privilege, grant: true);
+                Assert.True(
+                    await fixture.HasPublicAclAsync(drift.Scope, drift.Privilege),
+                    $"Test setup did not grant PUBLIC {drift.Privilege} on {drift.Scope}.");
+
+                var writeFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                        tenantId, idempotencyKey, databaseName,
+                        _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "acl-drift-secret"))));
+                Assert.Contains("ACL boundary changed", writeFailure.Message, StringComparison.Ordinal);
+
+                var readFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+                Assert.Contains("ACL boundary changed", readFailure.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                await fixture.SetPublicAclAsync(drift.Scope, drift.Privilege, grant: false);
+            }
+        }
+
+        var recovered = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "recovered-secret")));
+        Assert.Contains("recovered-secret", recovered.ApplicationConnectionString, StringComparison.Ordinal);
     }
 
     private sealed class FakeResourceProvisioner : ITenantResourceProvisioner
@@ -492,6 +604,23 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             await using (var connection = new NpgsqlConnection(builder.ConnectionString))
             {
                 await connection.OpenAsync();
+
+                // PostgreSQL grants CONNECT and TEMP to PUBLIC by default when the
+                // database ACL is NULL. The production agent database explicitly
+                // revokes these defaults, so mirror that security baseline here.
+                await using (var revokePublicDatabaseAccess = new NpgsqlCommand(
+                    """
+                    SELECT format(
+                        'REVOKE CONNECT, CREATE, TEMP ON DATABASE %I FROM PUBLIC;',
+                        current_database());
+                    """, connection))
+                {
+                    var revokeSql = (string?)await revokePublicDatabaseAccess.ExecuteScalarAsync()
+                        ?? throw new InvalidOperationException("Could not construct the PUBLIC database ACL baseline.");
+                    await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
+                    await applyRevoke.ExecuteNonQueryAsync();
+                }
+
                 var migrationPath = Path.Combine(
                     AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
                 var migrationSql = await File.ReadAllTextAsync(migrationPath);
@@ -508,6 +637,89 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
             return new Fixture(dataSource, protector,
                 new AgentProvisioningOperationStore(dataSource, protector), keyMaterial);
+        }
+
+        public async Task SetPublicLedgerSelectAsync(bool grant)
+        {
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                grant
+                    ? "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;"
+                    : "REVOKE SELECT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetPublicAclAsync(string scope, string privilege, bool grant)
+        {
+            var template = (scope, privilege, grant) switch
+            {
+                ("database", "CONNECT", true) => "GRANT CONNECT ON DATABASE %I TO PUBLIC;",
+                ("database", "CONNECT", false) => "REVOKE CONNECT ON DATABASE %I FROM PUBLIC;",
+                ("database", "TEMPORARY", true) => "GRANT TEMPORARY ON DATABASE %I TO PUBLIC;",
+                ("database", "TEMPORARY", false) => "REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC;",
+                ("database", "CREATE", true) => "GRANT CREATE ON DATABASE %I TO PUBLIC;",
+                ("database", "CREATE", false) => "REVOKE CREATE ON DATABASE %I FROM PUBLIC;",
+                ("schema", "USAGE", true) => "GRANT USAGE ON SCHEMA mg_agent TO PUBLIC;",
+                ("schema", "USAGE", false) => "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("schema", "CREATE", true) => "GRANT CREATE ON SCHEMA mg_agent TO PUBLIC;",
+                ("schema", "CREATE", false) => "REVOKE CREATE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("table", "SELECT", true) => "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "SELECT", false) => "REVOKE SELECT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "INSERT", true) => "GRANT INSERT ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "INSERT", false) => "REVOKE INSERT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "UPDATE", true) => "GRANT UPDATE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "UPDATE", false) => "REVOKE UPDATE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "DELETE", true) => "GRANT DELETE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "DELETE", false) => "REVOKE DELETE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "TRUNCATE", true) => "GRANT TRUNCATE ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "TRUNCATE", false) => "REVOKE TRUNCATE ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "REFERENCES", true) => "GRANT REFERENCES ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "REFERENCES", false) => "REVOKE REFERENCES ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                ("table", "TRIGGER", true) => "GRANT TRIGGER ON TABLE mg_agent.provisioning_operations TO PUBLIC;",
+                ("table", "TRIGGER", false) => "REVOKE TRIGGER ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                _ => throw new ArgumentOutOfRangeException(nameof(privilege), "Unsupported PUBLIC ACL test privilege.")
+            };
+
+            await using var connection = await dataSource.OpenConnectionAsync();
+            var sql = template;
+            if (scope == "database")
+            {
+                await using var resolve = new NpgsqlCommand("SELECT format(@template, current_database());", connection);
+                resolve.Parameters.AddWithValue("template", template);
+                sql = (string?)await resolve.ExecuteScalarAsync()
+                    ?? throw new InvalidOperationException("Could not resolve the current database for ACL test.");
+            }
+            await using var command = new NpgsqlCommand(sql, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<NpgsqlConnection> AcquireControlPlaneMaintenanceLockAsync()
+        {
+            var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT pg_advisory_lock(19783, 20562);", connection);
+            await command.ExecuteNonQueryAsync();
+            return connection;
+        }
+
+        public async Task<bool> HasPublicAclAsync(string scope, string privilege)
+        {
+            var sql = (scope, privilege) switch
+            {
+                ("database", "CONNECT") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CONNECT');",
+                ("database", "TEMPORARY") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'TEMPORARY');",
+                ("database", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
+                ("schema", "USAGE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'USAGE');",
+                ("schema", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
+                ("table", _) => "SELECT EXISTS (SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace, LATERAL aclexplode(COALESCE(t.relacl, acldefault('r', t.relowner))) a WHERE n.nspname = 'mg_agent' AND t.relname = 'provisioning_operations' AND a.grantee = 0 AND a.privilege_type = @privilege);",
+                _ => throw new ArgumentOutOfRangeException(nameof(privilege))
+            };
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            if (scope == "table")
+                command.Parameters.AddWithValue("privilege", privilege);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public static AgentProvisioningCredentials Credentials(string databaseName, string password) =>
