@@ -454,6 +454,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         private string? unexpectedMembershipHolderRoleName;
         private string? unexpectedBootstrapRoleName;
         private readonly string applicationRoleName;
+        private bool agentLedgerInitialized;
 
         private Fixture(
             string adminConnectionString,
@@ -598,11 +599,12 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
         public async Task AssertAgentHandlerReadinessAsync(bool expected)
         {
-            var migrationPath = Path.Combine(
-                AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
-            var migrationSql = await File.ReadAllTextAsync(migrationPath);
-            await using (var admin = new NpgsqlConnection(adminConnectionString))
+            if (!agentLedgerInitialized)
             {
+                var migrationPath = Path.Combine(
+                    AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
+                var migrationSql = await File.ReadAllTextAsync(migrationPath);
+                await using var admin = new NpgsqlConnection(adminConnectionString);
                 await admin.OpenAsync();
                 await using (var migration = new NpgsqlCommand(migrationSql, admin))
                     await migration.ExecuteNonQueryAsync();
@@ -617,6 +619,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 var grantSql = (string)(await grants.ExecuteScalarAsync())!;
                 await using var applyGrants = new NpgsqlCommand(grantSql, admin);
                 await applyGrants.ExecuteNonQueryAsync();
+                agentLedgerInitialized = true;
             }
 
             using var handler = CreateAgentHandler();
