@@ -680,7 +680,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 "SELECT COALESCE(shobj_description(oid, 'pg_database'), '') = @marker FROM pg_database WHERE datname = @database;",
                 admin);
-            command.Parameters.AddWithValue("marker", NpgsqlDbType.Text, "mg-tenant:" + TenantId.ToString("D"));
+            command.Parameters.AddWithValue("marker", NpgsqlDbType.Text, "mg-tenant:" + TenantId.ToString("N") + ":database:v1");
             command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
             return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
