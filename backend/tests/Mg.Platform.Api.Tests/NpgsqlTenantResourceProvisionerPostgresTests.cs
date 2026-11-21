@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Mg.Provisioning.Agent.Api;
 using Mg.Provisioning.Agent.Core;
@@ -11,6 +12,53 @@ namespace Mg.Platform.Api.Tests;
 [Collection("AgentProvisioningPostgres")]
 public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 {
+    [Theory]
+    [InlineData("after-owner-role-created", false, false, false, false, false)]
+    [InlineData("after-application-role-created", false, false, false, false, false)]
+    [InlineData("after-owner-membership-ensured", false, false, false, false, false)]
+    [InlineData("after-database-created-before-marker", true, true, false, false, false)]
+    [InlineData("after-database-marker-written-before-access-configuration", true, true, true, false, false)]
+    [InlineData("after-owner-readiness-before-tenant-baseline", true, true, true, false, false)]
+    [InlineData("after-tenant-baseline-applied-before-runtime-grants", true, true, true, true, false)]
+    [InlineData("after-runtime-grants-applied", true, true, true, true, true)]
+    public async Task HardProcessTerminationAtExternalSideEffectBoundaryRecoversOnRetry(
+        string boundary,
+        bool rolesExpected,
+        bool databaseExpected,
+        bool markerExpected,
+        bool baselineExpected,
+        bool runtimeGrantExpected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(boundary);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal(rolesExpected, await fixture.TenantRolesExistAsync());
+        Assert.Equal(databaseExpected, await fixture.DatabaseExistsAsync());
+
+        if (databaseExpected)
+        {
+            Assert.Equal(markerExpected, await fixture.DatabaseMarkerMatchesAsync());
+            Assert.Equal(baselineExpected, await fixture.TenantBaselineMigrationExistsAsync());
+            Assert.Equal(runtimeGrantExpected, await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+        }
+
+        // Retry in a new process context after the original worker was forcibly killed.
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
     [Fact]
     public async Task CreatesTenantDatabaseRolesAppliesBaselineAndRecoversIdempotently()
     {
@@ -950,6 +998,84 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             var ddl = (string)(await format.ExecuteScalarAsync())!;
             await using var command = new NpgsqlCommand(ddl, connection);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<int> KillCrashWorkerAtBoundaryAsync(string boundary)
+        {
+            var configuration = Directory.GetParent(
+                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.Name
+                ?? "Release";
+            var workerPath = Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory,
+                "../../../../Mg.Provisioning.Agent.CrashWorker/bin",
+                configuration,
+                "net10.0",
+                "Mg.Provisioning.Agent.CrashWorker.dll"));
+            if (!File.Exists(workerPath))
+                throw new FileNotFoundException("The crash worker must be built with the PostgreSQL test project.", workerPath);
+
+            var application = new NpgsqlConnectionStringBuilder(Credentials.ApplicationConnectionString);
+            var owner = new NpgsqlConnectionStringBuilder(Credentials.OwnerConnectionString);
+            var start = new ProcessStartInfo("dotnet")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            start.ArgumentList.Add(workerPath);
+            start.Environment["MG_CRASH_WORKER_CONTROL_CONNECTION"] = controlConnectionString;
+            start.Environment["MG_CRASH_WORKER_TENANT_ID"] = TenantId.ToString("D");
+            start.Environment["MG_CRASH_WORKER_IDEMPOTENCY_KEY"] = IdempotencyKey.ToString("D");
+            start.Environment["MG_CRASH_WORKER_BOUNDARY"] = boundary;
+            start.Environment["MG_CRASH_WORKER_APP_PASSWORD"] = application.Password;
+            start.Environment["MG_CRASH_WORKER_OWNER_PASSWORD"] = owner.Password;
+
+            using var process = Process.Start(start)
+                ?? throw new InvalidOperationException("Could not start the provisioning crash worker.");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var standardError = process.StandardError.ReadToEndAsync(timeout.Token);
+            var expectedSignal = $"MG_CRASH_BOUNDARY_REACHED:{boundary}";
+            var reached = false;
+
+            try
+            {
+                while (!process.HasExited)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
+                    if (line is null)
+                        break;
+                    if (string.Equals(line, expectedSignal, StringComparison.Ordinal))
+                    {
+                        reached = true;
+                        process.Kill(entireProcessTree: true);
+                        break;
+                    }
+                }
+
+                if (!reached)
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                    var error = await standardError;
+                    throw new InvalidOperationException(
+                        $"Crash worker exited before reaching boundary '{boundary}'. Exit code: {process.ExitCode}. stderr: {error}");
+                }
+
+                await process.WaitForExitAsync(timeout.Token);
+                _ = await standardError;
+                return process.ExitCode;
+            }
+            catch
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                throw;
+            }
         }
 
         public async Task<bool> TenantRolesExistAsync()
