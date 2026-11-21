@@ -616,6 +616,25 @@ The historical entries below remain as an audit trail; statements that the agent
 5. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165→#166 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
 6. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
 
+## 11.7 Vault response-loss, CAS and tenant-concurrency tranche — 2026-11-22
+
+- Draft PR #166: `test/vault-secret-response-loss-recovery` → `test/provisioning-worker-heartbeat-orchestration-release`; current head `47326dae63ca4397310257a88d6b8c2397670c88`. No merge/deploy.
+- Added handler/PostgreSQL tests for a Vault KV v2 write that commits but loses its response and a successful write followed by lost readback response. A retry reuses the exact credential already stored, does not reprovision the database, and does not issue a second secret write.
+- Added stateful KV v2 HTTP adapter tests enforcing `cas=0`: recover committed write via GET after response loss, reject replacement of an existing secret, and race concurrent create-only writes so exactly one credential wins.
+- Added PostgreSQL coordinator test: tenant A remains blocked inside its external provisioning stage while tenant B independently enters its own stage, proving per-tenant locks do not serialize unrelated tenants. Existing tests cover eight concurrent duplicate requests producing one credential and reject cross-tenant idempotency-key reuse.
+- Exact code/test SHA `62e05f99df264e55f2374270143b5f36b64aff38`: PostgreSQL 17 run `44957225349`, **173 passed, 0 failed, 0 skipped**; backend/web run `44957225288`, backend 173 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit 0 vulnerabilities and production bundle passed; Pages deployment skipped for PR.
+- PR head `47326dae63ca4397310257a88d6b8c2397670c88` adds acceptance documentation only after the green code/test SHA.
+- These deterministic Vault adapter/handler tests are not evidence from a deployed Vault cluster or actual Vault process termination. Real Vault token policies, process-kill at secret-manager boundaries, key rotation, backup/restore, deployed mTLS lifecycle, production metrics/alerts, privileged admin controls and staging remain open.
+- Keep PR #166 Draft/unmerged; no deployment. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation tasks
+
+1. Build a disposable real-Vault test service in CI (or a separately provisioned isolated test environment) and add process termination/response-loss at Vault write, readback, token renewal/revocation and CAS boundaries. Do not substitute deterministic fake HTTP handlers for real Vault acceptance.
+2. Add end-to-end Platform API duplicate-request tests across registry, durable queue, coordinator and tenant activation; verify same idempotency key replays the same result and concurrent cross-tenant key reuse fails before external side effects.
+3. Complete secret-manager token policy, key rotation and backup/restore drills; deployed mTLS issuance/revocation/rotation; monitoring/alerting; privileged administrator controls and staging.
+4. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165→#166 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
+5. Keep `Provisioning:WorkerEnabled=false` until every mandatory operations acceptance gate has dated production evidence.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
