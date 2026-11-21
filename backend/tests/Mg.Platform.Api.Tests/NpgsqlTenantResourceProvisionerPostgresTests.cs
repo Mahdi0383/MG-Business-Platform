@@ -833,8 +833,15 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         {
             await using var owner = new NpgsqlConnection(Credentials.OwnerConnectionString);
             await owner.OpenAsync();
+            await using (var existence = new NpgsqlCommand(
+                "SELECT to_regclass('mg.schema_migrations') IS NOT NULL;", owner))
+            {
+                if (!(bool)(await existence.ExecuteScalarAsync() ?? false))
+                    return false;
+            }
+
             await using var command = new NpgsqlCommand(
-                "SELECT to_regclass('mg.schema_migrations') IS NOT NULL AND EXISTS (SELECT 1 FROM mg.schema_migrations WHERE version = 1 AND name = 'tenant_core_baseline');",
+                "SELECT EXISTS (SELECT 1 FROM mg.schema_migrations WHERE version = 1 AND name = 'tenant_core_baseline');",
                 owner);
             return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
