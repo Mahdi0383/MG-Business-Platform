@@ -47,3 +47,5 @@ The `creator-bootstrap` fixed-window policy allows 30 requests per minute per re
 ## Migration order
 
 Apply central platform migrations in numeric order. Migration `006_business_creation_idempotency.sql` must be applied before deploying an API version that requires the `Idempotency-Key` header. Do not enable the provisioning worker as part of this schema migration.
+
+The `/health/ready` endpoint includes a schema readiness check for `business_tenants`, `tenant_provisioning_jobs` and the required `business_creation_requests` columns/primary key. It returns Unhealthy when migration 006 is absent or incomplete, so the new API must not receive traffic before the migration is applied. This check does not apply migrations automatically.
