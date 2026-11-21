@@ -216,7 +216,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             fixture.Credentials, CancellationToken.None);
 
         Assert.True(await fixture.DatabaseMarkerMatchesAsync());
-        Assert.True(await fixture.TenantSchemaExistsAsync());
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
     }
 
     [Fact]
@@ -708,6 +708,26 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             command.Parameters.AddWithValue("owner", NpgsqlDbType.Text, ownerRoleName);
             command.Parameters.AddWithValue("app", NpgsqlDbType.Text, applicationRoleName);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task<bool> TenantPublicDatabaseAclIsRestrictedAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT NOT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                    WHERE database.datname = @database
+                      AND database_acl.grantee = 0
+                      AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                );
+                """, admin);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public async Task<bool> DatabaseMarkerMatchesAsync()
