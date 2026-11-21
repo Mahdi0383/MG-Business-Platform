@@ -699,7 +699,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                         SELECT 1
                         FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                         WHERE database_acl.grantee = 0
-                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                     ))::text,
                     pg_get_userbyid(database.datdba),
                     pg_get_userbyid(schema.nspowner),
@@ -941,7 +941,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                         COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                     WHERE database.datname = @database
                       AND database_acl.grantee = 0
-                      AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                      AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                 );
                 """, admin);
             command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
