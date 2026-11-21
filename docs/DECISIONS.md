@@ -52,7 +52,7 @@ Select exact .NET SDK, desktop framework, database provider and package versions
 
 ## ADR-009 — Idempotent business registration
 
-**Status:** Accepted for the initial Creator API contract; implementation and production validation remain pending.
+**Status:** Implemented in Draft PR #166; production migration, real OIDC and staging validation remain pending.
 
 **Context:** A client may lose the HTTP response after the platform has committed a business registry row and its provisioning outbox job. Retrying without a durable request key can create duplicate businesses or return a misleading slug conflict.
 
