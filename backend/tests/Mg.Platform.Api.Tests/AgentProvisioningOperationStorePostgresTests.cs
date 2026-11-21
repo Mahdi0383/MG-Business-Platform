@@ -477,6 +477,23 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             await using (var connection = new NpgsqlConnection(builder.ConnectionString))
             {
                 await connection.OpenAsync();
+
+                // PostgreSQL grants CONNECT and TEMP to PUBLIC by default when the
+                // database ACL is NULL. The production agent database explicitly
+                // revokes these defaults, so mirror that security baseline here.
+                await using (var revokePublicDatabaseAccess = new NpgsqlCommand(
+                    """
+                    SELECT format(
+                        'REVOKE CONNECT, CREATE, TEMP ON DATABASE %I FROM PUBLIC;',
+                        current_database());
+                    """, connection))
+                {
+                    var revokeSql = (string?)await revokePublicDatabaseAccess.ExecuteScalarAsync()
+                        ?? throw new InvalidOperationException("Could not construct the PUBLIC database ACL baseline.");
+                    await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
+                    await applyRevoke.ExecuteNonQueryAsync();
+                }
+
                 var migrationPath = Path.Combine(
                     AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
                 var migrationSql = await File.ReadAllTextAsync(migrationPath);
