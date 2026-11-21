@@ -81,6 +81,22 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RefusesProvisioningWhenControlSchemaPublicAclDriftsBeforeRoleCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                fixture.Credentials, CancellationToken.None));
+
+        Assert.False(await fixture.DatabaseExistsAsync());
+        Assert.False(await fixture.TenantRolesExistAsync());
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -290,7 +306,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 Pooling = false
             };
 
-            return new Fixture(
+            var fixture = new Fixture(
                 admin.ConnectionString,
                 control.ConnectionString,
                 controlRole,
@@ -299,6 +315,8 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 databaseName,
                 app.ConnectionString,
                 owner.ConnectionString);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+            return fixture;
         }
 
         public async Task AssertAgentHandlerReadinessAsync(bool expected)
@@ -444,6 +462,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 "SELECT to_regnamespace('mg') IS NOT NULL;", admin);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task SetControlSchemaPublicUsagePrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} USAGE ON SCHEMA mg_agent {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
+            await command.ExecuteNonQueryAsync();
         }
 
         public async Task SetPublicTemporaryPrivilegeAsync(bool grant)
