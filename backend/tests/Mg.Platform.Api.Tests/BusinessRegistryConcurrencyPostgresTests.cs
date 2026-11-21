@@ -166,6 +166,7 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
 
         Assert.Equal(0, await fixture.CountBusinessesAsync());
         Assert.Equal(0, await fixture.CountJobsAsync());
+        Assert.Equal(0, await fixture.CountIdempotencyRecordsAsync());
     }
 
     internal sealed class DatabaseFixture : IAsyncDisposable
@@ -235,7 +236,161 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                         request_fingerprint char(64) NOT NULL,
                         business_id uuid NOT NULL REFERENCES business_tenants(id) ON DELETE RESTRICT,
                         created_at_utc timestamptz NOT NULL,
-                        CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key)
+                        CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key),
+                        CONSTRAINT ck_business_creation_creator_hash
+                            CHECK (creator_identity_hash ~ '^[0-9a-f]{64}                    """, connection);
+                await command.ExecuteNonQueryAsync();
+            }
+            catch
+            {
+                await using var cleanup = new NpgsqlConnection(adminConnection);
+                await cleanup.OpenAsync();
+                await using var drop = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", cleanup);
+                await drop.ExecuteNonQueryAsync();
+                throw;
+            }
+
+            return new DatabaseFixture(adminConnection, schema, testConnection);
+        }
+
+        public string TestConnection => testConnection;
+
+        public PlatformDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
+
+        public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
+        public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
+        public Task<int> CountDistinctIdempotencyKeysAsync() =>
+            ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
+
+        public async Task<(Guid Id, string Slug, string Status, string DatabaseSecretReference)> ReadBusinessAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT id, slug, status, database_secret_reference
+                FROM business_tenants
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+        }
+
+        public async Task RejectOutboxInsertsAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                CREATE FUNCTION reject_test_outbox_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'simulated outbox persistence failure';
+                END;
+                $$;
+                CREATE TRIGGER reject_test_outbox_insert
+                BEFORE INSERT ON tenant_provisioning_jobs
+                FOR EACH ROW EXECUTE FUNCTION reject_test_outbox_insert();
+                """, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<int> ScalarAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+}
+),
+                        CONSTRAINT ck_business_creation_request_hash
+                            CHECK (request_fingerprint ~ '^[0-9a-f]{64}                    """, connection);
+                await command.ExecuteNonQueryAsync();
+            }
+            catch
+            {
+                await using var cleanup = new NpgsqlConnection(adminConnection);
+                await cleanup.OpenAsync();
+                await using var drop = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", cleanup);
+                await drop.ExecuteNonQueryAsync();
+                throw;
+            }
+
+            return new DatabaseFixture(adminConnection, schema, testConnection);
+        }
+
+        public string TestConnection => testConnection;
+
+        public PlatformDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
+
+        public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
+        public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
+        public Task<int> CountDistinctIdempotencyKeysAsync() =>
+            ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
+
+        public async Task<(Guid Id, string Slug, string Status, string DatabaseSecretReference)> ReadBusinessAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT id, slug, status, database_secret_reference
+                FROM business_tenants
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+        }
+
+        public async Task RejectOutboxInsertsAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                CREATE FUNCTION reject_test_outbox_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'simulated outbox persistence failure';
+                END;
+                $$;
+                CREATE TRIGGER reject_test_outbox_insert
+                BEFORE INSERT ON tenant_provisioning_jobs
+                FOR EACH ROW EXECUTE FUNCTION reject_test_outbox_insert();
+                """, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<int> ScalarAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+}
+)
                     );
                     """, connection);
                 await command.ExecuteNonQueryAsync();
