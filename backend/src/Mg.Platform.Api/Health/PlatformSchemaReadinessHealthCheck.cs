@@ -1,5 +1,6 @@
 using System.Data;
 using Mg.Platform.Api.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
