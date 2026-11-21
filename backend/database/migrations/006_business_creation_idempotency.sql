@@ -4,11 +4,12 @@
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS business_creation_requests (
-    idempotency_key uuid PRIMARY KEY,
+    idempotency_key uuid NOT NULL,
     creator_identity_hash char(64) NOT NULL,
     request_fingerprint char(64) NOT NULL,
     business_id uuid NOT NULL REFERENCES business_tenants(id) ON DELETE RESTRICT,
     created_at_utc timestamptz NOT NULL,
+    CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key),
     CONSTRAINT ck_business_creation_creator_hash
         CHECK (creator_identity_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_business_creation_request_hash
