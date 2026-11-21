@@ -190,6 +190,36 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesOwnerDatabaseAclBeforeAccessConfigurationAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseMarkerWritten(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantSchemaExistsAsync());
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -362,6 +392,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             new(controlConnectionString, afterOwnerRoleCreated: null,
                 afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
                 afterDatabaseCreatedBeforeMarker: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterDatabaseMarkerWritten(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
