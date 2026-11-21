@@ -372,7 +372,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         try
         {
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var insertFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 fixture.Store.GetOrCreatePreparedCredentialsAsync(
                     tenantId, idempotencyKey, databaseName,
                     async _ =>
@@ -380,6 +380,11 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                         await fixture.SetPublicLedgerSelectAsync(grant: true);
                         return Fixture.Credentials(databaseName, "acl-drift-secret");
                     }));
+            Assert.Contains("ACL boundary changed", insertFailure.Message, StringComparison.Ordinal);
+
+            var readFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+            Assert.Contains("ACL boundary changed", readFailure.Message, StringComparison.Ordinal);
         }
         finally
         {
