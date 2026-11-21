@@ -282,6 +282,15 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
             return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
         }
 
+        public async Task DropIdempotencyTableAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "DROP TABLE business_creation_requests CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
         public async Task RejectOutboxInsertsAsync()
         {
             await using var connection = new NpgsqlConnection(testConnection);
