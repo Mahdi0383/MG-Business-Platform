@@ -40,7 +40,10 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         {
             Assert.Equal(markerExpected, await fixture.DatabaseMarkerMatchesAsync());
             Assert.Equal(baselineExpected, await fixture.TenantBaselineMigrationExistsAsync());
-            Assert.Equal(runtimeGrantExpected, await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+            if (baselineExpected)
+                Assert.Equal(runtimeGrantExpected, await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+            else
+                Assert.False(runtimeGrantExpected);
         }
 
         // Retry in a new process context after the original worker was forcibly killed.
