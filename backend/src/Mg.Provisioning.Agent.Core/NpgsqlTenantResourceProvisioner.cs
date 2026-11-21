@@ -946,7 +946,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
-        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken, allowPublicConnect: true);
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         var sql = await FormatSqlAsync(connection,
             """
             SELECT format(
