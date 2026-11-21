@@ -229,6 +229,38 @@ public sealed class TenantProvisioningWorkerPostgresTests
     }
 
     [Fact]
+    public async Task RepeatedHeartbeatRenewalAndHandlerCompletionRacesCompleteWithCurrentLease()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var (business, job) = await fixture.AddBusinessAndJobAsync($"heartbeat-success-race-{attempt}");
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var handler = new DelegateHandler(async (_, _) =>
+            {
+                started.TrySetResult();
+                await Task.Delay(TimeSpan.FromMilliseconds(5));
+            });
+            using var services = CreateServices(fixture, handler);
+            var worker = CreateWorker(services, renewalInterval: TimeSpan.FromMilliseconds(5));
+
+            var processing = worker.ProcessOneAsync($"success-race-worker-{attempt}", CancellationToken.None);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await processing.WaitAsync(TimeSpan.FromSeconds(3));
+
+            var stored = await fixture.ReadJobAsync(job.Id);
+            var storedBusiness = await fixture.ReadBusinessAsync(business.Id);
+            Assert.Equal(TenantProvisioningStatus.Succeeded, stored.Status);
+            Assert.Null(stored.LeaseOwner);
+            Assert.Null(stored.LeaseToken);
+            Assert.Null(stored.LeaseExpiresAtUtc);
+            Assert.Equal("Active", storedBusiness.Status);
+            Assert.NotNull(storedBusiness.ActivatedAtUtc);
+        }
+    }
+
+    [Fact]
     public async Task HandlerExceptionStoresOnlySafeFallbackCodeAndReleasesLease()
     {
         await using var fixture = await Fixture.CreateAsync();
