@@ -33,6 +33,7 @@ public sealed class AgentProvisioningOperationStore(
         {
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
 
             await using (var advisoryLock = new NpgsqlCommand(
                 """
@@ -83,6 +84,7 @@ public sealed class AgentProvisioningOperationStore(
 
                     if (!string.Equals(encrypted.KeyId, credentialProtector.CurrentKeyId, StringComparison.Ordinal))
                     {
+                        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
                         var rewrapped = credentialProtector.Protect(
                             stablePayload, tenantId, idempotencyKey, databaseName);
                         try
@@ -144,6 +146,7 @@ public sealed class AgentProvisioningOperationStore(
             var envelope = credentialProtector.Protect(
                 payload, tenantId, idempotencyKey, databaseName);
 
+            await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
             await using (var insert = new NpgsqlCommand(
                 """
                 INSERT INTO mg_agent.provisioning_operations
@@ -200,6 +203,7 @@ public sealed class AgentProvisioningOperationStore(
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
         await using (var select = new NpgsqlCommand(
             """
             SELECT tenant_id, idempotency_key, database_name,
@@ -241,6 +245,7 @@ public sealed class AgentProvisioningOperationStore(
                     ?? throw new InvalidOperationException("Stored tenant credential bundle is invalid.");
                 ValidateCredentials(credentials, row.TenantId, row.DatabaseName);
 
+                await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
                 var newEnvelope = credentialProtector.Protect(
                     payload, row.TenantId, row.IdempotencyKey, row.DatabaseName);
                 try
@@ -369,6 +374,7 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Provisioning phase transitions must advance exactly one step.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, null, cancellationToken);
         await using var command = new NpgsqlCommand(
             """
             UPDATE mg_agent.provisioning_operations
@@ -385,6 +391,61 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+    }
+
+    private static async Task VerifyLedgerBoundaryAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT
+                has_schema_privilege(current_user, 'mg_agent', 'USAGE')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE')
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    WHERE database.datname = current_database()
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                      )
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_namespace schema
+                    WHERE schema.nspname = 'mg_agent'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN ('USAGE', 'CREATE')
+                      )
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_class ledger
+                    JOIN pg_namespace schema ON schema.oid = ledger.relnamespace
+                    WHERE schema.nspname = 'mg_agent'
+                      AND ledger.relname = 'provisioning_operations'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(ledger.relacl, acldefault('r', ledger.relowner))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN
+                                ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+                      )
+                );
+            """, connection, transaction);
+        var allowed = await command.ExecuteScalarAsync(cancellationToken);
+        if (allowed is not true)
+            throw new InvalidOperationException(
+                "Agent control ledger ACL boundary changed; refusing ledger access or mutation.");
     }
 
     private static void ValidateCredentials(
