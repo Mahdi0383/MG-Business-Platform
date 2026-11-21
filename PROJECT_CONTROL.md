@@ -684,3 +684,12 @@ The historical entries below remain as an audit trail; statements that the agent
 5. Continue real Vault process-kill/token-policy/key-rotation/backup-restore, deployed mTLS lifecycle, metrics/alerts, privileged admin controls and staging.
 6. Keep `Provisioning:WorkerEnabled=false`; do not merge, retarget, rebase or deploy without explicit approval.
 
+
+## 11.10 Creator endpoint rate-limit verification — 2026-11-22
+
+- Extended `PlatformBusinessEndpointsPostgresTests` with a 31-request concurrent burst from the same TestServer client/IP partition.
+- The real fixed-window `creator-bootstrap` policy admits exactly 30 requests (HTTP 201) and rejects the 31st (HTTP 429); exactly 30 businesses and 30 outbox jobs are persisted.
+- Exact code/test SHA `cd057ef7b35617466d70749211881854417226b5`: PostgreSQL 17 run `44958557297`, **179 passed, 0 failed, 0 skipped**; backend/web run `44958557395`, backend 179 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR #166 head `2e9fd99d0dccfeb006be2db8acb7a8c3ed1ab259` updates acceptance evidence only after the green code/test SHA.
+- This is test-server evidence for middleware behavior, not production ingress/load testing. OIDC/JWKS, API idempotency/replay, real Vault/mTLS, monitoring and staging remain open. Keep provisioning worker disabled.
+
