@@ -49,3 +49,22 @@ Persian/Farsi and RTL are first-class requirements. Iranian tax/accounting oblig
 **Status:** Open.
 
 Select exact .NET SDK, desktop framework, database provider and package versions after compatibility checks. Pin supported versions and document upgrade policy; do not silently assume that the newest package is the safest choice.
+
+## ADR-009 — Idempotent business registration
+
+**Status:** Accepted for the initial Creator API contract; implementation and production validation remain pending.
+
+**Context:** A client may lose the HTTP response after the platform has committed a business registry row and its provisioning outbox job. Retrying without a durable request key can create duplicate businesses or return a misleading slug conflict.
+
+**Decision:**
+- Every `POST /api/v1/platform/businesses/` request must include an `Idempotency-Key` header containing a non-empty UUID.
+- The idempotency key is globally unique in the platform registry. Reuse by another authenticated creator identity is a conflict, not a replay.
+- Bind the key to a stable hash of the validated OIDC issuer + subject. Do not persist raw subject or issuer in the idempotency table.
+- Bind the key to a SHA-256 fingerprint of the normalized request (trimmed name and canonical lowercase slug).
+- Same key + same creator identity + same normalized payload returns HTTP 201 with the same business resource ID and Location. The returned summary reflects the resource's current status.
+- Same key with a different payload or creator identity returns deterministic HTTP 409. A different key for an already-used slug also returns HTTP 409.
+- Persist the idempotency record, business row and provisioning outbox job in one PostgreSQL transaction. Unique constraints are the concurrency authority; preflight reads are optimizations only.
+- Retain business-creation idempotency records for the lifetime of the business. Do not silently expire keys and permit duplicate creation.
+
+**Consequences:** Clients must generate and retain a UUID per logical create operation and reuse it after network failures. This is an API contract change and must be documented in OpenAPI/client integration. A key alone is not authorization; every replay still passes authentication and platform-role authorization. The platform must not return stored resource data to a different creator identity.
+
