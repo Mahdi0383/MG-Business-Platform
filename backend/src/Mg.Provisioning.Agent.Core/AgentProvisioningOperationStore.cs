@@ -15,6 +15,9 @@ public sealed class AgentProvisioningOperationStore(
     NpgsqlDataSource dataSource,
     AgentCredentialProtector credentialProtector)
 {
+    private const int ControlPlaneMaintenanceLockClassId = 19783;
+    private const int ControlPlaneMaintenanceLockObjectId = 20562;
+
     private static readonly string[] Phases =
         ["Prepared", "DatabaseCreated", "SchemaApplied", "Verified"];
 
@@ -203,6 +206,7 @@ public sealed class AgentProvisioningOperationStore(
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await AcquireControlPlaneMaintenanceTransactionLockAsync(connection, transaction, cancellationToken);
         await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
         await using (var select = new NpgsqlCommand(
             """
@@ -327,35 +331,43 @@ public sealed class AgentProvisioningOperationStore(
         ArgumentNullException.ThrowIfNull(action);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        const string lockSql = "SELECT pg_try_advisory_lock(hashtextextended(@tenant_id::text, 0));";
-        await using (var acquire = new NpgsqlCommand(lockSql, connection))
-        {
-            acquire.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
-            var acquired = await acquire.ExecuteScalarAsync(cancellationToken);
-            if (acquired is not true)
-                return new AgentExclusiveExecutionResult<T>(false, default);
-        }
-
+        await AcquireControlPlaneMaintenanceSessionLockAsync(connection, cancellationToken);
         try
         {
-            var value = await action(cancellationToken);
-            return new AgentExclusiveExecutionResult<T>(true, value);
+            const string lockSql = "SELECT pg_try_advisory_lock(hashtextextended(@tenant_id::text, 0));";
+            await using (var acquire = new NpgsqlCommand(lockSql, connection))
+            {
+                acquire.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                var acquired = await acquire.ExecuteScalarAsync(cancellationToken);
+                if (acquired is not true)
+                    return new AgentExclusiveExecutionResult<T>(false, default);
+            }
+
+            try
+            {
+                var value = await action(cancellationToken);
+                return new AgentExclusiveExecutionResult<T>(true, value);
+            }
+            finally
+            {
+                // If cancellation or a connection failure prevents unlock, disposing the session
+                // releases PostgreSQL's session-level advisory lock.
+                try
+                {
+                    await using var release = new NpgsqlCommand(
+                        "SELECT pg_advisory_unlock(hashtextextended(@tenant_id::text, 0));", connection);
+                    release.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                    await release.ExecuteScalarAsync(CancellationToken.None);
+                }
+                catch (NpgsqlException)
+                {
+                    // Connection disposal below is the final lock-release guarantee.
+                }
+            }
         }
         finally
         {
-            // If cancellation or a connection failure prevents unlock, disposing the session
-            // releases PostgreSQL's session-level advisory lock.
-            try
-            {
-                await using var release = new NpgsqlCommand(
-                    "SELECT pg_advisory_unlock(hashtextextended(@tenant_id::text, 0));", connection);
-                release.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
-                await release.ExecuteScalarAsync(CancellationToken.None);
-            }
-            catch (NpgsqlException)
-            {
-                // Connection disposal below is the final lock-release guarantee.
-            }
+            await ReleaseControlPlaneMaintenanceSessionLockAsync(connection);
         }
     }
 
@@ -394,6 +406,42 @@ public sealed class AgentProvisioningOperationStore(
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
         await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task AcquireControlPlaneMaintenanceSessionLockAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_advisory_lock_shared(@class_id, @object_id);", connection);
+        command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+        command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ReleaseControlPlaneMaintenanceSessionLockAsync(NpgsqlConnection connection)
+    {
+        try
+        {
+            await using var command = new NpgsqlCommand(
+                "SELECT pg_advisory_unlock_shared(@class_id, @object_id);", connection);
+            command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+            command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+            await command.ExecuteScalarAsync(CancellationToken.None);
+        }
+        catch (NpgsqlException)
+        {
+            // Connection disposal below releases the session-level shared lock.
+        }
+    }
+
+    private static async Task AcquireControlPlaneMaintenanceTransactionLockAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock_shared(@class_id, @object_id);", connection, transaction);
+        command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+        command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task VerifyLedgerBoundaryAsync(
