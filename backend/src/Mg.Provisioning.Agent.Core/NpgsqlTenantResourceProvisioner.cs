@@ -469,6 +469,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetRoleStateAsync(connection, roleName, cancellationToken, transaction);
         if (state is null)
         {
+            await VerifyControlRoleAsync(connection, cancellationToken, transaction);
             var sql = login
                 ? await FormatSqlAsync(connection, transaction,
                     "SELECT format('CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role, @password);",
@@ -498,6 +499,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
         if (login)
         {
+            await VerifyControlRoleAsync(connection, cancellationToken, transaction);
             var alterSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('ALTER ROLE %I WITH PASSWORD %L', @role, @password);",
                 cancellationToken, ("role", roleName), ("password", password!));
@@ -562,6 +564,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (hasSetOnlyMembership)
             return;
 
+        await VerifyControlRoleAsync(connection, cancellationToken, transaction);
         var grantSql = await FormatSqlAsync(connection, transaction,
             "SELECT format('GRANT %I TO %I WITH INHERIT FALSE, SET TRUE', @role, @member);",
             cancellationToken, ("role", ownerRole), ("member", controlRoleName));
@@ -649,6 +652,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         if (state is null)
         {
+            await VerifyControlRoleAsync(controlConnection, cancellationToken);
             var createSql = await FormatSqlAsync(controlConnection,
                 "SELECT format('CREATE DATABASE %I OWNER %I', @database, @owner);",
                 cancellationToken, ("database", databaseName), ("owner", ownerRole));
