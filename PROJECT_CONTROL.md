@@ -572,28 +572,31 @@ The historical entries below remain as an audit trail; statements that the agent
 
 ## 11.6 Worker heartbeat/orchestration acceptance — 2026-11-21
 
-- Draft PR #163: `test/provisioning-worker-heartbeat-orchestration-validated` → `test/provisioning-process-kill-recovery`; current head `bcd61072fd1bd141f99a603002fe7f053f1ae478`. PR #162 was closed as superseded; no merge/deploy.
+- Draft PR #165: `test/provisioning-worker-heartbeat-orchestration-release` → `test/provisioning-process-kill-recovery`; current head `ba732b31c882227dbf5bb00db00f27d36c728946`. Earlier PRs #162, #163 and #164 were closed as superseded; no merge/deploy.
 - Refactored `TenantProvisioningWorker` to accept internal test-only timing values and expose one internal processing iteration. Public DI constructor retains production defaults: lease 2 minutes, poll 5 seconds, renewal 30 seconds.
-- Added actual PostgreSQL integration tests for:
-  1. handler held beyond renewal interval; lease expiry advances and the same fencing token/owner remains;
+- PostgreSQL integration tests exercise actual worker orchestration for:
+  1. handler held beyond renewal interval; lease expiry advances while the same fencing token/owner remains;
   2. reclaimed lease causes renewal to return false, cancels handler, and prevents stale completion/failure;
-  3. heartbeat database connection failure cancels handler, leaves claim uncompleted, and lease expiry/reclaim produces a new token;
+  3. heartbeat database failure cancels handler, leaves claim uncompleted, and lease expiry/reclaim produces a new token;
   4. host shutdown cancels handler and heartbeat stops extending the lease;
-  5. uncooperative handler ignores cancellation and returns success after reclaim; stale worker cannot complete or activate the business;
-  6. completion racing with lease expiry cannot activate the business;
-  7. generic handler exception text is not persisted; only safe fallback code `PROVISIONING_FAILED` is stored.
-- Exact code/test SHA `1e40a56612de881963e853dd03aa8bacb82893fa`: PostgreSQL 17 integration `44945101453`, **166 passed, 0 failed, 0 skipped**; full backend/web `44945101472`, backend 166 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
-- Current PR head `bcd61072fd1bd141f99a603002fe7f053f1ae478` changes only the acceptance checklist/evidence after the green code/test SHA.
-- First five worker lifecycle acceptance checks are evidenced. Repeated heartbeat/completion race stress and explicit sanitized log/metrics assertions remain open. These tests do not authorize production worker enablement.
+  5. uncooperative handler ignores cancellation and returns after reclaim; stale worker cannot complete or activate business;
+  6. completion racing with lease expiry cannot activate business;
+  7. generic handler exception text is not persisted; only safe fallback code `PROVISIONING_FAILED` is stored;
+  8. eight repeated heartbeat/completion races after expiry never activate business;
+  9. eight repeated valid-lease heartbeat/completion races complete and activate under the current claim only.
+- Worker logs are captured and asserted to include safe exception types but not secret-bearing exception messages, connection strings or connection details.
+- Exact code/test SHA `1c87f546646dc71337e71ceb99ab773b4415568d`: PostgreSQL 17 integration run `44945795410`, **168 passed, 0 failed, 0 skipped**; full backend/web run `44945795465`, backend 168 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `ba732b31c882227dbf5bb00db00f27d36c728946` changes only the operations acceptance checklist after the green code/test SHA.
+- All seven worker heartbeat/orchestration acceptance checks have automated test evidence. This is not production deployment evidence. Production secret-manager/Vault policy and key rotation/backup-restore, deployed mTLS lifecycle, monitoring/alerting, privileged administrator controls and staging remain open.
+- Keep PR #165 Draft and unmerged. No deployment. Keep `Provisioning:WorkerEnabled=false`.
 
 ### Next continuation tasks
 
-1. Add repeated/stress testing around heartbeat renewal racing handler completion, including cancellation and lease-expiry boundaries under contention.
-2. Assert structured worker logs/metrics contain only sanitized exception types/codes and never exception messages, credentials, connection strings or tenant secret payloads.
-3. Complete production secret-manager/Vault policy and key rotation/backup-restore drills; add process-kill tests for Vault writes/readback and API-agent response-loss boundaries.
-4. Complete deployed mTLS issuance/revocation/rotation, monitoring/alerting, privileged administrator controls and staging evidence.
-5. Review the #159 quality-gate branch and the full #153→#154→#155/#158→#160→#161→#163 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
-6. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
+1. Add process-kill and response-loss coverage around Vault/secret-manager write, readback and CAS update; prove retries preserve the exact application credential and never rotate it unexpectedly.
+2. Add repeated stress tests for concurrent duplicate provisioning requests and multi-tenant isolation while control-plane maintenance locks are acquired/released.
+3. Complete production secret-manager/Vault policy, key rotation and backup/restore drills; deployed mTLS issuance/revocation/rotation; monitoring/alerting; privileged administrator operational controls and staging.
+4. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
+5. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
 
 ## 12. Change log
 
