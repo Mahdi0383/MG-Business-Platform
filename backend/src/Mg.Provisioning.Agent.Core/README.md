@@ -17,6 +17,8 @@ GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO mg_age
 
 Verify PUBLIC has no CONNECT, CREATE or TEMP privilege. Do not grant TEMP, DELETE, TRUNCATE, REFERENCES, TRIGGER, schema CREATE, role membership or database ownership. The runtime identity must not be a superuser, database owner, CREATEDB or CREATEROLE role. Keep migration ownership separate from the runtime role.
 
+The operation store revalidates the live database, schema and ledger PUBLIC ACL boundary on its own connection immediately before ledger reads and mutations; the handler-level readiness check remains an additional startup/request gate. This narrows the gap between readiness and durable ledger use, but PostgreSQL superuser/administrator changes remain outside the control role's authority and require operational controls.
+
 The ledger serializes each tenant operation with a PostgreSQL transaction-scoped advisory lock. It persists a stable AES-256-GCM encrypted application connection string and the `Prepared` phase before any PostgreSQL tenant resource side effect. Repeated requests with the same tenant/idempotency/database tuple decrypt and return the same credential. Conflicting keys or request payloads fail closed.
 
 Encryption key material must be supplied by an external runtime secret manager. Do not place keys in appsettings, source control, this database, container image layers or logs. Retain old key IDs while any row still references them.
