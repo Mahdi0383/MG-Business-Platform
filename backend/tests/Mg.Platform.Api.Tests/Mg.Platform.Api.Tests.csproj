@@ -35,5 +35,6 @@
     <ProjectReference Include="../../src/Mg.Platform.Api/Mg.Platform.Api.csproj" />
     <ProjectReference Include="../../src/Mg.Provisioning.Agent.Core/Mg.Provisioning.Agent.Core.csproj" />
     <ProjectReference Include="../../src/Mg.Provisioning.Agent.Api/Mg.Provisioning.Agent.Api.csproj" />
+    <ProjectReference Include="../Mg.Provisioning.Agent.CrashWorker/Mg.Provisioning.Agent.CrashWorker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
