@@ -441,6 +441,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                    pg_get_userbyid(database.datdba),
                    pg_get_userbyid(schema.nspowner),
                    pg_get_userbyid(ledger.relowner),
+                   current_user,
                    NOT EXISTS (
                        SELECT 1
                        FROM pg_auth_members membership
@@ -544,7 +545,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
             || string.Equals(reader.GetString(21), reader.GetString(22), StringComparison.Ordinal)
             || !reader.GetBoolean(23)
-            || !reader.GetBoolean(24))
+            || !reader.GetBoolean(24)
+            || !reader.GetBoolean(25))
             throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
     }
 
