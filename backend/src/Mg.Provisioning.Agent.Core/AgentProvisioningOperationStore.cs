@@ -18,6 +18,23 @@ public sealed class AgentProvisioningOperationStore(
     private const int ControlPlaneMaintenanceLockClassId = 19783;
     private const int ControlPlaneMaintenanceLockObjectId = 20562;
 
+    private readonly Func<CancellationToken, Task>? afterPreparedCredentialInserted;
+    private readonly Func<CancellationToken, Task>? afterCredentialRewrapped;
+    private readonly Func<CancellationToken, Task>? afterPhaseUpdated;
+
+    internal AgentProvisioningOperationStore(
+        NpgsqlDataSource dataSourceValue,
+        AgentCredentialProtector credentialProtectorValue,
+        Func<CancellationToken, Task>? afterPreparedCredentialInserted = null,
+        Func<CancellationToken, Task>? afterCredentialRewrapped = null,
+        Func<CancellationToken, Task>? afterPhaseUpdated = null)
+        : this(dataSourceValue, credentialProtectorValue)
+    {
+        this.afterPreparedCredentialInserted = afterPreparedCredentialInserted;
+        this.afterCredentialRewrapped = afterCredentialRewrapped;
+        this.afterPhaseUpdated = afterPhaseUpdated;
+    }
+
     private static readonly string[] Phases =
         ["Prepared", "DatabaseCreated", "SchemaApplied", "Verified"];
 
@@ -175,6 +192,9 @@ public sealed class AgentProvisioningOperationStore(
                 await insert.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            if (afterPreparedCredentialInserted is not null)
+                await afterPreparedCredentialInserted(cancellationToken);
+
             await transaction.CommitAsync(cancellationToken);
             return credentials;
         }
@@ -282,6 +302,9 @@ public sealed class AgentProvisioningOperationStore(
                     CryptographicOperations.ZeroMemory(newEnvelope.Ciphertext);
                     CryptographicOperations.ZeroMemory(newEnvelope.Tag);
                 }
+
+                if (afterCredentialRewrapped is not null)
+                    await afterCredentialRewrapped(cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
@@ -405,6 +428,8 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+        if (afterPhaseUpdated is not null)
+            await afterPhaseUpdated(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
