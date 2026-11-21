@@ -154,45 +154,7 @@ jobs:
 
       - name: Re-verify downloaded release files and SHA-256 checksums
         shell: bash
-        run: |
-          set -euo pipefail
-          required=(
-            "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe"
-            "artifacts/installer/MG-Business-Platform-Setup-win-x64.exe.sha256"
-            "artifacts/MG-Business-Platform-win-x64.zip"
-            "artifacts/MG-Business-Platform-win-x64.zip.sha256"
-            "artifacts/installer/MG-License-Manager-Setup-win-x64.exe"
-            "artifacts/installer/MG-License-Manager-Setup-win-x64.exe.sha256"
-            "artifacts/MG-License-Manager-win-x64.zip"
-            "artifacts/MG-License-Manager-win-x64.zip.sha256"
-            "artifacts/MG-Business-Platform-SOURCE.zip"
-            "artifacts/MG-Business-Platform-SOURCE.zip.sha256"
-            "artifacts/MG-License-Manager-SOURCE.zip"
-            "artifacts/MG-License-Manager-SOURCE.zip.sha256"
-          )
-          for path in "${required[@]}"; do
-            if [[ ! -f "$path" ]]; then
-              echo "::error::Required release file is missing after artifact transfer: $path"
-              exit 1
-            fi
-          done
-
-          while IFS= read -r -d '' checksum_file; do
-            directory="$(dirname "$checksum_file")"
-            line="$(tr -d '\r' < "$checksum_file")"
-            expected="${line%% *}"
-            file_name="${line#*  }"
-            if [[ -z "$expected" || "$file_name" == "$line" || ! -f "$directory/$file_name" ]]; then
-              echo "::error::Invalid checksum manifest: $checksum_file"
-              exit 1
-            fi
-            actual="$(sha256sum "$directory/$file_name" | cut -d ' ' -f 1)"
-            if [[ "${actual,,}" != "${expected,,}" ]]; then
-              echo "::error::SHA-256 mismatch: $directory/$file_name"
-              exit 1
-            fi
-            echo "Verified: $directory/$file_name"
-          done < <(find artifacts -type f -name '*.sha256' -print0)
+        run: bash scripts/verify-release-artifacts.sh artifacts
 
       - name: Publish verified Windows packages as a GitHub Release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4 (Node 24)
