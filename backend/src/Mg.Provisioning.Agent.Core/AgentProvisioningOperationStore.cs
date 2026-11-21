@@ -416,7 +416,7 @@ public sealed class AgentProvisioningOperationStore(
                           SELECT 1
                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) acl
                           WHERE acl.grantee = 0
-                            AND acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                            AND acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                       )
                 )
                 AND NOT EXISTS (
