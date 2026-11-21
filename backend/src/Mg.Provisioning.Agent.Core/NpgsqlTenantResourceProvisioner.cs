@@ -508,11 +508,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        WHERE database_acl.grantee = 0
                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
                    ),
-                   has_schema_privilege(current_user, schema.nspname, 'USAGE'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT'),
-                   database.datacl::text,
-                   schema.nspacl::text,
-                   ledger.relacl::text,
                    NOT EXISTS (
                        SELECT 1
                        FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) AS schema_acl
@@ -552,7 +547,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !reader.GetBoolean(23)
             || !reader.GetBoolean(24)
             || !reader.GetBoolean(25))
-            throw new InvalidOperationException($"Agent control-role membership, ACL, ownership or privilege boundary is not ready. State: {string.Join("|", Enumerable.Range(0, 31).Select(index => $"{index}={reader.GetValue(index)}"))}");
+            throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
     }
 
     private async Task EnsureRoleAsync(
