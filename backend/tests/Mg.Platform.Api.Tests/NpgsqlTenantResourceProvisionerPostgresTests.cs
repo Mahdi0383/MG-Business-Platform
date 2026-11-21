@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Mg.Provisioning.Agent.Api;
 using Mg.Provisioning.Agent.Core;
@@ -11,6 +12,176 @@ namespace Mg.Platform.Api.Tests;
 [Collection("AgentProvisioningPostgres")]
 public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 {
+    [Theory]
+    [InlineData("after-owner-role-created", false, false, false, false, false)]
+    [InlineData("after-application-role-created", false, false, false, false, false)]
+    [InlineData("after-owner-membership-ensured", false, false, false, false, false)]
+    [InlineData("after-database-created-before-marker", true, true, false, false, false)]
+    [InlineData("after-database-public-acl-revoked-before-marker", true, true, false, false, false)]
+    [InlineData("after-database-marker-written-before-access-configuration", true, true, true, false, false)]
+    [InlineData("after-database-access-configured-before-schema", true, true, true, false, false)]
+    [InlineData("after-owner-readiness-before-tenant-baseline", true, true, true, false, false)]
+    [InlineData("after-tenant-baseline-applied-before-runtime-grants", true, true, true, true, false)]
+    [InlineData("after-runtime-grants-applied", true, true, true, true, true)]
+    public async Task HardProcessTerminationAtExternalSideEffectBoundaryRecoversOnRetry(
+        string boundary,
+        bool rolesExpected,
+        bool databaseExpected,
+        bool markerExpected,
+        bool baselineExpected,
+        bool runtimeGrantExpected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(boundary);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal(rolesExpected, await fixture.TenantRolesExistAsync());
+        Assert.Equal(databaseExpected, await fixture.DatabaseExistsAsync());
+
+        if (databaseExpected)
+        {
+            Assert.Equal(markerExpected, await fixture.DatabaseMarkerMatchesAsync());
+            Assert.Equal(baselineExpected, await fixture.TenantBaselineMigrationExistsAsync());
+            if (baselineExpected)
+                Assert.Equal(runtimeGrantExpected, await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+            else
+                Assert.False(runtimeGrantExpected);
+        }
+
+        // Retry in a new process context after the original worker was forcibly killed.
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
+    [Theory]
+    [InlineData("after-database-public-acl-revoked-during-access-configuration", false, false, false)]
+    [InlineData("after-application-database-connect-granted", true, false, false)]
+    [InlineData("after-control-database-connect-granted", true, true, false)]
+    [InlineData("after-runtime-public-schema-revoked", true, true, false)]
+    [InlineData("after-runtime-public-tables-revoked", true, true, false)]
+    [InlineData("after-runtime-public-functions-revoked", true, true, false)]
+    [InlineData("after-runtime-default-function-privileges-revoked", true, true, false)]
+    [InlineData("after-runtime-schema-usage-granted", true, true, false)]
+    [InlineData("after-runtime-mutable-table-privileges-granted", true, true, false)]
+    [InlineData("after-runtime-read-only-table-privileges-granted", true, true, true)]
+    public async Task HardProcessTerminationAtEachDatabaseAndRuntimePrivilegeMutationRecovers(
+        string boundary,
+        bool applicationConnectExpected,
+        bool controlConnectExpected,
+        bool runtimeReadyExpected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(boundary);
+        Assert.NotEqual(0, exitCode);
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
+        Assert.Equal(applicationConnectExpected, await fixture.TenantApplicationCanConnectAsync());
+        Assert.Equal(controlConnectExpected, await fixture.TenantControlCanConnectAsync());
+
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        Assert.Equal(runtimeReadyExpected, await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task HardProcessTerminationAfterPreparedCredentialInsertRollsBackAndRetryCreatesSingleRow()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var keys = CreateCrashTestKeyRing();
+        using var protector = new AgentCredentialProtector("old", keys);
+        await using var dataSource = NpgsqlDataSource.Create(fixture.ControlConnectionString);
+        var store = new AgentProvisioningOperationStore(dataSource, protector);
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(
+            "after-prepared-credential-inserted", "ledger-prepare", "old", keys["old"], keys["new"]);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal(0, await fixture.OperationRowCountAsync());
+
+        _ = await store.GetOrCreatePreparedCredentialsAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            _ => ValueTask.FromResult(fixture.Credentials), CancellationToken.None);
+
+        Assert.Equal("Prepared", await store.GetPhaseAsync(
+            fixture.TenantId, fixture.IdempotencyKey, CancellationToken.None));
+        Assert.Equal(1, await fixture.OperationRowCountAsync());
+    }
+
+    [Fact]
+    public async Task HardProcessTerminationAfterCredentialRewrapRollsBackAndRetryRewraps()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var keys = CreateCrashTestKeyRing();
+        using var oldProtector = new AgentCredentialProtector("old", keys);
+        await using var dataSource = NpgsqlDataSource.Create(fixture.ControlConnectionString);
+        var oldStore = new AgentProvisioningOperationStore(dataSource, oldProtector);
+        _ = await oldStore.GetOrCreatePreparedCredentialsAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            _ => ValueTask.FromResult(fixture.Credentials), CancellationToken.None);
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(
+            "after-credential-rewrapped", "ledger-rewrap", "new", keys["old"], keys["new"]);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal("old", await fixture.StoredCredentialKeyIdAsync());
+
+        using var newProtector = new AgentCredentialProtector("new", keys);
+        var newStore = new AgentProvisioningOperationStore(dataSource, newProtector);
+        Assert.Equal(1, await newStore.RewrapStoredCredentialsForTenantAsync(fixture.TenantId, 100, CancellationToken.None));
+        Assert.Equal("new", await fixture.StoredCredentialKeyIdAsync());
+    }
+
+    [Fact]
+    public async Task HardProcessTerminationAfterPhaseUpdateRollsBackAndRetryAdvances()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var keys = CreateCrashTestKeyRing();
+        using var protector = new AgentCredentialProtector("old", keys);
+        await using var dataSource = NpgsqlDataSource.Create(fixture.ControlConnectionString);
+        var store = new AgentProvisioningOperationStore(dataSource, protector);
+        _ = await store.GetOrCreatePreparedCredentialsAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            _ => ValueTask.FromResult(fixture.Credentials), CancellationToken.None);
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(
+            "after-phase-updated", "ledger-phase", "old", keys["old"], keys["new"]);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal("Prepared", await store.GetPhaseAsync(
+            fixture.TenantId, fixture.IdempotencyKey, CancellationToken.None));
+
+        await store.AdvancePhaseAsync(
+            fixture.TenantId, fixture.IdempotencyKey, "Prepared", "DatabaseCreated", CancellationToken.None);
+        Assert.Equal("DatabaseCreated", await store.GetPhaseAsync(
+            fixture.TenantId, fixture.IdempotencyKey, CancellationToken.None));
+    }
+
+    private static Dictionary<string, string> CreateCrashTestKeyRing() =>
+        new(StringComparer.Ordinal)
+        {
+            ["old"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
+            ["new"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        };
+
     [Fact]
     public async Task CreatesTenantDatabaseRolesAppliesBaselineAndRecoversIdempotently()
     {
@@ -539,6 +710,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public Guid TenantId { get; }
         public Guid IdempotencyKey { get; }
         public string DatabaseName { get; }
+        public string ControlConnectionString => controlConnectionString;
         public AgentProvisioningCredentials Credentials { get; }
         public string ApplicationConnectionString => Credentials.ApplicationConnectionString;
         private string OwnerConnectionString => Credentials.OwnerConnectionString;
@@ -952,6 +1124,128 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await command.ExecuteNonQueryAsync();
         }
 
+        public async Task<int> KillCrashWorkerAtBoundaryAsync(
+            string boundary,
+            string mode = "tenant",
+            string currentKeyId = "old",
+            string? oldKey = null,
+            string? newKey = null)
+        {
+            var configuration = Directory.GetParent(
+                AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))?.Name
+                ?? "Release";
+            var workerPath = Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory,
+                "../../../../Mg.Provisioning.Agent.CrashWorker/bin",
+                configuration,
+                "net10.0",
+                "Mg.Provisioning.Agent.CrashWorker.dll"));
+            if (!File.Exists(workerPath))
+                throw new FileNotFoundException("The crash worker must be built with the PostgreSQL test project.", workerPath);
+
+            var application = new NpgsqlConnectionStringBuilder(Credentials.ApplicationConnectionString);
+            var owner = new NpgsqlConnectionStringBuilder(Credentials.OwnerConnectionString);
+            var start = new ProcessStartInfo("dotnet")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            start.ArgumentList.Add(workerPath);
+            start.Environment["MG_CRASH_WORKER_MODE"] = mode;
+            start.Environment["MG_CRASH_WORKER_CONTROL_CONNECTION"] = controlConnectionString;
+            start.Environment["MG_CRASH_WORKER_TENANT_ID"] = TenantId.ToString("D");
+            start.Environment["MG_CRASH_WORKER_IDEMPOTENCY_KEY"] = IdempotencyKey.ToString("D");
+            start.Environment["MG_CRASH_WORKER_BOUNDARY"] = boundary;
+            if (string.Equals(mode, "tenant", StringComparison.Ordinal))
+            {
+                start.Environment["MG_CRASH_WORKER_APP_PASSWORD"] = application.Password;
+                start.Environment["MG_CRASH_WORKER_OWNER_PASSWORD"] = owner.Password;
+            }
+            else
+            {
+                start.Environment["MG_CRASH_WORKER_CURRENT_KEY_ID"] = currentKeyId;
+                start.Environment["MG_CRASH_WORKER_KEY_OLD"] = oldKey
+                    ?? throw new ArgumentNullException(nameof(oldKey));
+                start.Environment["MG_CRASH_WORKER_KEY_NEW"] = newKey
+                    ?? throw new ArgumentNullException(nameof(newKey));
+                start.Environment["MG_CRASH_WORKER_APPLICATION_CONNECTION"] = Credentials.ApplicationConnectionString;
+                start.Environment["MG_CRASH_WORKER_OWNER_CONNECTION"] = Credentials.OwnerConnectionString;
+            }
+
+            using var process = Process.Start(start)
+                ?? throw new InvalidOperationException("Could not start the provisioning crash worker.");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var standardError = process.StandardError.ReadToEndAsync(timeout.Token);
+            var expectedSignal = $"MG_CRASH_BOUNDARY_REACHED:{boundary}";
+            var reached = false;
+
+            try
+            {
+                while (!process.HasExited)
+                {
+                    var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
+                    if (line is null)
+                        break;
+                    if (string.Equals(line, expectedSignal, StringComparison.Ordinal))
+                    {
+                        reached = true;
+                        process.Kill(entireProcessTree: true);
+                        break;
+                    }
+                }
+
+                if (!reached)
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                    var error = await standardError;
+                    throw new InvalidOperationException(
+                        $"Crash worker exited before reaching boundary '{boundary}'. Exit code: {process.ExitCode}. stderr: {error}");
+                }
+
+                await process.WaitForExitAsync(timeout.Token);
+                _ = await standardError;
+                return process.ExitCode;
+            }
+            catch
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+                throw;
+            }
+        }
+
+        public async Task<int> OperationRowCountAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT count(*) FROM mg_agent.provisioning_operations WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;",
+                connection);
+            command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, TenantId);
+            command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, IdempotencyKey);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async Task<string> StoredCredentialKeyIdAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT credential_key_id FROM mg_agent.provisioning_operations WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key;",
+                connection);
+            command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, TenantId);
+            command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, IdempotencyKey);
+            return (string)(await command.ExecuteScalarAsync()
+                ?? throw new InvalidOperationException("Crash-test provisioning ledger row was not found."));
+        }
+
         public async Task<bool> TenantRolesExistAsync()
         {
             await using var connection = new NpgsqlConnection(adminConnectionString);
@@ -987,6 +1281,28 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 "SELECT has_schema_privilege(@role, 'mg', 'USAGE');", owner);
             command.Parameters.AddWithValue("role", NpgsqlDbType.Text, $"mg_tenant_{TenantId:N}_app");
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantApplicationCanConnectAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_database_privilege(@role, @database, 'CONNECT');", admin);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, applicationRoleName);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantControlCanConnectAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_database_privilege(@role, @database, 'CONNECT');", admin);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
             return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 

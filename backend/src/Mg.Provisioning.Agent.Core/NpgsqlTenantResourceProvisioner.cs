@@ -23,6 +23,19 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
     private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
+    private readonly Func<CancellationToken, Task>? afterRuntimeGrantsApplied;
+    private readonly Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker;
+    private readonly Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema;
+    private readonly Func<CancellationToken, Task>? afterDatabasePublicAclRevokedDuringAccessConfiguration;
+    private readonly Func<CancellationToken, Task>? afterApplicationDatabaseConnectGranted;
+    private readonly Func<CancellationToken, Task>? afterControlDatabaseConnectGranted;
+    private readonly Func<CancellationToken, Task>? afterRuntimePublicSchemaRevoked;
+    private readonly Func<CancellationToken, Task>? afterRuntimePublicTablesRevoked;
+    private readonly Func<CancellationToken, Task>? afterRuntimePublicFunctionsRevoked;
+    private readonly Func<CancellationToken, Task>? afterRuntimeDefaultFunctionPrivilegesRevoked;
+    private readonly Func<CancellationToken, Task>? afterRuntimeSchemaUsageGranted;
+    private readonly Func<CancellationToken, Task>? afterRuntimeMutableTablePrivilegesGranted;
+    private readonly Func<CancellationToken, Task>? afterRuntimeReadOnlyTablePrivilegesGranted;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -37,7 +50,20 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
         Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
-        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null,
+        Func<CancellationToken, Task>? afterRuntimeGrantsApplied = null,
+        Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker = null,
+        Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema = null,
+        Func<CancellationToken, Task>? afterDatabasePublicAclRevokedDuringAccessConfiguration = null,
+        Func<CancellationToken, Task>? afterApplicationDatabaseConnectGranted = null,
+        Func<CancellationToken, Task>? afterControlDatabaseConnectGranted = null,
+        Func<CancellationToken, Task>? afterRuntimePublicSchemaRevoked = null,
+        Func<CancellationToken, Task>? afterRuntimePublicTablesRevoked = null,
+        Func<CancellationToken, Task>? afterRuntimePublicFunctionsRevoked = null,
+        Func<CancellationToken, Task>? afterRuntimeDefaultFunctionPrivilegesRevoked = null,
+        Func<CancellationToken, Task>? afterRuntimeSchemaUsageGranted = null,
+        Func<CancellationToken, Task>? afterRuntimeMutableTablePrivilegesGranted = null,
+        Func<CancellationToken, Task>? afterRuntimeReadOnlyTablePrivilegesGranted = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -46,6 +72,19 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
+        this.afterRuntimeGrantsApplied = afterRuntimeGrantsApplied;
+        this.afterDatabasePublicAclRevokedBeforeMarker = afterDatabasePublicAclRevokedBeforeMarker;
+        this.afterDatabaseAccessConfiguredBeforeSchema = afterDatabaseAccessConfiguredBeforeSchema;
+        this.afterDatabasePublicAclRevokedDuringAccessConfiguration = afterDatabasePublicAclRevokedDuringAccessConfiguration;
+        this.afterApplicationDatabaseConnectGranted = afterApplicationDatabaseConnectGranted;
+        this.afterControlDatabaseConnectGranted = afterControlDatabaseConnectGranted;
+        this.afterRuntimePublicSchemaRevoked = afterRuntimePublicSchemaRevoked;
+        this.afterRuntimePublicTablesRevoked = afterRuntimePublicTablesRevoked;
+        this.afterRuntimePublicFunctionsRevoked = afterRuntimePublicFunctionsRevoked;
+        this.afterRuntimeDefaultFunctionPrivilegesRevoked = afterRuntimeDefaultFunctionPrivilegesRevoked;
+        this.afterRuntimeSchemaUsageGranted = afterRuntimeSchemaUsageGranted;
+        this.afterRuntimeMutableTablePrivilegesGranted = afterRuntimeMutableTablePrivilegesGranted;
+        this.afterRuntimeReadOnlyTablePrivilegesGranted = afterRuntimeReadOnlyTablePrivilegesGranted;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -144,6 +183,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         // after that externalized schema mutation and immediately before privilege grants.
         await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await ApplyRuntimeGrantsAsync(connection, appRole, cancellationToken);
+        if (afterRuntimeGrantsApplied is not null)
+            await afterRuntimeGrantsApplied(cancellationToken);
     }
 
     public async Task<bool> VerifyRuntimeAsync(
@@ -829,7 +870,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             if (string.IsNullOrEmpty(state.Comment))
             {
                 // Recover only the crash window after CREATE DATABASE and before its marker.
-                if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
+                if (!await IsFreshDatabaseAsync(ownerConnectionString, databaseName, cancellationToken))
                     throw new AgentProvisioningConflictException("Unmarked tenant database is not empty and cannot be safely adopted.");
                 await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
                 state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
@@ -848,11 +889,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (afterDatabaseMarkerWrittenBeforeAccessConfiguration is not null)
             await afterDatabaseMarkerWrittenBeforeAccessConfiguration(cancellationToken);
         await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
+        if (afterDatabaseAccessConfiguredBeforeSchema is not null)
+            await afterDatabaseAccessConfiguredBeforeSchema(cancellationToken);
     }
 
-    private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
+    private async Task<bool> IsFreshDatabaseAsync(
+        string ownerConnectionString, string databaseName, CancellationToken cancellationToken)
     {
-        var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+        // PUBLIC CONNECT is deliberately revoked before the immutable marker is written.
+        // Recovery must inspect the unmarked database through its owner, not the control role.
+        var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString)
         {
             Database = databaseName,
             Pooling = false
@@ -915,6 +961,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             "REVOKE ALL ON DATABASE " + QuoteIdentifier(databaseName) + " FROM PUBLIC;", connection))
             await revokePublic.ExecuteNonQueryAsync(cancellationToken);
 
+        if (afterDatabasePublicAclRevokedBeforeMarker is not null)
+            await afterDatabasePublicAclRevokedBeforeMarker(cancellationToken);
+
         await VerifyTenantOwnerConnectionAsync(
             connection, tenantId, databaseName, cancellationToken,
             requireDatabaseMarker: false);
@@ -947,13 +996,26 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
         await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
-        var sql = await FormatSqlAsync(connection,
-            """
-            SELECT format(
-                'REVOKE ALL ON DATABASE %I FROM PUBLIC; GRANT CONNECT ON DATABASE %I TO %I; GRANT CONNECT ON DATABASE %I TO %I;',
-                @database, @database, @app_role, @database, @control_role);
-            """, cancellationToken, ("database", databaseName), ("app_role", appRole), ("control_role", controlRoleName));
-        await ExecuteDdlAsync(connection, sql, cancellationToken);
+        var revokePublicSql = await FormatSqlAsync(connection,
+            "SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC;', @database);",
+            cancellationToken, ("database", databaseName));
+        await ExecuteDdlAsync(connection, revokePublicSql, cancellationToken);
+        if (afterDatabasePublicAclRevokedDuringAccessConfiguration is not null)
+            await afterDatabasePublicAclRevokedDuringAccessConfiguration(cancellationToken);
+
+        var applicationConnectSql = await FormatSqlAsync(connection,
+            "SELECT format('GRANT CONNECT ON DATABASE %I TO %I;', @database, @app_role);",
+            cancellationToken, ("database", databaseName), ("app_role", appRole));
+        await ExecuteDdlAsync(connection, applicationConnectSql, cancellationToken);
+        if (afterApplicationDatabaseConnectGranted is not null)
+            await afterApplicationDatabaseConnectGranted(cancellationToken);
+
+        var controlConnectSql = await FormatSqlAsync(connection,
+            "SELECT format('GRANT CONNECT ON DATABASE %I TO %I;', @database, @control_role);",
+            cancellationToken, ("database", databaseName), ("control_role", controlRoleName));
+        await ExecuteDdlAsync(connection, controlConnectSql, cancellationToken);
+        if (afterControlDatabaseConnectGranted is not null)
+            await afterControlDatabaseConnectGranted(cancellationToken);
     }
 
     private static async Task SetTenantMigrationContextAsync(
@@ -1000,19 +1062,46 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private async Task ApplyRuntimeGrantsAsync(
         NpgsqlConnection connection, string appRole, CancellationToken cancellationToken)
     {
-        var grantSql = await FormatSqlAsync(connection,
-            """
-            SELECT format(
-                'REVOKE ALL ON SCHEMA mg FROM PUBLIC;
-                 REVOKE ALL ON ALL TABLES IN SCHEMA mg FROM PUBLIC;
-                 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC;
-                 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-                 GRANT USAGE ON SCHEMA mg TO %I;
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg.business_settings, mg.users, mg.customers, mg.user_roles, mg.role_permissions, mg.outbox_messages TO %I;
-                 GRANT SELECT ON TABLE mg.roles, mg.permissions, mg.tenant_identity, mg.schema_migrations, mg.audit_events TO %I;',
-                @app_role, @app_role, @app_role, @app_role);
-            """, cancellationToken, ("app_role", appRole));
-        await ExecuteDdlAsync(connection, grantSql, cancellationToken);
+        var revokePublicSchemaSql = "REVOKE ALL ON SCHEMA mg FROM PUBLIC;";
+        await ExecuteDdlAsync(connection, revokePublicSchemaSql, cancellationToken);
+        if (afterRuntimePublicSchemaRevoked is not null)
+            await afterRuntimePublicSchemaRevoked(cancellationToken);
+
+        var revokePublicTablesSql = "REVOKE ALL ON ALL TABLES IN SCHEMA mg FROM PUBLIC;";
+        await ExecuteDdlAsync(connection, revokePublicTablesSql, cancellationToken);
+        if (afterRuntimePublicTablesRevoked is not null)
+            await afterRuntimePublicTablesRevoked(cancellationToken);
+
+        var revokePublicFunctionsSql = "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA mg FROM PUBLIC;";
+        await ExecuteDdlAsync(connection, revokePublicFunctionsSql, cancellationToken);
+        if (afterRuntimePublicFunctionsRevoked is not null)
+            await afterRuntimePublicFunctionsRevoked(cancellationToken);
+
+        var revokeDefaultFunctionPrivilegesSql = "ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;";
+        await ExecuteDdlAsync(connection, revokeDefaultFunctionPrivilegesSql, cancellationToken);
+        if (afterRuntimeDefaultFunctionPrivilegesRevoked is not null)
+            await afterRuntimeDefaultFunctionPrivilegesRevoked(cancellationToken);
+
+        var grantSchemaUsageSql = await FormatSqlAsync(connection,
+            "SELECT format('GRANT USAGE ON SCHEMA mg TO %I;', @app_role);",
+            cancellationToken, ("app_role", appRole));
+        await ExecuteDdlAsync(connection, grantSchemaUsageSql, cancellationToken);
+        if (afterRuntimeSchemaUsageGranted is not null)
+            await afterRuntimeSchemaUsageGranted(cancellationToken);
+
+        var grantMutableTablesSql = await FormatSqlAsync(connection,
+            "SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE mg.business_settings, mg.users, mg.customers, mg.user_roles, mg.role_permissions, mg.outbox_messages TO %I;', @app_role);",
+            cancellationToken, ("app_role", appRole));
+        await ExecuteDdlAsync(connection, grantMutableTablesSql, cancellationToken);
+        if (afterRuntimeMutableTablePrivilegesGranted is not null)
+            await afterRuntimeMutableTablePrivilegesGranted(cancellationToken);
+
+        var grantReadOnlyTablesSql = await FormatSqlAsync(connection,
+            "SELECT format('GRANT SELECT ON TABLE mg.roles, mg.permissions, mg.tenant_identity, mg.schema_migrations, mg.audit_events TO %I;', @app_role);",
+            cancellationToken, ("app_role", appRole));
+        await ExecuteDdlAsync(connection, grantReadOnlyTablesSql, cancellationToken);
+        if (afterRuntimeReadOnlyTablePrivilegesGranted is not null)
+            await afterRuntimeReadOnlyTablePrivilegesGranted(cancellationToken);
     }
 
     private static Task<string> FormatSqlAsync(
