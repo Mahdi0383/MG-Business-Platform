@@ -90,15 +90,26 @@ This remains partial acceptance evidence, not a claim that every secret-manager 
 
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
-- [ ] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires.
-- [ ] Force renewal to return false (lease reclaimed or token fenced); verify the handler cancellation token is cancelled and the worker never calls the success transition for that claim.
-- [ ] Make the heartbeat storage call fail or time out; verify the handler is cancelled, the claim is not marked succeeded/failed by the stale worker, and normal lease expiry/reclaim recovers the job.
-- [ ] Cancel host shutdown while the handler is blocked; verify cancellation propagates, heartbeat stops, and the worker does not mark the job successful during shutdown.
-- [ ] Make the handler ignore cancellation and return success after the lease is lost; verify the worker still refuses completion and the reclaimed claim remains protected by its new fencing token.
+- [x] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires. (PostgreSQL worker integration test; exact evidence recorded below.)
+- [x] Force renewal to return false (lease reclaimed or token fenced); verify the handler cancellation token is cancelled and the worker never calls the success transition for that claim.
+- [x] Make the heartbeat storage call fail or time out; verify the handler is cancelled, the claim is not marked succeeded/failed by the stale worker, and normal lease expiry/reclaim recovers the job.
+- [x] Cancel host shutdown while the handler is blocked; verify cancellation propagates, heartbeat stops, and the worker does not mark the job successful during shutdown.
+- [x] Make the handler ignore cancellation and return success after the lease is lost; verify the worker still refuses completion and the reclaimed claim remains protected by its new fencing token.
 - [ ] Race heartbeat renewal with handler completion repeatedly; verify completion succeeds only while the exact lease owner/token is still unexpired.
 - [ ] Verify heartbeat exceptions and handler exceptions are observable through sanitized logs/metrics without logging credentials or connection strings.
 
 The current PostgreSQL lease integration suite validates lease-store fencing and recovery. These worker-level orchestration checks are a separate acceptance gate; do not infer that they have passed from lease-store tests alone.
+
+### Worker orchestration test evidence (partial)
+
+Exact head `1e40a56612de881963e853dd03aa8bacb82893fa`:
+- PostgreSQL 17 integration [run 44945101453](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44945101453): **166 passed, 0 failed, 0 skipped**.
+- Full backend/web [run 44945101472](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44945101472): backend tests 166 passed; isolated agent API Release build 0 warnings/0 errors; frontend 20 passed; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+The worker integration tests now exercise actual `TenantProvisioningWorker.ProcessOneAsync` against disposable PostgreSQL with short internal test intervals while preserving production defaults (2-minute lease, 5-second poll, 30-second renewal). They verify successful heartbeat renewal with an unchanged fencing token, lease-loss cancellation, heartbeat database failure and subsequent lease reclaim with a new token, host shutdown cancellation and cessation of renewals, an uncooperative handler returning after lease loss, and completion racing with lease expiry. A generic handler exception test confirms only `PROVISIONING_FAILED` is persisted rather than exception text.
+
+Still open: repeated heartbeat/completion race stress, assertions over sanitized heartbeat/handler logs and metrics, and any production-host/staging exercise. This is test evidence only; it does not authorize enabling the worker.
+
 
 ## 5. Platform worker rollout
 - [ ] Keep Provisioning:WorkerEnabled=false until all agent, database, secret-manager and fault-injection gates above pass.
