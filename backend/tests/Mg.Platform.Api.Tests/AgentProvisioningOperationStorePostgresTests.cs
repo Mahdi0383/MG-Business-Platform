@@ -297,6 +297,32 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task TenantProvisioningWaitsForControlPlaneMaintenanceLock()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var maintenanceConnection = await fixture.AcquireControlPlaneMaintenanceLockAsync();
+        var actionStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var execution = fixture.Store.TryExecuteTenantExclusiveAsync(
+            Guid.NewGuid(),
+            _ =>
+            {
+                actionStarted.TrySetResult(true);
+                return Task.FromResult("provisioned");
+            });
+
+        await Task.Delay(TimeSpan.FromMilliseconds(150));
+        Assert.False(actionStarted.Task.IsCompleted);
+
+        await maintenanceConnection.DisposeAsync();
+        var result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Acquired);
+        Assert.Equal("provisioned", result.Value);
+        Assert.True(actionStarted.Task.Result);
+    }
+
+    [Fact]
     public async Task RejectsWrongDatabaseAndEncryptionWithoutCertificateValidation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -623,6 +649,15 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             }
             await using var command = new NpgsqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<NpgsqlConnection> AcquireControlPlaneMaintenanceLockAsync()
+        {
+            var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT pg_advisory_lock(19783, 20562);", connection);
+            await command.ExecuteNonQueryAsync();
+            return connection;
         }
 
         public async Task<bool> HasPublicAclAsync(string scope, string privilege)
