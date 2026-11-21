@@ -8,6 +8,7 @@ using Mg.Platform.Api.Endpoints;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.RateLimiting;
@@ -25,8 +26,8 @@ public sealed class PlatformBusinessEndpointsPostgresTests
     public async Task ConcurrentSameSlugHttpRequestsReturnOneCreatedAndPersistOneOutboxJob()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
-        using var server = CreateServer(fixture.TestConnection);
-        using var client = server.CreateClient();
+        using var host = CreateHost(fixture.TestConnection);
+        using var client = host.GetTestClient();
 
         async Task<HttpResponseMessage> CreateAsync(int index)
         {
@@ -42,8 +43,8 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         var responses = await Task.WhenAll(Enumerable.Range(0, 16).Select(CreateAsync));
         try
         {
-            Assert.Single(responses, response => response.StatusCode == StatusCodes.Status201Created);
-            Assert.Equal(15, responses.Count(response => response.StatusCode == StatusCodes.Status409Conflict));
+            Assert.Single(responses, response => response.StatusCode == System.Net.HttpStatusCode.Created);
+            Assert.Equal(15, responses.Count(response => response.StatusCode == System.Net.HttpStatusCode.Conflict));
             Assert.All(responses, response =>
                 Assert.Contains(response.StatusCode, new[] {
                     System.Net.HttpStatusCode.Created,
@@ -94,42 +95,47 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         Assert.Equal(0, await fixture.CountJobsAsync());
     }
 
-    private static TestServer CreateServer(string connectionString) =>
-        new(new WebHostBuilder()
-            .ConfigureServices(services =>
+    private static IHost CreateHost(string connectionString) =>
+        new HostBuilder()
+            .ConfigureWebHost(webHost =>
             {
-                services.AddRouting();
-                services.AddDbContext<PlatformDbContext>(options => options.UseNpgsql(connectionString));
-                services.AddScoped<BusinessRegistryService>();
-                services.AddAuthentication("MG-Test")
-                    .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("MG-Test", _ => { });
-                services.AddAuthorization(options =>
-                    options.AddPolicy("mg-creator", policy => policy
-                        .RequireAuthenticatedUser()
-                        .RequireClaim("mg_platform_role", "PlatformOwner", "PlatformAdministrator")));
-                services.AddRateLimiter(options =>
+                webHost.UseTestServer();
+                webHost.ConfigureServices(services =>
                 {
-                    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-                    options.AddPolicy("creator-bootstrap", context =>
-                        RateLimitPartition.GetFixedWindowLimiter(
-                            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-                            _ => new FixedWindowRateLimiterOptions
-                            {
-                                PermitLimit = 30,
-                                Window = TimeSpan.FromMinutes(1),
-                                QueueLimit = 0,
-                                AutoReplenishment = false
-                            }));
+                    services.AddRouting();
+                    services.AddDbContext<PlatformDbContext>(options => options.UseNpgsql(connectionString));
+                    services.AddScoped<BusinessRegistryService>();
+                    services.AddAuthentication("MG-Test")
+                        .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>("MG-Test", _ => { });
+                    services.AddAuthorization(options =>
+                        options.AddPolicy("mg-creator", policy => policy
+                            .RequireAuthenticatedUser()
+                            .RequireClaim("mg_platform_role", "PlatformOwner", "PlatformAdministrator")));
+                    services.AddRateLimiter(options =>
+                    {
+                        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                        options.AddPolicy("creator-bootstrap", context =>
+                            RateLimitPartition.GetFixedWindowLimiter(
+                                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                                _ => new FixedWindowRateLimiterOptions
+                                {
+                                    PermitLimit = 30,
+                                    Window = TimeSpan.FromMinutes(1),
+                                    QueueLimit = 0,
+                                    AutoReplenishment = false
+                                }));
+                    });
+                });
+                webHost.Configure(app =>
+                {
+                    app.UseRouting();
+                    app.UseRateLimiter();
+                    app.UseAuthentication();
+                    app.UseAuthorization();
+                    app.UseEndpoints(endpoints => endpoints.MapPlatformEndpoints());
                 });
             })
-            .Configure(app =>
-            {
-                app.UseRouting();
-                app.UseRateLimiter();
-                app.UseAuthentication();
-                app.UseAuthorization();
-                app.UseEndpoints(endpoints => endpoints.MapPlatformEndpoints());
-            }));
+            .Start();
 
     private sealed class TestAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
