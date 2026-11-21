@@ -5,6 +5,7 @@ using Mg.Platform.Api.Provisioning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Xunit;
@@ -153,7 +154,8 @@ public sealed class TenantProvisioningWorkerPostgresTests
             }
         });
         using var services = CreateServices(fixture, handler);
-        var worker = CreateWorker(services);
+        var logger = new RecordingLogger<TenantProvisioningWorker>();
+        var worker = CreateWorker(services, logger);
 
         var processing = worker.ProcessOneAsync("heartbeat-db-failure-worker", CancellationToken.None);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
@@ -182,6 +184,48 @@ public sealed class TenantProvisioningWorkerPostgresTests
         Assert.Equal(job.Id, recovered.Id);
         Assert.Equal("heartbeat-recovery-worker", recovered.LeaseOwner);
         Assert.NotEqual(stored.LeaseToken, recovered.LeaseToken);
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("Lease heartbeat failed", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages, message =>
+            message.Contains("127.0.0.1", StringComparison.Ordinal)
+            || message.Contains("unavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RepeatedHeartbeatCompletionRacesNeverActivateAfterLeaseExpiry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var (business, job) = await fixture.AddBusinessAndJobAsync($"heartbeat-race-{attempt}");
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var handler = new DelegateHandler(async (_, _) =>
+            {
+                started.TrySetResult();
+                await release.Task;
+            });
+            using var services = CreateServices(fixture, handler);
+            var worker = CreateWorker(services, renewalInterval: TimeSpan.FromMilliseconds(5));
+
+            var processing = worker.ProcessOneAsync($"race-worker-{attempt}", CancellationToken.None);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await Task.Delay(TimeSpan.FromMilliseconds(12));
+            await fixture.ExpireLeaseAsync(job.Id);
+            release.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(3));
+
+            var stored = await fixture.ReadJobAsync(job.Id);
+            var storedBusiness = await fixture.ReadBusinessAsync(business.Id);
+            Assert.Equal(TenantProvisioningStatus.Running, stored.Status);
+            Assert.Equal($"race-worker-{attempt}", stored.LeaseOwner);
+            Assert.NotNull(stored.LeaseToken);
+            Assert.Equal("PendingProvisioning", storedBusiness.Status);
+            Assert.Null(storedBusiness.ActivatedAtUtc);
+
+            await fixture.MarkJobDeadLetterAsync(job.Id);
+        }
     }
 
     [Fact]
@@ -192,7 +236,8 @@ public sealed class TenantProvisioningWorkerPostgresTests
         var handler = new DelegateHandler((_, _) =>
             Task.FromException(new InvalidOperationException("password=must-never-be-persisted")));
         using var services = CreateServices(fixture, handler);
-        var worker = CreateWorker(services);
+        var logger = new RecordingLogger<TenantProvisioningWorker>();
+        var worker = CreateWorker(services, logger);
 
         await worker.ProcessOneAsync("handler-error-worker", CancellationToken.None);
 
@@ -201,6 +246,10 @@ public sealed class TenantProvisioningWorkerPostgresTests
         Assert.Equal(TenantProvisioningStatus.Retry, stored.Status);
         Assert.Equal("PROVISIONING_FAILED", stored.LastErrorCode);
         Assert.DoesNotContain("password", stored.LastErrorCode, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("InvalidOperationException", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Messages, message =>
+            message.Contains("password=must-never-be-persisted", StringComparison.Ordinal));
         Assert.Null(stored.LeaseOwner);
         Assert.Null(stored.LeaseToken);
         Assert.Null(stored.LeaseExpiresAtUtc);
@@ -292,7 +341,10 @@ public sealed class TenantProvisioningWorkerPostgresTests
         return services.BuildServiceProvider();
     }
 
-    private static TenantProvisioningWorker CreateWorker(IServiceProvider services)
+    private static TenantProvisioningWorker CreateWorker(
+        IServiceProvider services,
+        ILogger<TenantProvisioningWorker>? logger = null,
+        TimeSpan? renewalInterval = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -304,10 +356,29 @@ public sealed class TenantProvisioningWorkerPostgresTests
         return new TenantProvisioningWorker(
             services.GetRequiredService<IServiceScopeFactory>(),
             configuration,
-            NullLogger<TenantProvisioningWorker>.Instance,
+            logger ?? NullLogger<TenantProvisioningWorker>.Instance,
             TestLeaseDuration,
             TimeSpan.FromMilliseconds(5),
-            TestRenewalInterval);
+            renewalInterval ?? TestRenewalInterval);
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Messages.Add(formatter(state, exception));
+        }
     }
 
     private sealed class DelegateHandler(
@@ -429,6 +500,22 @@ public sealed class TenantProvisioningWorkerPostgresTests
         }
 
         public void RestoreConnection() => testConnection = stableTestConnection;
+
+        public async Task MarkJobDeadLetterAsync(Guid jobId)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                UPDATE tenant_provisioning_jobs
+                SET status = 'DeadLetter',
+                    lease_owner = NULL,
+                    lease_token = NULL,
+                    lease_expires_at_utc = NULL
+                WHERE id = @job_id;
+                """, connection);
+            command.Parameters.AddWithValue("job_id", jobId);
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
 
         public async Task ExpireLeaseAsync(Guid jobId)
         {
