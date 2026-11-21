@@ -21,6 +21,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
     private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
+    private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -33,13 +34,15 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterApplicationRoleCreated = null,
         Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null,
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
-        Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null)
+        Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
+        Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
         this.afterOwnerMembershipEnsured = afterOwnerMembershipEnsured;
         this.afterDatabaseCreatedBeforeMarker = afterDatabaseCreatedBeforeMarker;
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
+        this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -128,6 +131,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             await VerifyExistingBaselineAsync(connection, tenantId, migration, cancellationToken);
         }
 
+        if (afterTenantBaselineAppliedBeforeRuntimeGrants is not null)
+            await afterTenantBaselineAppliedBeforeRuntimeGrants(cancellationToken);
+        // The baseline script commits its own transaction. Recheck the owner boundary
+        // after that externalized schema mutation and immediately before privilege grants.
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await ApplyRuntimeGrantsAsync(connection, appRole, cancellationToken);
     }
 
