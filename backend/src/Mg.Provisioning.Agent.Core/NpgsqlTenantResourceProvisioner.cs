@@ -23,6 +23,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
     private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
+    private readonly Func<CancellationToken, Task>? afterRuntimeGrantsApplied;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -37,7 +38,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
         Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
-        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null,
+        Func<CancellationToken, Task>? afterRuntimeGrantsApplied = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -46,6 +48,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
+        this.afterRuntimeGrantsApplied = afterRuntimeGrantsApplied;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -144,6 +147,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         // after that externalized schema mutation and immediately before privilege grants.
         await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await ApplyRuntimeGrantsAsync(connection, appRole, cancellationToken);
+        if (afterRuntimeGrantsApplied is not null)
+            await afterRuntimeGrantsApplied(cancellationToken);
     }
 
     public async Task<bool> VerifyRuntimeAsync(
