@@ -713,3 +713,14 @@ The historical entries below remain as an audit trail; statements that the agent
 4. Add production secret-manager and mTLS deployment rehearsals, key rotation/restore, metrics/alerts and staging evidence.
 5. Keep `Provisioning:WorkerEnabled=false`; no merge/deploy without explicit authorization.
 
+
+## 11.12 Migration 006 readiness gate and OpenAPI contract — 2026-11-22
+
+- Added `PlatformSchemaReadinessHealthCheck` and registered it in `/health/ready`. It verifies `business_tenants`, `tenant_provisioning_jobs`, `business_creation_requests`, required idempotency/hash columns and the named primary key. Missing/incomplete migration 006 returns Unhealthy; the check never applies migrations automatically.
+- Added PostgreSQL tests for healthy schema and fail-closed readiness after dropping `business_creation_requests`.
+- Added OpenAPI metadata for required `Idempotency-Key` header and TestServer assertion that it is documented as required and carries UUID/retry guidance.
+- Exact tested code head `6bf8eceba092ff8fba6e586a69e501d804cd472a`: PostgreSQL 17 run `44960616374`, **190 passed, 0 failed, 0 skipped**; backend/web run `44960616393`, backend 190 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR #166 head `5818165f0fde6145bf849bfaad126656cef49bab` adds documentation only after the green code/test head.
+- Migration 006 must be applied via controlled deployment before the new API receives traffic. This readiness gate prevents accidental early serving; it does not replace migration checksum/ordering verification or a production rollout rehearsal. Real OIDC/JWKS, socket/ingress response loss, Vault/mTLS, monitoring, privileged admin controls and staging remain open.
+- Keep PR #166 Draft/unmerged; no deployment. Keep `Provisioning:WorkerEnabled=false`.
+
