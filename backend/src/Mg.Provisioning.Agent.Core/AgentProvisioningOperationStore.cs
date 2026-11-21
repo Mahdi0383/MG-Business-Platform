@@ -374,7 +374,8 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Provisioning phase transitions must advance exactly one step.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await VerifyLedgerBoundaryAsync(connection, null, cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
         await using var command = new NpgsqlCommand(
             """
             UPDATE mg_agent.provisioning_operations
@@ -382,7 +383,7 @@ public sealed class AgentProvisioningOperationStore(
             WHERE tenant_id = @tenant_id
               AND idempotency_key = @idempotency_key
               AND phase = @expected_phase;
-            """, connection);
+            """, connection, transaction);
         command.Parameters.AddWithValue("next_phase", NpgsqlDbType.Text, nextPhase);
         command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
         command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
@@ -391,6 +392,7 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static async Task VerifyLedgerBoundaryAsync(
