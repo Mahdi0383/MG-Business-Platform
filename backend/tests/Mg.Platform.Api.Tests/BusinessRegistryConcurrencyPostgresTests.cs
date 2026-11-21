@@ -76,7 +76,7 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
         Assert.Equal(0, await fixture.CountJobsAsync());
     }
 
-    private sealed class DatabaseFixture : IAsyncDisposable
+    internal sealed class DatabaseFixture : IAsyncDisposable
     {
         private readonly string adminConnection;
         private readonly string schema;
@@ -151,6 +151,8 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
 
             return new DatabaseFixture(adminConnection, schema, testConnection);
         }
+
+        public string TestConnection => testConnection;
 
         public PlatformDbContext CreateContext() =>
             new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
