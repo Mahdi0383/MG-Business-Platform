@@ -22,6 +22,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
+    private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -35,7 +36,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null,
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
-        Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null)
+        Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -43,6 +45,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterDatabaseCreatedBeforeMarker = afterDatabaseCreatedBeforeMarker;
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
+        this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -125,6 +128,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         }
         else
         {
+            if (afterOwnerReadinessBeforeTenantBaseline is not null)
+                await afterOwnerReadinessBeforeTenantBaseline(cancellationToken);
+            // Revalidate immediately before the packaged migration performs DDL and data writes.
+            await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
             var sql = new UTF8Encoding(false, true).GetString(migration.GetSqlBytes().Span);
             await using var command = new NpgsqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync(cancellationToken);
