@@ -93,7 +93,30 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_database_privilege(current_user, current_database(), 'CREATE'),
                        database.datdba = role.oid,
                        role.rolcanlogin,
-                       EXISTS (SELECT 1 FROM pg_auth_members membership WHERE membership.member = role.oid),
+                       EXISTS (
+                           SELECT 1
+                           FROM pg_auth_members membership
+                           WHERE membership.member = role.oid
+                              OR (membership.roleid = role.oid
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM pg_roles control_role
+                                      JOIN pg_roles grantor_role ON grantor_role.oid = membership.grantor
+                                      WHERE control_role.oid = membership.member
+                                        AND control_role.rolname ~ '^mg_agent_control(_[0-9a-f]{12})?$'
+                                        AND control_role.rolcanlogin
+                                        AND control_role.rolcreatedb
+                                        AND control_role.rolcreaterole
+                                        AND NOT control_role.rolsuper
+                                        AND NOT control_role.rolreplication
+                                        AND NOT control_role.rolbypassrls
+                                        AND NOT control_role.rolinherit
+                                        AND grantor_role.rolsuper
+                                        AND membership.admin_option
+                                        AND NOT membership.inherit_option
+                                        AND NOT membership.set_option
+                                  ))
+                       ),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'INSERT'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'UPDATE'),
                        has_table_privilege(current_user, 'mg.tenant_identity', 'DELETE'),
@@ -111,7 +134,34 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                        has_table_privilege(current_user, 'mg.schema_migrations', 'REFERENCES'),
                        has_table_privilege(current_user, 'mg.schema_migrations', 'TRIGGER'),
                        has_table_privilege(current_user, 'mg.audit_events', 'REFERENCES'),
-                       has_table_privilege(current_user, 'mg.audit_events', 'TRIGGER')
+                       has_table_privilege(current_user, 'mg.audit_events', 'TRIGGER'),
+                       role.rolinherit,
+                       has_database_privilege(current_user, current_database(), 'TEMPORARY'),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                           WHERE database_acl.grantee = 0
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_proc routine
+                           JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+                           CROSS JOIN LATERAL aclexplode(
+                               COALESCE(routine.proacl, acldefault('f', routine.proowner))) AS function_acl
+                           WHERE namespace.nspname = 'mg'
+                             AND function_acl.grantee = 0
+                             AND function_acl.privilege_type = 'EXECUTE'
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM pg_namespace tenant_schema
+                           CROSS JOIN LATERAL aclexplode(
+                               COALESCE(tenant_schema.nspacl, acldefault('n', tenant_schema.nspowner))) AS schema_acl
+                           WHERE tenant_schema.nspname = 'mg'
+                             AND schema_acl.grantee = 0
+                             AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                       )
                 FROM mg.tenant_identity AS identity
                 LEFT JOIN mg.schema_migrations AS migration ON TRUE
                 JOIN pg_roles AS role ON role.rolname = current_user
@@ -119,7 +169,7 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 WHERE identity.singleton = TRUE
                 GROUP BY identity.tenant_id, role.oid, role.rolsuper, role.rolcreatedb,
                          role.rolcreaterole, role.rolreplication, role.rolbypassrls,
-                         role.rolcanlogin, database.datdba
+                         role.rolcanlogin, role.rolinherit, database.datdba, database.datacl
                 """,
                 connection);
 
@@ -157,7 +207,12 @@ public sealed class HttpTenantDatabaseProvisioner(HttpClient httpClient) : ITena
                 && !reader.GetBoolean(27)
                 && !reader.GetBoolean(28)
                 && !reader.GetBoolean(29)
-                && !reader.GetBoolean(30);
+                && !reader.GetBoolean(30)
+                && !reader.GetBoolean(31)
+                && !reader.GetBoolean(32)
+                && reader.GetBoolean(33)
+                && reader.GetBoolean(34)
+                && reader.GetBoolean(35);
         }
         catch (NpgsqlException)
         {
