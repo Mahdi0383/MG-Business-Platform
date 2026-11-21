@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Net.Http.Json;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using Mg.Platform.Api.Contracts;
 using Mg.Platform.Api.Data;
@@ -297,6 +298,30 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
     }
 
+
+    [Fact]
+    public async Task OpenApiDocumentsIdempotencyKeyAsRequiredHeaderParameter()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        using var host = CreateHost(fixture.TestConnection);
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync("/openapi/v1.json");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var post = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/platform/businesses/")
+            .GetProperty("post");
+        var header = post.GetProperty("parameters").EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
+
+        Assert.Equal("header", header.GetProperty("in").GetString());
+        Assert.True(header.GetProperty("required").GetBoolean());
+        Assert.Contains("UUID", header.GetProperty("description").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IHost CreateHost(string connectionString, string? loseFirstResponseForKey = null) =>
         new HostBuilder()
             .ConfigureWebHost(webHost =>
@@ -305,6 +330,7 @@ public sealed class PlatformBusinessEndpointsPostgresTests
                 webHost.ConfigureServices(services =>
                 {
                     services.AddRouting();
+                    services.AddOpenApi();
                     services.AddDbContext<PlatformDbContext>(options => options.UseNpgsql(connectionString));
                     services.AddScoped<BusinessRegistryService>();
                     services.AddAuthentication("MG-Test")
@@ -358,7 +384,11 @@ public sealed class PlatformBusinessEndpointsPostgresTests
                             context.Response.Body = originalBody;
                         }
                     });
-                    app.UseEndpoints(endpoints => endpoints.MapPlatformEndpoints());
+                    app.UseEndpoints(endpoints =>
+                    {
+                        endpoints.MapOpenApi();
+                        endpoints.MapPlatformEndpoints();
+                    });
                 });
             })
             .Start();
