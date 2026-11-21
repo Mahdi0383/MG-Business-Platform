@@ -97,6 +97,23 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task AgentHandlerReadinessRejectsPublicSchemaAndLedgerAclGrants()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: true);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+        await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+    }
+
+    [Fact]
     public async Task RevalidatesControlSchemaAclAfterOwnerRoleMutationBeforeApplicationRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -739,6 +756,17 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             var operation = grant ? "GRANT" : "REVOKE";
             await using var command = new NpgsqlCommand(
                 $"{operation} USAGE ON SCHEMA mg_agent {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetControlLedgerPublicSelectPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} SELECT ON TABLE mg_agent.provisioning_operations {(grant ? "TO" : "FROM")} PUBLIC;",
                 admin);
             await command.ExecuteNonQueryAsync();
         }
