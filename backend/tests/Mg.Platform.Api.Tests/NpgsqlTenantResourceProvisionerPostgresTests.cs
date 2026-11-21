@@ -249,6 +249,34 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesOwnerDatabaseAclImmediatelyBeforeTenantBaselineDdlAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterOwnerReadiness(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.False(await fixture.TenantBaselineMigrationExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+    }
+
+    [Fact]
     public async Task RevalidatesOwnerDatabaseAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -465,6 +493,15 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 afterDatabaseCreatedBeforeMarker: null,
                 afterDatabaseMarkerWrittenBeforeAccessConfiguration: null,
                 afterTenantBaselineAppliedBeforeRuntimeGrants: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterOwnerReadiness(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: null,
+                afterDatabaseMarkerWrittenBeforeAccessConfiguration: null,
+                afterTenantBaselineAppliedBeforeRuntimeGrants: null,
+                afterOwnerReadinessBeforeTenantBaseline: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
