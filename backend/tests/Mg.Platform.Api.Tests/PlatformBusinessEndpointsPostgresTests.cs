@@ -64,8 +64,8 @@ public sealed class PlatformBusinessEndpointsPostgresTests
     public async Task BusinessEndpointRejectsUnauthenticatedAndWrongRoleRequestsBeforePersistence()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
-        using var server = CreateServer(fixture.TestConnection);
-        using var client = server.CreateClient();
+        using var host = CreateHost(fixture.TestConnection);
+        using var client = host.GetTestClient();
 
         using var unauthenticated = await client.PostAsJsonAsync(
             "/api/v1/platform/businesses/", new CreateBusinessRequest("No Auth", "no-auth"));
