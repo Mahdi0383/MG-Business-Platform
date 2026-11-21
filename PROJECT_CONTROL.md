@@ -724,3 +724,11 @@ The historical entries below remain as an audit trail; statements that the agent
 - Migration 006 must be applied via controlled deployment before the new API receives traffic. This readiness gate prevents accidental early serving; it does not replace migration checksum/ordering verification or a production rollout rehearsal. Real OIDC/JWKS, socket/ingress response loss, Vault/mTLS, monitoring, privileged admin controls and staging remain open.
 - Keep PR #166 Draft/unmerged; no deployment. Keep `Provisioning:WorkerEnabled=false`.
 
+
+## 11.13 Exact-head revalidation for idempotent business creation — 2026-11-22
+
+- Current Draft PR #166 head `910d343a0e0cbf9679a0f1981ab46bcc7fab646e`; no code changes after tested behavior head `6bf8eceba092ff8fba6e586a69e501d804cd472a`, only acceptance-evidence documentation.
+- Exact current-head PostgreSQL 17 run `44960849679`: **190 passed, 0 failed, 0 skipped**.
+- Exact current-head backend/web run `44960849725`: backend 190 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- PR remains Draft/open/unmerged; no deployment. `Provisioning:WorkerEnabled=false` remains mandatory.
+
