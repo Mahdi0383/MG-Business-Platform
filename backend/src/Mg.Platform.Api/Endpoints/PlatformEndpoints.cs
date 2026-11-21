@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Contracts;
 
@@ -16,6 +18,7 @@ public static class PlatformEndpoints
             Results.Ok(await registry.ListAsync(ct)));
 
         group.MapPost("/", async (CreateBusinessRequest request, HttpContext httpContext,
+            [FromHeader(Name = "Idempotency-Key"), Description("Required non-empty UUID. Reuse the same value when retrying the same logical business-creation request.")] string idempotencyKeyHeader,
             BusinessRegistryService registry, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 160)
@@ -28,7 +31,7 @@ public static class PlatformEndpoints
                 {
                     ["slug"] = ["شناسه باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد."]
                 });
-            if (!Guid.TryParse(httpContext.Request.Headers["Idempotency-Key"], out var idempotencyKey)
+            if (!Guid.TryParse(idempotencyKeyHeader, out var idempotencyKey)
                 || idempotencyKey == Guid.Empty)
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
