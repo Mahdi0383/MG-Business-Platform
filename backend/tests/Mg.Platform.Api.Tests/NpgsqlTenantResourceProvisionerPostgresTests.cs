@@ -97,26 +97,29 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
-    public async Task RefusesProvisioningWhenControlLedgerPublicAclDriftsBeforeRoleCreation()
+    public async Task RefusesProvisioningWhenControlLedgerPublicReadOrWriteAclDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
 
-        try
+        foreach (var privilege in new[] { "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE" })
         {
-            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: true);
+            try
+            {
+                await fixture.SetControlLedgerPublicPrivilegeAsync(privilege, grant: true);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
-                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
-                    fixture.Credentials, CancellationToken.None));
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                        fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                        fixture.Credentials, CancellationToken.None));
 
-            Assert.False(await fixture.DatabaseExistsAsync());
-            Assert.False(await fixture.TenantRolesExistAsync());
-        }
-        finally
-        {
-            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+                Assert.False(await fixture.DatabaseExistsAsync());
+                Assert.False(await fixture.TenantRolesExistAsync());
+            }
+            finally
+            {
+                await fixture.SetControlLedgerPublicPrivilegeAsync(privilege, grant: false);
+            }
         }
     }
 
@@ -795,13 +798,19 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await command.ExecuteNonQueryAsync();
         }
 
-        public async Task SetControlLedgerPublicSelectPrivilegeAsync(bool grant)
+        public Task SetControlLedgerPublicSelectPrivilegeAsync(bool grant) =>
+            SetControlLedgerPublicPrivilegeAsync("SELECT", grant);
+
+        public async Task SetControlLedgerPublicPrivilegeAsync(string privilege, bool grant)
         {
+            if (privilege is not ("SELECT" or "INSERT" or "UPDATE" or "DELETE" or "TRUNCATE" or "REFERENCES" or "TRIGGER"))
+                throw new ArgumentOutOfRangeException(nameof(privilege));
+
             await using var admin = new NpgsqlConnection(adminConnectionString);
             await admin.OpenAsync();
             var operation = grant ? "GRANT" : "REVOKE";
             await using var command = new NpgsqlCommand(
-                $"{operation} SELECT ON TABLE mg_agent.provisioning_operations {(grant ? "TO" : "FROM")} PUBLIC;",
+                $"{operation} {privilege} ON TABLE mg_agent.provisioning_operations {(grant ? "TO" : "FROM")} PUBLIC;",
                 admin);
             await command.ExecuteNonQueryAsync();
         }
