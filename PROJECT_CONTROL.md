@@ -570,6 +570,31 @@ The historical entries below remain as an audit trail; statements that the agent
 4. Review PR #158/#160/#161 stack dependency and the quality-gate PR #159 before any human-approved integration. Do not merge, rebase, retarget or deploy without authorization.
 5. Keep worker disabled until every mandatory operations acceptance checkbox has real deployment evidence.
 
+## 11.6 Worker heartbeat/orchestration acceptance — 2026-11-21
+
+- Draft PR #163: `test/provisioning-worker-heartbeat-orchestration-validated` → `test/provisioning-process-kill-recovery`; current head `bcd61072fd1bd141f99a603002fe7f053f1ae478`. PR #162 was closed as superseded; no merge/deploy.
+- Refactored `TenantProvisioningWorker` to accept internal test-only timing values and expose one internal processing iteration. Public DI constructor retains production defaults: lease 2 minutes, poll 5 seconds, renewal 30 seconds.
+- Added actual PostgreSQL integration tests for:
+  1. handler held beyond renewal interval; lease expiry advances and the same fencing token/owner remains;
+  2. reclaimed lease causes renewal to return false, cancels handler, and prevents stale completion/failure;
+  3. heartbeat database connection failure cancels handler, leaves claim uncompleted, and lease expiry/reclaim produces a new token;
+  4. host shutdown cancels handler and heartbeat stops extending the lease;
+  5. uncooperative handler ignores cancellation and returns success after reclaim; stale worker cannot complete or activate the business;
+  6. completion racing with lease expiry cannot activate the business;
+  7. generic handler exception text is not persisted; only safe fallback code `PROVISIONING_FAILED` is stored.
+- Exact code/test SHA `1e40a56612de881963e853dd03aa8bacb82893fa`: PostgreSQL 17 integration `44945101453`, **166 passed, 0 failed, 0 skipped**; full backend/web `44945101472`, backend 166 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `bcd61072fd1bd141f99a603002fe7f053f1ae478` changes only the acceptance checklist/evidence after the green code/test SHA.
+- First five worker lifecycle acceptance checks are evidenced. Repeated heartbeat/completion race stress and explicit sanitized log/metrics assertions remain open. These tests do not authorize production worker enablement.
+
+### Next continuation tasks
+
+1. Add repeated/stress testing around heartbeat renewal racing handler completion, including cancellation and lease-expiry boundaries under contention.
+2. Assert structured worker logs/metrics contain only sanitized exception types/codes and never exception messages, credentials, connection strings or tenant secret payloads.
+3. Complete production secret-manager/Vault policy and key rotation/backup-restore drills; add process-kill tests for Vault writes/readback and API-agent response-loss boundaries.
+4. Complete deployed mTLS issuance/revocation/rotation, monitoring/alerting, privileged administrator controls and staging evidence.
+5. Review the #159 quality-gate branch and the full #153→#154→#155/#158→#160→#161→#163 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
+6. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
