@@ -39,11 +39,11 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             migration.Version, migration.Sha256, CancellationToken.None);
 
         Assert.True(verified);
-        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: true);
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true);
         Assert.False(await fixture.Provisioner.VerifyRuntimeAsync(
             fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
             migration.Version, migration.Sha256, CancellationToken.None));
-        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: false);
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
         Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
             fixture.TenantId, fixture.DatabaseName, fixture.Credentials.ApplicationConnectionString,
             migration.Version, migration.Sha256, CancellationToken.None));
@@ -65,14 +65,14 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
-    public async Task RefusesToApplyTenantBaselineWhenPublicDatabaseAclDrifts()
+    public async Task RefusesToApplyTenantBaselineWhenPublicDatabaseCreateAclDrifts()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
             fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
             fixture.Credentials, CancellationToken.None);
 
-        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: true);
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true);
         var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
 
         await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
@@ -81,7 +81,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
         Assert.False(await fixture.TenantSchemaExistsAsync());
 
-        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: false);
+        await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
         await fixture.Provisioner.ApplyTenantSchemaAsync(
             fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
         Assert.True(await fixture.TenantSchemaExistsAsync());
@@ -389,13 +389,13 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await command.ExecuteNonQueryAsync();
         }
 
-        public async Task SetTenantPublicTemporaryPrivilegeAsync(bool grant)
+        public async Task SetTenantPublicCreatePrivilegeAsync(bool grant)
         {
             await using var admin = new NpgsqlConnection(adminConnectionString);
             await admin.OpenAsync();
             var operation = grant ? "GRANT" : "REVOKE";
             await using var command = new NpgsqlCommand(
-                $"{operation} TEMPORARY ON DATABASE \"{DatabaseName}\" " +
+                $"{operation} CREATE ON DATABASE \"{DatabaseName}\" " +
                 $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
             await command.ExecuteNonQueryAsync();
         }
