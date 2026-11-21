@@ -226,7 +226,7 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
                            SELECT 1
                            FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                            WHERE database_acl.grantee = 0
-                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
                        ),
                        NOT EXISTS (
                            SELECT 1
