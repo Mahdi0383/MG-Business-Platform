@@ -93,6 +93,21 @@ The agent core includes `NpgsqlTenantResourceProvisioner`, which is wired throug
 
 The agent HTTP host conditionally registers `NpgsqlAgentProvisioningHandler` only when the dedicated control-database connection, packaged tenant migration artifact and complete AES-256 key ring are configured. `/health/ready` remains 503 when the handler is absent or live PostgreSQL readiness checks fail. The host enforces HTTPS with mandatory client certificates, certificate allowlisting, strict request parsing, request-size limits and per-certificate rate limiting. Repository CI exercises the host/handler and PostgreSQL 17 TLS integration path; this does not replace production secret-manager delivery, crash-injection, rotation, backup/restore or deployment-topology acceptance.
 
+## Control-plane maintenance serialization
+
+Tenant provisioning holds a shared PostgreSQL advisory session lock on the dedicated agent control database for the full external provisioning sequence. Credential rewrap holds the matching shared transaction lock. This allows independent tenant operations to proceed concurrently while providing a maintenance barrier for cooperating database administrators.
+
+Before changing the control role's memberships or control-database/schema/ledger ACLs, an administrator must acquire the matching exclusive transaction lock in the same agent control database and keep the changes in that transaction:
+
+```sql
+BEGIN;
+SELECT pg_advisory_xact_lock(19783, 20562);
+-- Apply reviewed role-membership or control-database ACL changes here.
+COMMIT;
+```
+
+The lock coordinates only actors that follow this procedure; PostgreSQL superusers can bypass the application protocol or terminate sessions. It is not a substitute for restricted DBA access, change approval, audit logging or the live readiness checks immediately before mutations. The provisioner fails closed when it observes an unexpected boundary after the maintenance window.
+
 ## Safe HTTP error mapping
 
 - 400, 401, 403, 404: rejected request/identity/configuration; return no sensitive details.
