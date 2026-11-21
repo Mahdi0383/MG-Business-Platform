@@ -106,6 +106,19 @@ The PostgreSQL suite also verifies eight concurrent duplicate requests for one t
 
 The top-level end-to-end checkbox below remains open: it requires exercising the deployed Platform API request path and its durable registry/queue, not only the coordinator and operation-store integration tests.
 
+### Platform business registry and outbox concurrency evidence (service-level)
+
+Exact code/test SHA `d04368366b4f12230b6091a09b705fb000b3d87f`:
+- PostgreSQL 17 integration [run 44957701458](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957701458): **176 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44957701527](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957701527): backend tests **176 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+New PostgreSQL integration tests exercise `BusinessRegistryService` with independent DbContexts:
+- 16 simultaneous requests for the same slug produce exactly one business and one provisioning outbox job; the other 15 return a slug conflict.
+- 12 simultaneous requests for distinct slugs produce 12 independent businesses and 12 outbox jobs with unique idempotency keys.
+- A forced outbox insert failure rolls back the business row; no orphan registry record remains.
+
+This validates service-level concurrency and the atomic business/outbox persistence invariant. The HTTP endpoint/authentication pipeline and true client response-loss/replay through the Platform API remain untested; keep the top-level end-to-end API acceptance gate open.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [x] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires. (PostgreSQL worker integration test; exact evidence recorded below.)
