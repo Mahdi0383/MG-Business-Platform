@@ -395,6 +395,48 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
     }
 
+    [Fact]
+    public async Task RejectsPublicDatabaseAndSchemaAclDriftBeforeLedgerReadsAndWrites()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+
+        foreach (var drift in new[]
+        {
+            (Scope: "database", Privilege: "TEMP"),
+            (Scope: "database", Privilege: "CREATE"),
+            (Scope: "schema", Privilege: "USAGE"),
+            (Scope: "schema", Privilege: "CREATE")
+        })
+        {
+            try
+            {
+                await fixture.SetPublicAclAsync(drift.Scope, drift.Privilege, grant: true);
+
+                var writeFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                        tenantId, idempotencyKey, databaseName,
+                        _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "acl-drift-secret"))));
+                Assert.Contains("ACL boundary changed", writeFailure.Message, StringComparison.Ordinal);
+
+                var readFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+                Assert.Contains("ACL boundary changed", readFailure.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                await fixture.SetPublicAclAsync(drift.Scope, drift.Privilege, grant: false);
+            }
+        }
+
+        var recovered = await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "recovered-secret")));
+        Assert.Contains("recovered-secret", recovered.ApplicationConnectionString, StringComparison.Ordinal);
+    }
+
     private sealed class FakeResourceProvisioner : ITenantResourceProvisioner
     {
         public int EnsureCalls { get; private set; }
@@ -525,6 +567,38 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                     ? "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;"
                     : "REVOKE SELECT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
                 connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetPublicAclAsync(string scope, string privilege, bool grant)
+        {
+            var sql = (scope, privilege) switch
+            {
+                ("database", "TEMP") => grant
+                    ? "GRANT TEMP ON DATABASE current_database() TO PUBLIC;"
+                    : "REVOKE TEMP ON DATABASE current_database() FROM PUBLIC;",
+                ("database", "CREATE") => grant
+                    ? "GRANT CREATE ON DATABASE current_database() TO PUBLIC;"
+                    : "REVOKE CREATE ON DATABASE current_database() FROM PUBLIC;",
+                ("schema", "USAGE") => grant
+                    ? "GRANT USAGE ON SCHEMA mg_agent TO PUBLIC;"
+                    : "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("schema", "CREATE") => grant
+                    ? "GRANT CREATE ON SCHEMA mg_agent TO PUBLIC;"
+                    : "REVOKE CREATE ON SCHEMA mg_agent FROM PUBLIC;",
+                _ => throw new ArgumentOutOfRangeException(nameof(privilege), "Unsupported PUBLIC ACL test privilege.")
+            };
+
+            await using var connection = await dataSource.OpenConnectionAsync();
+            if (scope == "database")
+            {
+                await using var resolve = new NpgsqlCommand(
+                    "SELECT format(replace($sql$" + sql.Replace("current_database()", "%I") + "$sql$, '%I', '%I'), current_database());",
+                    connection);
+                sql = (string?)await resolve.ExecuteScalarAsync()
+                    ?? throw new InvalidOperationException("Could not resolve the current database for ACL test.");
+            }
+            await using var command = new NpgsqlCommand(sql, connection);
             await command.ExecuteNonQueryAsync();
         }
 
