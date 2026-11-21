@@ -119,6 +119,19 @@ New PostgreSQL integration tests exercise `BusinessRegistryService` with indepen
 
 This validates service-level concurrency and the atomic business/outbox persistence invariant. The HTTP endpoint/authentication pipeline and true client response-loss/replay through the Platform API remain untested; keep the top-level end-to-end API acceptance gate open.
 
+### Platform business HTTP endpoint integration evidence (test authentication scheme)
+
+Exact code/test SHA `89cb2ceca29a41563d56e83ec2c18b34a9910428`:
+- PostgreSQL 17 integration [run 44958193288](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958193288): **178 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44958193261](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958193261): backend tests **178 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+The tests host the real `PlatformEndpoints.MapPlatformEndpoints` route group through ASP.NET Core TestServer and PostgreSQL:
+- 16 simultaneous `POST /api/v1/platform/businesses/` requests for the same slug return exactly one HTTP 201 and fifteen HTTP 409 responses, with exactly one business row and one durable provisioning job.
+- Missing authentication returns HTTP 401; an authenticated principal with a non-platform role returns HTTP 403; invalid slug returns HTTP 400. None writes registry or queue rows.
+- The route's real authorization policy and rate-limiting middleware are in the test pipeline; a test-only authentication handler supplies role claims. This does not test OIDC signature/JWKS validation or production issuer/audience behavior.
+
+The registry endpoint tests now cover route-level concurrency and role/validation boundaries. A client losing the response after commit and retrying remains an open contract question: `CreateBusinessRequest` currently has no client idempotency key, so the API must not claim retry deduplication until that contract is designed and implemented.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [x] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires. (PostgreSQL worker integration test; exact evidence recorded below.)
