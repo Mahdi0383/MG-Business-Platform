@@ -84,7 +84,8 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
                 ConstraintName: "uq_business_tenants_slug"
             })
         {
-            return (null, true, false);
+            return await ResolveConcurrentInsertAsync(
+                idempotencyKey, creatorIdentityHash, requestFingerprint, cancellationToken);
         }
         catch (DbUpdateException exception) when (
             exception.InnerException is PostgresException
@@ -93,19 +94,29 @@ public sealed class BusinessRegistryService(PlatformDbContext db)
                 ConstraintName: "pk_business_creation_requests"
             })
         {
-            // A concurrent request committed this key first. SaveChanges rolled back
-            // this request's business + job rows; clear tracked Added entities before replay lookup.
-            db.ChangeTracker.Clear();
-            var winner = await db.BusinessCreationRequests.AsNoTracking()
-                .SingleOrDefaultAsync(item => item.IdempotencyKey == idempotencyKey, cancellationToken);
-            if (winner is null)
-                return (null, true, false);
-            return await ReplayOrConflictAsync(
-                winner, creatorIdentityHash, requestFingerprint, cancellationToken);
+            return await ResolveConcurrentInsertAsync(
+                idempotencyKey, creatorIdentityHash, requestFingerprint, cancellationToken);
         }
 
         return (new BusinessSummary(tenant.Id, tenant.Name, tenant.Slug, tenant.Status, tenant.CreatedAtUtc),
             false, false);
+    }
+
+    private async Task<(BusinessSummary? Business, bool Conflict, bool Replayed)> ResolveConcurrentInsertAsync(
+        Guid idempotencyKey,
+        string creatorIdentityHash,
+        string requestFingerprint,
+        CancellationToken cancellationToken)
+    {
+        // SaveChanges rolled back the entire business/job/idempotency transaction.
+        // Clear Added entities before checking whether this was a same-key retry or a slug collision.
+        db.ChangeTracker.Clear();
+        var winner = await db.BusinessCreationRequests.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.IdempotencyKey == idempotencyKey, cancellationToken);
+        return winner is null
+            ? (null, true, false)
+            : await ReplayOrConflictAsync(
+                winner, creatorIdentityHash, requestFingerprint, cancellationToken);
     }
 
     private async Task<(BusinessSummary? Business, bool Conflict, bool Replayed)> ReplayOrConflictAsync(
