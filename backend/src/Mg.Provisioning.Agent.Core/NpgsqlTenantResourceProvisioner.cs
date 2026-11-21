@@ -17,6 +17,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly string controlHost;
     private readonly int controlPort;
     private readonly Func<CancellationToken, Task>? afterOwnerRoleCreated;
+    private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -25,9 +26,11 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
 
     internal NpgsqlTenantResourceProvisioner(
         string controlConnectionString,
-        Func<CancellationToken, Task>? afterOwnerRoleCreated)
+        Func<CancellationToken, Task>? afterOwnerRoleCreated,
+        Func<CancellationToken, Task>? afterApplicationRoleCreated = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
+        this.afterApplicationRoleCreated = afterApplicationRoleCreated;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -69,6 +72,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 await afterOwnerRoleCreated(cancellationToken);
             await EnsureRoleAsync(connection, roleTransaction, appRole, RoleMarker(tenantId, "application"),
                 login: true, password: app.Password, cancellationToken);
+            if (afterApplicationRoleCreated is not null)
+                await afterApplicationRoleCreated(cancellationToken);
             await EnsureOwnerRoleMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
             await roleTransaction.CommitAsync(cancellationToken);
         }
