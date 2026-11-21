@@ -525,6 +525,21 @@ The historical entries below remain as an audit trail; statements that the agent
 3. Run formatting and CodeQL on the #160/#161 stacked candidate after the parent PR quality-gate workflow change is available; keep all PRs Draft.
 4. Complete production secret-manager, backup/restore, mTLS, monitoring and administrator operational acceptance. Worker remains disabled.
 
+## 11.5 Durable ledger process-kill coverage — 2026-11-21
+
+- PR #161 advanced to exact head 19ee188b433973feebdbd286ae1b5b8341a58a9f.
+- Added three real process-kill cases around durable operation-ledger transactions:
+  - kill after prepared credential INSERT but before commit; confirm rollback leaves no row and retry creates exactly one Prepared row;
+  - kill after credential rewrap UPDATE but before commit; confirm old ciphertext/key ID remain and tenant-scoped retry completes rewrap;
+  - kill after phase UPDATE but before commit; confirm previous phase remains and retry advances exactly one phase.
+- The crash worker now supports tenant-resource and ledger modes. Ledger hooks are internal constructor seams; production callers retain the normal two-argument store constructor.
+- Added an internal tenant-scoped rewrap path that shares the same transaction/update implementation as the production global rewrap method. This isolates the crash-recovery test from unrelated rows encrypted with other test keys; production global behavior remains unchanged.
+- The first rewrap test attempt failed because the global routine correctly encountered unrelated test-key rows from the shared integration database. The test was narrowed to the tenant-scoped shared implementation; no production encryption logic was weakened.
+- Exact-head PostgreSQL 17 integration run 44924709251: **147 passed, 0 failed, 0 skipped**.
+- Exact-head backend/web run 44924709196: backend Release and isolated agent API builds passed; isolated agent API build 0 warnings/0 errors; backend tests 147 passed; frontend tests 20 passed; dependency audit passed; production bundle succeeded; Pages deployment skipped for PR.
+- Tenant resource side effects plus ledger insert, rewrap and phase update are now covered by actual child-process termination and retry. Production secret-manager/key rotation and backup/restore, deployed mTLS issuance/revocation/rotation, monitoring/alerting, and privileged administrator controls remain open gates. Issue #157 remains open.
+- Keep PR #161 Draft. No merge/deploy. Keep Provisioning:WorkerEnabled=false.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
