@@ -442,59 +442,76 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                    pg_get_userbyid(schema.nspowner),
                    pg_get_userbyid(ledger.relowner),
                    NOT EXISTS (
-                       SELECT 1 FROM pg_auth_members membership
+                       SELECT 1
+                       FROM pg_auth_members membership
                        WHERE membership.roleid = role.oid
-                          OR (membership.member = role.oid
+                          OR (
+                              membership.member = role.oid
                               AND NOT (
-                                  (EXISTS (
-                                      SELECT 1 FROM pg_roles grantor_role
-                                      JOIN pg_roles target_role ON target_role.oid = membership.roleid
-                                      WHERE grantor_role.oid = membership.grantor
-                                        AND grantor_role.rolsuper
-                                        AND target_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_(owner|app)$'
-                                        AND target_role.rolcanlogin
-                                        AND NOT target_role.rolsuper
-                                        AND NOT target_role.rolcreatedb
-                                        AND NOT target_role.rolcreaterole
-                                        AND NOT target_role.rolreplication
-                                        AND NOT target_role.rolbypassrls
-                                        AND NOT target_role.rolinherit
-                                        AND shobj_description(target_role.oid, 'pg_authid') =
-                                            'mg-tenant:' ||
-                                            substring(target_role.rolname from '^mg_tenant_([0-9a-f]{32})_(owner|app)$') ||
-                                            CASE WHEN target_role.rolname ~ '_owner$'
-                                                 THEN ':owner:v1' ELSE ':application:v1' END)
-                                   AND membership.admin_option
-                                   AND NOT membership.inherit_option
-                                   AND NOT membership.set_option)
-                                  AND NOT (
-                                  (EXISTS (
-                                      SELECT 1 FROM pg_roles grantor_role
-                                      JOIN pg_roles owner_role ON owner_role.oid = membership.roleid
-                                      WHERE grantor_role.oid = membership.grantor
-                                        AND grantor_role.oid = role.oid
-                                        AND owner_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_owner$'
-                                        AND owner_role.rolcanlogin
-                                        AND NOT owner_role.rolsuper
-                                        AND NOT owner_role.rolcreatedb
-                                        AND NOT owner_role.rolcreaterole
-                                        AND NOT owner_role.rolreplication
-                                        AND NOT owner_role.rolbypassrls
-                                        AND NOT owner_role.rolinherit
-                                        AND shobj_description(owner_role.oid, 'pg_authid') =
-                                            'mg-tenant:' ||
-                                            substring(owner_role.rolname from '^mg_tenant_([0-9a-f]{32})_owner$') ||
-                                            ':owner:v1')
-                                   AND membership.set_option
-                                   AND NOT membership.inherit_option
-                                   AND NOT membership.admin_option)
-                              ))
+                                  (
+                                      membership.admin_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.set_option
+                                      AND EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          JOIN pg_roles target_role ON target_role.oid = membership.roleid
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.rolsuper
+                                            AND target_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_(owner|app)$'
+                                            AND target_role.rolcanlogin
+                                            AND NOT target_role.rolsuper
+                                            AND NOT target_role.rolcreatedb
+                                            AND NOT target_role.rolcreaterole
+                                            AND NOT target_role.rolreplication
+                                            AND NOT target_role.rolbypassrls
+                                            AND NOT target_role.rolinherit
+                                            AND shobj_description(target_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(target_role.rolname from '^mg_tenant_([0-9a-f]{32})_(owner|app)$') ||
+                                                CASE WHEN target_role.rolname ~ '_owner$'
+                                                     THEN ':owner:v1' ELSE ':application:v1' END
+                                      )
+                                  )
+                                  OR
+                                  (
+                                      membership.set_option
+                                      AND NOT membership.inherit_option
+                                      AND NOT membership.admin_option
+                                      AND EXISTS (
+                                          SELECT 1
+                                          FROM pg_roles grantor_role
+                                          JOIN pg_roles owner_role ON owner_role.oid = membership.roleid
+                                          WHERE grantor_role.oid = membership.grantor
+                                            AND grantor_role.oid = role.oid
+                                            AND owner_role.rolname ~ '^mg_tenant_[0-9a-f]{32}_owner$'
+                                            AND owner_role.rolcanlogin
+                                            AND NOT owner_role.rolsuper
+                                            AND NOT owner_role.rolcreatedb
+                                            AND NOT owner_role.rolcreaterole
+                                            AND NOT owner_role.rolreplication
+                                            AND NOT owner_role.rolbypassrls
+                                            AND NOT owner_role.rolinherit
+                                            AND shobj_description(owner_role.oid, 'pg_authid') =
+                                                'mg-tenant:' ||
+                                                substring(owner_role.rolname from '^mg_tenant_([0-9a-f]{32})_owner$') ||
+                                                ':owner:v1'
+                                      )
+                                  )
+                              )
+                          )
                    ),
                    NOT EXISTS (
                        SELECT 1
                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                        WHERE database_acl.grantee = 0
                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) AS schema_acl
+                       WHERE schema_acl.grantee = 0
+                         AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
                    )
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
@@ -526,7 +543,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || string.Equals(reader.GetString(19), reader.GetString(22), StringComparison.Ordinal)
             || string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
             || string.Equals(reader.GetString(21), reader.GetString(22), StringComparison.Ordinal)
-            || !reader.GetBoolean(23))
+            || !reader.GetBoolean(23)
+            || !reader.GetBoolean(24))
             throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
     }
 
