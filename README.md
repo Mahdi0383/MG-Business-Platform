@@ -4,6 +4,13 @@ MG Business Platform is a Windows-first, offline-first business management platf
 
 > **Release status: NOT PRODUCTION-READY.** The Windows CI pipeline has completed successful build/test/package runs on recent commits, but full accounting/POS/module scope, external-network publication tests, security review and operator acceptance remain incomplete. Do not use it as the sole accounting record for a live business until the release gates pass.
 
+## Persistent project governance (read before continuing)
+
+- [Mandatory AI/contributor instructions](AGENTS.md) — required workflow, security, testing and truthful reporting rules.
+- [Master project control and continuation ledger](PROJECT_CONTROL.md) — consolidated requirements, architecture, detailed feature scope, release gates, current implementation snapshot and the exact protocol for every future “continue” request.
+
+These two files are the durable source of truth across chat sessions. Update the ledger with every material requirement or implementation change. A new session must inspect live GitHub state and CI before choosing its next task; it must never assume that prior chat claims or old CI results are current.
+
 ## Current implementation
 
 - Windows WPF management UI with product creation/editing and CSV import/export, inventory movement history, customer/supplier records, multi-line POS cart, invoices/payments, trial balance and financial statements, online order fulfillment/cancellation, backup/restore, activation diagnostics, game-session controls and local web-host controls.
