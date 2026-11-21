@@ -572,29 +572,25 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         public async Task SetPublicAclAsync(string scope, string privilege, bool grant)
         {
-            var sql = (scope, privilege) switch
+            var template = (scope, privilege, grant) switch
             {
-                ("database", "TEMP") => grant
-                    ? "GRANT TEMP ON DATABASE current_database() TO PUBLIC;"
-                    : "REVOKE TEMP ON DATABASE current_database() FROM PUBLIC;",
-                ("database", "CREATE") => grant
-                    ? "GRANT CREATE ON DATABASE current_database() TO PUBLIC;"
-                    : "REVOKE CREATE ON DATABASE current_database() FROM PUBLIC;",
-                ("schema", "USAGE") => grant
-                    ? "GRANT USAGE ON SCHEMA mg_agent TO PUBLIC;"
-                    : "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;",
-                ("schema", "CREATE") => grant
-                    ? "GRANT CREATE ON SCHEMA mg_agent TO PUBLIC;"
-                    : "REVOKE CREATE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("database", "TEMP", true) => "GRANT TEMP ON DATABASE %I TO PUBLIC;",
+                ("database", "TEMP", false) => "REVOKE TEMP ON DATABASE %I FROM PUBLIC;",
+                ("database", "CREATE", true) => "GRANT CREATE ON DATABASE %I TO PUBLIC;",
+                ("database", "CREATE", false) => "REVOKE CREATE ON DATABASE %I FROM PUBLIC;",
+                ("schema", "USAGE", true) => "GRANT USAGE ON SCHEMA mg_agent TO PUBLIC;",
+                ("schema", "USAGE", false) => "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;",
+                ("schema", "CREATE", true) => "GRANT CREATE ON SCHEMA mg_agent TO PUBLIC;",
+                ("schema", "CREATE", false) => "REVOKE CREATE ON SCHEMA mg_agent FROM PUBLIC;",
                 _ => throw new ArgumentOutOfRangeException(nameof(privilege), "Unsupported PUBLIC ACL test privilege.")
             };
 
             await using var connection = await dataSource.OpenConnectionAsync();
+            var sql = template;
             if (scope == "database")
             {
-                await using var resolve = new NpgsqlCommand(
-                    "SELECT format(replace($sql$" + sql.Replace("current_database()", "%I") + "$sql$, '%I', '%I'), current_database());",
-                    connection);
+                await using var resolve = new NpgsqlCommand("SELECT format(@template, current_database());", connection);
+                resolve.Parameters.AddWithValue("template", template);
                 sql = (string?)await resolve.ExecuteScalarAsync()
                     ?? throw new InvalidOperationException("Could not resolve the current database for ACL test.");
             }
