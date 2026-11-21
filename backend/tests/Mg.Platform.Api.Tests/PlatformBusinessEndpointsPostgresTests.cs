@@ -310,12 +310,17 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var post = document.RootElement
-            .GetProperty("paths")
-            .GetProperty("/api/v1/platform/businesses/")
-            .GetProperty("post");
-        var header = post.GetProperty("parameters").EnumerateArray()
-            .Single(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
+        var paths = document.RootElement.GetProperty("paths");
+        var businessPath = paths.EnumerateObject()
+            .Single(path => path.Name.TrimEnd('/') == "/api/v1/platform/businesses");
+        var post = businessPath.Value.GetProperty("post");
+        var parameters = new List<JsonElement>();
+        if (businessPath.Value.TryGetProperty("parameters", out var pathParameters))
+            parameters.AddRange(pathParameters.EnumerateArray());
+        if (post.TryGetProperty("parameters", out var operationParameters))
+            parameters.AddRange(operationParameters.EnumerateArray());
+        var header = parameters.Single(parameter =>
+            parameter.GetProperty("name").GetString() == "Idempotency-Key");
 
         Assert.Equal("header", header.GetProperty("in").GetString());
         Assert.True(header.GetProperty("required").GetBoolean());
