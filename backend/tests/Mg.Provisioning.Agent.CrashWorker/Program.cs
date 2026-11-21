@@ -54,7 +54,17 @@ if (string.Equals(mode, "tenant", StringComparison.Ordinal))
         PauseAt("after-owner-readiness-before-tenant-baseline"),
         PauseAt("after-runtime-grants-applied"),
         PauseAt("after-database-public-acl-revoked-before-marker"),
-        PauseAt("after-database-access-configured-before-schema"));
+        PauseAt("after-database-access-configured-before-schema"),
+        afterDatabasePublicAclRevokedDuringAccessConfiguration: PauseAt("after-database-public-acl-revoked-during-access-configuration"),
+        afterApplicationDatabaseConnectGranted: PauseAt("after-application-database-connect-granted"),
+        afterControlDatabaseConnectGranted: PauseAt("after-control-database-connect-granted"),
+        afterRuntimePublicSchemaRevoked: PauseAt("after-runtime-public-schema-revoked"),
+        afterRuntimePublicTablesRevoked: PauseAt("after-runtime-public-tables-revoked"),
+        afterRuntimePublicFunctionsRevoked: PauseAt("after-runtime-public-functions-revoked"),
+        afterRuntimeDefaultFunctionPrivilegesRevoked: PauseAt("after-runtime-default-function-privileges-revoked"),
+        afterRuntimeSchemaUsageGranted: PauseAt("after-runtime-schema-usage-granted"),
+        afterRuntimeMutableTablePrivilegesGranted: PauseAt("after-runtime-mutable-table-privileges-granted"),
+        afterRuntimeReadOnlyTablePrivilegesGranted: PauseAt("after-runtime-read-only-table-privileges-granted"));
 
     await provisioner.EnsureDatabaseAndRolesAsync(
         tenantId, idempotencyKey, databaseName, credentials, CancellationToken.None);
