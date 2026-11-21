@@ -139,9 +139,9 @@ Migration `backend/database/migrations/006_business_creation_idempotency.sql` cr
 
 The `POST /api/v1/platform/businesses/` endpoint now requires a non-empty UUID `Idempotency-Key` header and validated `iss` + `sub` claims. Same key + same creator + same normalized name/slug replays HTTP 201 for the same business ID and Location, with `Idempotency-Replayed: true`. A changed payload or creator identity returns HTTP 409. The API contract is documented in `backend/docs/PLATFORM_API_CONTRACT.md`; ADR-009 records the decision.
 
-Exact code/test head `6bf8eceba092ff8fba6e586a69e501d804cd472a`:
-- PostgreSQL 17 integration [run 44960616374](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960616374): **190 passed, 0 failed, 0 skipped**.
-- Backend/web [run 44960616393](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960616393): backend tests **190 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+Exact current PR head `5818165f0fde6145bf849bfaad126656cef49bab` (code/test behavior is unchanged from `6bf8eceba092ff8fba6e586a69e501d804cd472a`; the intervening changes are acceptance documentation):
+- PostgreSQL 17 integration [run 44960849679](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960849679): **190 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44960849725](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44960849725): backend tests **190 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
 
 Coverage includes normalized same-key replay, changed-payload and changed-creator conflicts, 16 concurrent identical idempotency requests yielding one business/job and 15 replays, TestServer response-body failure after commit followed by successful same-key retry, missing/empty key rejection, and the prior 16-way slug race, 31-request rate-limit burst, 401/403/400 authorization/validation cases.
 
