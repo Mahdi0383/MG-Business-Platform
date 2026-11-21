@@ -136,6 +136,63 @@ public sealed class PlatformBusinessEndpointsPostgresTests
     }
 
     [Fact]
+    public async Task ClientResponseLossAfterCommitCanRetryWithSameKeyAndRecoverOriginalBusiness()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        var key = Guid.NewGuid().ToString("D");
+        using var host = CreateHost(fixture.TestConnection, key);
+        using var client = host.GetTestClient();
+
+        using var firstRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/platform/businesses/")
+        {
+            Content = JsonContent.Create(new CreateBusinessRequest("Lost Response Cafe", "lost-response-cafe"))
+        };
+        firstRequest.Headers.Add("X-Test-Role", "PlatformOwner");
+        firstRequest.Headers.Add("Idempotency-Key", key);
+
+        HttpResponseMessage? firstResponse = null;
+        Exception? transportFailure = null;
+        try
+        {
+            firstResponse = await client.SendAsync(firstRequest);
+        }
+        catch (Exception exception)
+        {
+            transportFailure = exception;
+        }
+
+        if (firstResponse is not null)
+        {
+            Assert.NotEqual(System.Net.HttpStatusCode.Created, firstResponse.StatusCode);
+            firstResponse.Dispose();
+        }
+        else
+        {
+            Assert.NotNull(transportFailure);
+        }
+
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
+
+        using var retryRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/platform/businesses/")
+        {
+            Content = JsonContent.Create(new CreateBusinessRequest("Lost Response Cafe", "lost-response-cafe"))
+        };
+        retryRequest.Headers.Add("X-Test-Role", "PlatformOwner");
+        retryRequest.Headers.Add("Idempotency-Key", key);
+        using var retryResponse = await client.SendAsync(retryRequest);
+
+        Assert.Equal(System.Net.HttpStatusCode.Created, retryResponse.StatusCode);
+        Assert.Equal("true", retryResponse.Headers.GetValues("Idempotency-Replayed").Single());
+        var replayed = await retryResponse.Content.ReadFromJsonAsync<BusinessSummary>();
+        Assert.NotNull(replayed);
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
+    }
+
+    [Fact]
     public async Task BusinessEndpointRequiresAValidIdempotencyKey()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
@@ -240,7 +297,7 @@ public sealed class PlatformBusinessEndpointsPostgresTests
         Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
     }
 
-    private static IHost CreateHost(string connectionString) =>
+    private static IHost CreateHost(string connectionString, string? loseFirstResponseForKey = null) =>
         new HostBuilder()
             .ConfigureWebHost(webHost =>
             {
@@ -271,16 +328,69 @@ public sealed class PlatformBusinessEndpointsPostgresTests
                                 }));
                     });
                 });
+                var responseLossInjected = 0;
                 webHost.Configure(app =>
                 {
                     app.UseRouting();
                     app.UseRateLimiter();
                     app.UseAuthentication();
                     app.UseAuthorization();
+                    app.Use(async (context, next) =>
+                    {
+                        var shouldLoseResponse = !string.IsNullOrWhiteSpace(loseFirstResponseForKey)
+                            && context.Request.Path == "/api/v1/platform/businesses/"
+                            && context.Request.Headers["Idempotency-Key"] == loseFirstResponseForKey
+                            && Interlocked.CompareExchange(ref responseLossInjected, 1, 0) == 0;
+                        if (!shouldLoseResponse)
+                        {
+                            await next();
+                            return;
+                        }
+
+                        var originalBody = context.Response.Body;
+                        context.Response.Body = new DropResponseStream();
+                        try
+                        {
+                            await next();
+                        }
+                        finally
+                        {
+                            context.Response.Body = originalBody;
+                        }
+                    });
                     app.UseEndpoints(endpoints => endpoints.MapPlatformEndpoints());
                 });
             })
             .Start();
+
+    private sealed class DropResponseStream : Stream
+    {
+        private static IOException LostResponse() =>
+            new("Simulated client connection loss after the business/outbox transaction committed.");
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => throw LostResponse();
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            Task.FromException(LostResponse());
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw LostResponse();
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Task.FromException(LostResponse());
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(LostResponse());
+    }
 
     private sealed class TestAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
