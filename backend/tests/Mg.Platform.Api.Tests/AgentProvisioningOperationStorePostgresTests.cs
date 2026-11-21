@@ -342,6 +342,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         await cancellation.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rewrap);
+        await maintenanceConnection.DisposeAsync();
         Assert.Equal(1, await rotatedStore.RewrapStoredCredentialsAsync(10));
         Assert.Equal(0, await rotatedStore.RewrapStoredCredentialsAsync(10));
     }
