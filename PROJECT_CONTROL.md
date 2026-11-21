@@ -598,6 +598,24 @@ The historical entries below remain as an audit trail; statements that the agent
 4. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
 5. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
 
+## 11.7 Vault response-loss and CAS recovery tests — 2026-11-21
+
+- Draft PR #166: `test/vault-secret-response-loss-recovery` → `test/provisioning-worker-heartbeat-orchestration-release`; current head `bda9dbcd28c421d791c5ecfa38370a047f10daf6`.
+- Added tenant-handler tests where the Vault KV v2 write commits but the HTTP response is lost, and where the write succeeds but the readback response is lost. Retrying reads the exact committed connection string, does not provision a second credential and does not write a second secret.
+- Added a stateful KV v2 HTTP test server enforcing `cas=0`. Concurrent create-only writes allow exactly one winner, reject the conflicting write and preserve the winning value. A lost POST response is recovered by GET; an explicit replacement attempt cannot overwrite the original secret.
+- Exact code/test SHA `3792d120244661283a5800e607f1b57c1e0f3bf6`: PostgreSQL 17 integration run `44946279568`, **172 passed, 0 failed, 0 skipped**; full backend/web run `44946279558`, backend 172 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `bda9dbcd28c421d791c5ecfa38370a047f10daf6` changes only the operations acceptance documentation after the green code/test SHA.
+- This is deterministic adapter/handler test evidence, not a deployed Vault process-kill test. Real Vault token policy, production integration, key rotation, backup/restore, deployed mTLS lifecycle, monitoring/alerting, privileged administrator controls and staging remain open. Keep worker disabled.
+
+### Next continuation tasks
+
+1. Add real secret-manager/Vault deployment acceptance: scoped policy review, short-lived token lifecycle, TLS validation, health/readiness, audit evidence and no-secret logging.
+2. Run real key-rotation and backup/restore drills for both the platform Vault-held tenant connection secrets and the agent AES-GCM operation ledger key ring.
+3. Add true process-kill and end-to-end API-agent response-loss tests using a disposable deployed Vault and isolated mTLS agent, proving credential replay across process restarts.
+4. Complete deployed mTLS certificate issuance/revocation/rotation, monitoring/alerting, privileged administrator operational controls and staging evidence.
+5. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165→#166 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
+6. Keep `Provisioning:WorkerEnabled=false` until all mandatory operations acceptance gates have dated production evidence.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
