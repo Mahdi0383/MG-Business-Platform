@@ -376,7 +376,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         string databaseName,
         CancellationToken cancellationToken,
         bool allowPublicConnect = false,
-        bool requireDatabaseMarker = true)
+        bool requireDatabaseMarker = true,
+        bool allowPublicTemporary = false)
     {
         await using var command = new NpgsqlCommand(
             """
@@ -421,7 +422,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                        WHERE database_acl.grantee = 0
                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
-                         AND NOT (@allow_public_connect AND database_acl.privilege_type = 'CONNECT')
+                         AND NOT (
+                             (@allow_public_connect AND database_acl.privilege_type = 'CONNECT')
+                             OR (@allow_public_temporary AND database_acl.privilege_type = 'TEMPORARY')
+                         )
                    ),
                    NOT EXISTS (
                        SELECT 1
@@ -438,6 +442,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             """, connection);
         command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
         command.Parameters.AddWithValue("allow_public_connect", NpgsqlDbType.Boolean, allowPublicConnect);
+        command.Parameters.AddWithValue("allow_public_temporary", NpgsqlDbType.Boolean, allowPublicTemporary);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)
             || !string.Equals(reader.GetString(0), OwnerRoleName(tenantId), StringComparison.Ordinal)
@@ -900,7 +905,19 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await connection.OpenAsync(cancellationToken);
         await VerifyTenantOwnerConnectionAsync(
             connection, tenantId, databaseName, cancellationToken,
-            allowPublicConnect: true, requireDatabaseMarker: false);
+            allowPublicConnect: true, requireDatabaseMarker: false, allowPublicTemporary: true);
+
+        // A newly created PostgreSQL database starts with PUBLIC CONNECT and TEMPORARY.
+        // Permit only those bootstrap defaults long enough to connect as the immutable
+        // owner, revoke every PUBLIC database privilege, then require the strict ACL
+        // boundary again before writing the immutable marker.
+        await using (var revokePublic = new NpgsqlCommand(
+            "REVOKE ALL ON DATABASE " + QuoteIdentifier(databaseName) + " FROM PUBLIC;", connection))
+            await revokePublic.ExecuteNonQueryAsync(cancellationToken);
+
+        await VerifyTenantOwnerConnectionAsync(
+            connection, tenantId, databaseName, cancellationToken,
+            requireDatabaseMarker: false);
         await using var command = new NpgsqlCommand("COMMENT ON DATABASE " + QuoteIdentifier(databaseName)
             + " IS '" + DatabaseMarker(tenantId) + "';", connection);
         await command.ExecuteNonQueryAsync(cancellationToken);
