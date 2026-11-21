@@ -91,7 +91,20 @@ public static class AgentControlRoleReadinessVerifier
                            SELECT 1
                            FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                            WHERE database_acl.grantee = 0
-                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                             AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) AS schema_acl
+                           WHERE schema_acl.grantee = 0
+                             AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                       ),
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM aclexplode(COALESCE(ledger.relacl, acldefault('r', ledger.relowner))) AS ledger_acl
+                           WHERE ledger_acl.grantee = 0
+                             AND ledger_acl.privilege_type IN
+                                 ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
                        )
                 FROM pg_roles role
                 JOIN pg_database database ON database.datname = current_database()
@@ -135,7 +148,9 @@ public static class AgentControlRoleReadinessVerifier
                         && !string.Equals(reader.GetString(20), reader.GetString(22), StringComparison.Ordinal)
                         && reader.GetBoolean(21)
                         && !reader.GetBoolean(23)
-                        && reader.GetBoolean(24);
+                        && reader.GetBoolean(24)
+                        && reader.GetBoolean(25)
+                        && reader.GetBoolean(26);
     }
 
     public static async Task EnsureReadyAsync(
