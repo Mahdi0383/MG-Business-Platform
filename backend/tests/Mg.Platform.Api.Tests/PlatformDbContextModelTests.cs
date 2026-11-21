@@ -33,6 +33,28 @@ public sealed class PlatformDbContextModelTests
     }
 
     [Fact]
+    public void MapsBusinessCreationIdempotencyWithGlobalKeyAndRestrictedBusinessReference()
+    {
+        using var context = CreateContext();
+        var entity = context.Model.FindEntityType(typeof(BusinessCreationRequest));
+
+        Assert.NotNull(entity);
+        Assert.Equal("business_creation_requests", entity!.GetTableName());
+        var table = StoreObjectIdentifier.Table("business_creation_requests", null);
+        Assert.Equal("idempotency_key",
+            entity.FindProperty(nameof(BusinessCreationRequest.IdempotencyKey))!.GetColumnName(table));
+        Assert.Equal("creator_identity_hash",
+            entity.FindProperty(nameof(BusinessCreationRequest.CreatorIdentityHash))!.GetColumnName(table));
+        Assert.Equal("request_fingerprint",
+            entity.FindProperty(nameof(BusinessCreationRequest.RequestFingerprint))!.GetColumnName(table));
+        var primaryKey = Assert.Single(entity.GetKeys());
+        Assert.Equal(nameof(BusinessCreationRequest.IdempotencyKey), Assert.Single(primaryKey.Properties).Name);
+        var foreignKey = Assert.Single(entity.GetForeignKeys());
+        Assert.Equal(typeof(BusinessTenant), foreignKey.PrincipalEntityType.ClrType);
+        Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior);
+    }
+
+    [Fact]
     public void MapsProvisioningQueueWithRestrictiveBusinessForeignKey()
     {
         using var context = CreateContext();

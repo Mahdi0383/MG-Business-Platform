@@ -45,6 +45,62 @@ public sealed class TenantProvisioningHandlerPostgresTests
     }
 
     [Fact]
+    public async Task RetryAfterVaultWriteResponseLossReusesCommittedCredentialWithoutReprovisioning()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenant = await fixture.AddTenantAsync();
+        var secretStore = new FakeSecretStore { ThrowAfterStoreOnce = true };
+        var provisioner = new FakeProvisioner(ConnectionString(tenant.Id));
+        await using var db = fixture.CreateContext();
+        var handler = new TenantProvisioningHandler(db, provisioner, secretStore);
+        var job = Job(tenant.Id);
+        var reference = $"tenants/{tenant.Id:N}/postgres";
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            handler.ProvisionAsync(job, CancellationToken.None));
+
+        Assert.Equal(ConnectionString(tenant.Id), secretStore.Values[reference]);
+        Assert.Equal(1, secretStore.StoreCalls);
+        Assert.Equal(1, provisioner.ProvisionCalls);
+        Assert.Equal(0, provisioner.VerifyCalls);
+
+        await handler.ProvisionAsync(job, CancellationToken.None);
+
+        Assert.Equal(ConnectionString(tenant.Id), secretStore.Values[reference]);
+        Assert.Equal(1, secretStore.StoreCalls);
+        Assert.Equal(1, provisioner.ProvisionCalls);
+        Assert.Equal(1, provisioner.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task RetryAfterVaultReadbackResponseLossReusesCommittedCredentialWithoutSecondWrite()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenant = await fixture.AddTenantAsync();
+        var secretStore = new FakeSecretStore { ThrowOnReadAfterStoreOnce = true };
+        var provisioner = new FakeProvisioner(ConnectionString(tenant.Id));
+        await using var db = fixture.CreateContext();
+        var handler = new TenantProvisioningHandler(db, provisioner, secretStore);
+        var job = Job(tenant.Id);
+        var reference = $"tenants/{tenant.Id:N}/postgres";
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            handler.ProvisionAsync(job, CancellationToken.None));
+
+        Assert.Equal(ConnectionString(tenant.Id), secretStore.Values[reference]);
+        Assert.Equal(1, secretStore.StoreCalls);
+        Assert.Equal(1, provisioner.ProvisionCalls);
+        Assert.Equal(0, provisioner.VerifyCalls);
+
+        await handler.ProvisionAsync(job, CancellationToken.None);
+
+        Assert.Equal(ConnectionString(tenant.Id), secretStore.Values[reference]);
+        Assert.Equal(1, secretStore.StoreCalls);
+        Assert.Equal(1, provisioner.ProvisionCalls);
+        Assert.Equal(1, provisioner.VerifyCalls);
+    }
+
+    [Fact]
     public async Task RejectsConnectionStringForDifferentDatabaseBeforeStoringSecret()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -159,23 +215,49 @@ public sealed class TenantProvisioningHandlerPostgresTests
 
     private sealed class FakeSecretStore : ITenantSecretStore
     {
+        private bool storeResponseLossInjected;
+        private bool readResponseLossInjected;
+
         public Dictionary<string, string> Values { get; } = new();
         public bool CorruptOnStore { get; init; }
+        public bool ThrowAfterStoreOnce { get; init; }
+        public bool ThrowOnReadAfterStoreOnce { get; init; }
+        public int StoreCalls { get; private set; }
 
         public Task StoreAsync(string secretReference, string secretValue, CancellationToken cancellationToken)
         {
-            Values[secretReference] = CorruptOnStore ? "tampered-value" : secretValue;
+            cancellationToken.ThrowIfCancellationRequested();
+            StoreCalls++;
+            if (!Values.ContainsKey(secretReference))
+                Values[secretReference] = CorruptOnStore ? "tampered-value" : secretValue;
+            else if (!string.Equals(Values[secretReference], secretValue, StringComparison.Ordinal))
+                throw new HttpRequestException("Vault create-only CAS rejected an overwrite.");
+
+            if (ThrowAfterStoreOnce && !storeResponseLossInjected)
+            {
+                storeResponseLossInjected = true;
+                throw new HttpRequestException("Vault committed the write but the response was lost.");
+            }
+
             return Task.CompletedTask;
         }
 
         public Task<string?> ReadAsync(string secretReference, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Values.TryGetValue(secretReference, out var value);
+            if (value is not null && ThrowOnReadAfterStoreOnce && !readResponseLossInjected)
+            {
+                readResponseLossInjected = true;
+                throw new HttpRequestException("Vault committed the value but the readback response was lost.");
+            }
+
             return Task.FromResult(value);
         }
 
         public Task DeleteAsync(string secretReference, CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Values.Remove(secretReference);
             return Task.CompletedTask;
         }

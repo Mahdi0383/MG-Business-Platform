@@ -7,6 +7,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
 {
     public DbSet<BusinessTenant> Businesses => Set<BusinessTenant>();
     public DbSet<TenantProvisioningJob> TenantProvisioningJobs => Set<TenantProvisioningJob>();
+    public DbSet<BusinessCreationRequest> BusinessCreationRequests => Set<BusinessCreationRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,5 +46,20 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
         job.HasIndex(x => x.IdempotencyKey).IsUnique();
         job.HasIndex(x => new { x.Status, x.LeaseExpiresAtUtc });
         job.HasIndex(x => new { x.BusinessId, x.CreatedAtUtc });
+
+        var creationRequest = modelBuilder.Entity<BusinessCreationRequest>();
+        creationRequest.ToTable("business_creation_requests");
+        creationRequest.HasKey(x => x.IdempotencyKey)
+            .HasName("pk_business_creation_requests");
+        creationRequest.Property(x => x.IdempotencyKey).HasColumnName("idempotency_key");
+        creationRequest.Property(x => x.CreatorIdentityHash).HasColumnName("creator_identity_hash")
+            .HasMaxLength(64).IsFixedLength().IsRequired();
+        creationRequest.Property(x => x.RequestFingerprint).HasColumnName("request_fingerprint")
+            .HasMaxLength(64).IsFixedLength().IsRequired();
+        creationRequest.Property(x => x.BusinessId).HasColumnName("business_id");
+        creationRequest.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        creationRequest.HasOne<BusinessTenant>().WithMany()
+            .HasForeignKey(x => x.BusinessId).OnDelete(DeleteBehavior.Restrict);
+        creationRequest.HasIndex(x => new { x.BusinessId, x.CreatedAtUtc });
     }
 }
