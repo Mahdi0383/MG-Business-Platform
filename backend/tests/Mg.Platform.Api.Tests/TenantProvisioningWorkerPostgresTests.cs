@@ -131,6 +131,82 @@ public sealed class TenantProvisioningWorkerPostgresTests
     }
 
     [Fact]
+    public async Task HeartbeatStorageFailureCancelsHandlerAndLeavesClaimForRecovery()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var (business, job) = await fixture.AddBusinessAndJobAsync("heartbeat-storage-failure");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new DelegateHandler(async (_, token) =>
+        {
+            started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+            catch (OperationCanceledException)
+            {
+                cancelled.TrySetResult();
+                throw;
+            }
+        });
+        using var services = CreateServices(fixture, handler);
+        var worker = CreateWorker(services);
+
+        var processing = worker.ProcessOneAsync("heartbeat-db-failure-worker", CancellationToken.None);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.MakeHeartbeatConnectionUnavailable();
+
+        try
+        {
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await processing.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            fixture.RestoreConnection();
+        }
+
+        var stored = await fixture.ReadJobAsync(job.Id);
+        var storedBusiness = await fixture.ReadBusinessAsync(business.Id);
+        Assert.Equal(TenantProvisioningStatus.Running, stored.Status);
+        Assert.Equal("heartbeat-db-failure-worker", stored.LeaseOwner);
+        Assert.NotNull(stored.LeaseToken);
+        Assert.Equal("PendingProvisioning", storedBusiness.Status);
+        Assert.Null(storedBusiness.ActivatedAtUtc);
+    }
+
+    [Fact]
+    public async Task CompletionRacingWithLeaseExpiryCannotActivateBusiness()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var (business, job) = await fixture.AddBusinessAndJobAsync("heartbeat-completion-race");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new DelegateHandler(async (_, _) =>
+        {
+            started.TrySetResult();
+            await release.Task;
+        });
+        using var services = CreateServices(fixture, handler);
+        var worker = CreateWorker(services);
+
+        var processing = worker.ProcessOneAsync("completion-race-worker", CancellationToken.None);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.ExpireLeaseAsync(job.Id);
+        release.TrySetResult();
+        await processing.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var stored = await fixture.ReadJobAsync(job.Id);
+        var storedBusiness = await fixture.ReadBusinessAsync(business.Id);
+        Assert.Equal(TenantProvisioningStatus.Running, stored.Status);
+        Assert.Equal("completion-race-worker", stored.LeaseOwner);
+        Assert.NotNull(stored.LeaseToken);
+        Assert.Equal("PendingProvisioning", storedBusiness.Status);
+        Assert.Null(storedBusiness.ActivatedAtUtc);
+    }
+
+    [Fact]
     public async Task HostShutdownCancelsHandlerAndLeavesClaimForLeaseExpiryRecovery()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -208,13 +284,15 @@ public sealed class TenantProvisioningWorkerPostgresTests
     {
         private readonly string adminConnection;
         private readonly string schema;
-        private readonly string testConnection;
+        private string testConnection;
+        private readonly string stableTestConnection;
 
         private Fixture(string adminConnection, string schema, string testConnection)
         {
             this.adminConnection = adminConnection;
             this.schema = schema;
             this.testConnection = testConnection;
+            stableTestConnection = testConnection;
         }
 
         public static async Task<Fixture> CreateAsync()
@@ -301,6 +379,19 @@ public sealed class TenantProvisioningWorkerPostgresTests
             await context.SaveChangesAsync();
             return (business, job);
         }
+
+        public void MakeHeartbeatConnectionUnavailable()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(testConnection)
+            {
+                Host = "127.0.0.1",
+                Port = 1,
+                Database = "unavailable"
+            };
+            testConnection = builder.ConnectionString;
+        }
+
+        public void RestoreConnection() => testConnection = stableTestConnection;
 
         public async Task ExpireLeaseAsync(Guid jobId)
         {
