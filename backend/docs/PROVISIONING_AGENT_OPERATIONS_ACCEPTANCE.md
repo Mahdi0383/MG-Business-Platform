@@ -32,6 +32,16 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 - [ ] Verify backups cover the agent ledger and key-version metadata. Demonstrate restore using the corresponding retained key material.
 - [ ] Confirm logs, traces, metrics and error responses contain no passwords, connection strings, access tokens, SQL parameter values or decrypted credential payloads.
 
+### Vault KV v2 response-loss and create-only CAS evidence (partial)
+
+Exact code/test SHA `3792d120244661283a5800e607f1b57c1e0f3bf6`:
+- PostgreSQL integration [run 44946279568](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44946279568): **172 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44946279558](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44946279558): backend tests **172 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+Automated tests now simulate Vault committing a KV v2 secret while the HTTP write response is lost, and separately simulate a lost readback response after the write. In both cases, a retry reads and reuses the exact stored tenant connection string, does not provision a second database credential, and does not issue a second secret write. A stateful KV v2 HTTP test server enforces `cas=0`: concurrent create-only writes allow one winner, reject the conflicting write, and preserve the winning credential on subsequent reads.
+
+This is response-loss/CAS adapter evidence using a deterministic test server and PostgreSQL-backed handler fixture. It is not a production Vault deployment, a real Vault process-kill test, a key-rotation rehearsal or a backup/restore drill. Keep the secret-manager production acceptance gates open.
+
 ## 4. End-to-end fault injection
 Run only against disposable PostgreSQL instances and isolated test certificates.
 - [ ] Submit the same tenant/idempotency request concurrently; exactly one durable operation and one credential bundle must be created.
