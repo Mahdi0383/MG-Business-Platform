@@ -717,3 +717,36 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 connection))
             {
                 if ((bool)(await schemaExists.ExecuteScalarAsync())!)
+                {
+                    await using var privilegeFormat = new NpgsqlCommand(
+                        "SELECT format('REVOKE ALL ON SCHEMA mg_agent FROM %I; REVOKE ALL ON TABLE mg_agent.provisioning_operations FROM %I;', @role, @role);",
+                        connection);
+                    privilegeFormat.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+                    var ddl = (string)(await privilegeFormat.ExecuteScalarAsync())!;
+                    await using var revoke = new NpgsqlCommand(ddl, connection);
+                    await revoke.ExecuteNonQueryAsync();
+                }
+            }
+
+            foreach (var role in new[] { applicationRoleName, ownerRoleName, unexpectedMembershipHolderRoleName, unexpectedBootstrapRoleName, controlRoleName }.Where(role => role is not null))
+            {
+                var format = new NpgsqlCommand("SELECT format('DROP ROLE IF EXISTS %I', @role);", connection);
+                format.Parameters.AddWithValue("role", NpgsqlDbType.Text, role!);
+                var ddl = (string)(await format.ExecuteScalarAsync())!;
+                await using var drop = new NpgsqlCommand(ddl, connection);
+                await drop.ExecuteNonQueryAsync();
+                await format.DisposeAsync();
+            }
+
+            // Restore PostgreSQL's default database ACL for other tests/local runs.
+            await using (var restorePublic = new NpgsqlCommand(
+                "SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', current_database());",
+                connection))
+            {
+                var ddl = (string)(await restorePublic.ExecuteScalarAsync())!;
+                await using var grant = new NpgsqlCommand(ddl, connection);
+                await grant.ExecuteNonQueryAsync();
+            }
+        }
+    }
+}
