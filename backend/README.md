@@ -9,6 +9,7 @@ This folder contains the first ASP.NET Core 10 control-plane API slice.
 - Creator business registry list/create endpoints, protected by OIDC JWT validation and a platform-role claim.
 - Atomic tenant registration plus durable provisioning-job enqueue in the MG central database.
 - Slug validation and unique database constraint.
+- Durable client idempotency for business creation: UUID `Idempotency-Key`, creator/request binding, atomic business/outbox/key persistence and safe response-loss replay.
 - Platform database stores a secret-manager reference for a tenant database, never a raw database password or connection string.
 - Optional HashiCorp Vault KV v2 adapter for tenant database secrets; HTTPS-only, path-validated and never logs secret values.
 - Docker image definition.
@@ -29,7 +30,7 @@ dotnet restore
 dotnet run
 ```
 
-Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql`, then `database/migrations/003_add_provisioning_job_leases.sql`, then `database/migrations/004_uuid_tenant_secret_references.sql`, then `database/migrations/005_add_provisioning_lease_fencing_token.sql` to the MG central database before using provisioning. Migration 004 converts only pending tenant rows to immutable UUID-based Vault paths; active tenant references require a separate controlled secret migration. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
+Apply the reviewed SQL migrations in order: `database/migrations/001_create_business_registry.sql`, then `database/migrations/002_create_tenant_provisioning_jobs.sql`, then `database/migrations/003_add_provisioning_job_leases.sql`, then `database/migrations/004_uuid_tenant_secret_references.sql`, then `database/migrations/005_add_provisioning_lease_fencing_token.sql`, and finally `database/migrations/006_business_creation_idempotency.sql` to the MG central database before deploying the current Creator API. Migration 006 is required before the API accepts business-creation requests. Migration 004 converts only pending tenant rows to immutable UUID-based Vault paths; active tenant references require a separate controlled secret migration. The service intentionally does not call `EnsureCreated` or silently mutate the production schema at startup.
 
 ## Initial endpoints
 
@@ -39,7 +40,7 @@ Apply the reviewed SQL migrations in order: `database/migrations/001_create_busi
 - `GET /api/v1/platform/businesses` (OIDC bearer token + creator platform role required)
 - `POST /api/v1/platform/businesses` (OIDC bearer token + creator platform role required)
 
-POST body: `{"name":"Example business","slug":"example-business"}`
+POST body: `{"name":"Example business","slug":"example-business"}`. Every POST must also include a non-empty UUID `Idempotency-Key` header. Reuse the same key for retries of the same logical create operation; the API replays the same business resource only for the same validated OIDC issuer/subject and normalized payload, and returns `409 Conflict` for mismatched reuse.
 
 The new record starts as `PendingProvisioning` and receives a durable queue item in `Pending` state in the same central-database save transaction. Queue lifecycle states are `Pending`, `Running`, `Retry`, `Succeeded` and `DeadLetter`. The record is not marked active until database provisioning and baseline initialization have been implemented and verified.
 
