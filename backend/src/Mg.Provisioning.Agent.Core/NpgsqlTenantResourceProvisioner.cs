@@ -23,6 +23,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
     private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
+    private readonly Func<CancellationToken, Task>? afterRuntimeGrantsApplied;
+    private readonly Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker;
+    private readonly Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -37,7 +40,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
         Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
-        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null,
+        Func<CancellationToken, Task>? afterRuntimeGrantsApplied = null,
+        Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker = null,
+        Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -46,6 +52,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
+        this.afterRuntimeGrantsApplied = afterRuntimeGrantsApplied;
+        this.afterDatabasePublicAclRevokedBeforeMarker = afterDatabasePublicAclRevokedBeforeMarker;
+        this.afterDatabaseAccessConfiguredBeforeSchema = afterDatabaseAccessConfiguredBeforeSchema;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -144,6 +153,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         // after that externalized schema mutation and immediately before privilege grants.
         await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken);
         await ApplyRuntimeGrantsAsync(connection, appRole, cancellationToken);
+        if (afterRuntimeGrantsApplied is not null)
+            await afterRuntimeGrantsApplied(cancellationToken);
     }
 
     public async Task<bool> VerifyRuntimeAsync(
@@ -829,7 +840,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             if (string.IsNullOrEmpty(state.Comment))
             {
                 // Recover only the crash window after CREATE DATABASE and before its marker.
-                if (!await IsFreshDatabaseAsync(databaseName, cancellationToken))
+                if (!await IsFreshDatabaseAsync(ownerConnectionString, databaseName, cancellationToken))
                     throw new AgentProvisioningConflictException("Unmarked tenant database is not empty and cannot be safely adopted.");
                 await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
                 state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
@@ -848,11 +859,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (afterDatabaseMarkerWrittenBeforeAccessConfiguration is not null)
             await afterDatabaseMarkerWrittenBeforeAccessConfiguration(cancellationToken);
         await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
+        if (afterDatabaseAccessConfiguredBeforeSchema is not null)
+            await afterDatabaseAccessConfiguredBeforeSchema(cancellationToken);
     }
 
-    private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
+    private async Task<bool> IsFreshDatabaseAsync(
+        string ownerConnectionString, string databaseName, CancellationToken cancellationToken)
     {
-        var builder = new NpgsqlConnectionStringBuilder(controlConnectionString)
+        // PUBLIC CONNECT is deliberately revoked before the immutable marker is written.
+        // Recovery must inspect the unmarked database through its owner, not the control role.
+        var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString)
         {
             Database = databaseName,
             Pooling = false
@@ -914,6 +930,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using (var revokePublic = new NpgsqlCommand(
             "REVOKE ALL ON DATABASE " + QuoteIdentifier(databaseName) + " FROM PUBLIC;", connection))
             await revokePublic.ExecuteNonQueryAsync(cancellationToken);
+
+        if (afterDatabasePublicAclRevokedBeforeMarker is not null)
+            await afterDatabasePublicAclRevokedBeforeMarker(cancellationToken);
 
         await VerifyTenantOwnerConnectionAsync(
             connection, tenantId, databaseName, cancellationToken,

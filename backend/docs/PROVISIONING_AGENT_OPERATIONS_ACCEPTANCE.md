@@ -43,6 +43,31 @@ Run only against disposable PostgreSQL instances and isolated test certificates.
 - [ ] Expire/revoke the mTLS client certificate and verify the request is rejected before the handler runs.
 - [ ] Interrupt the platform worker during provisioning; lease expiry and fencing must prevent a stale worker from completing a reclaimed job.
 
+### Automated hard process-kill evidence (partial boundary coverage)
+
+The disposable PostgreSQL 17 integration suite now starts a separate crash-worker process, waits for a named side-effect boundary, forcibly kills the process tree, verifies the persisted database/ledger state, and retries from a fresh process context. This is an OS process termination test, not a callback exception or graceful cancellation.
+
+Exact-head evidence on `19ee188b433973feebdbd286ae1b5b8341a58a9f`:
+- PostgreSQL 17 integration: 147 passed, 0 failed, 0 skipped — workflow run `44924709251`.
+- Backend/web workflow: backend 147 passed, frontend 20 passed, Release and isolated agent API builds passed, dependency audit and production bundle passed — workflow run `44924709196`.
+
+Covered tenant-resource boundaries:
+1. owner role created before role transaction commit;
+2. application role created before role transaction commit;
+3. owner membership created before role transaction commit;
+4. database created before immutable marker;
+5. marker written before database access configuration;
+6. owner connection validated before tenant baseline DDL;
+7. tenant baseline applied before runtime grants;
+8. runtime grants applied before the caller advances its durable phase.
+
+Covered durable ledger boundaries:
+9. prepared credential INSERT before transaction commit;
+10. credential rewrap UPDATE before transaction commit;
+11. phase UPDATE before transaction commit.
+
+This is partial acceptance evidence, not a claim that every individual SQL grant/revoke and every secret-manager side effect has its own kill point. Keep the master fault-injection checkbox above open until all side-effect sub-boundaries, production secret-manager behavior and external operational gates are evidenced.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [ ] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires.
