@@ -15,6 +15,9 @@ public sealed class AgentProvisioningOperationStore(
     NpgsqlDataSource dataSource,
     AgentCredentialProtector credentialProtector)
 {
+    private const int ControlPlaneMaintenanceLockClassId = 19783;
+    private const int ControlPlaneMaintenanceLockObjectId = 20562;
+
     private static readonly string[] Phases =
         ["Prepared", "DatabaseCreated", "SchemaApplied", "Verified"];
 
@@ -33,6 +36,7 @@ public sealed class AgentProvisioningOperationStore(
         {
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
 
             await using (var advisoryLock = new NpgsqlCommand(
                 """
@@ -71,7 +75,7 @@ public sealed class AgentProvisioningOperationStore(
                     if (storedIdempotencyKey != idempotencyKey
                         || !string.Equals(storedDatabaseName, databaseName, StringComparison.Ordinal)
                         || !CryptographicOperations.FixedTimeEquals(storedRequestHash, requestHash))
-                        throw new InvalidOperationException(
+                        throw new AgentProvisioningConflictException(
                             "A conflicting provisioning operation already exists for this tenant.");
 
                     var stablePayload = credentialProtector.Unprotect(
@@ -83,6 +87,7 @@ public sealed class AgentProvisioningOperationStore(
 
                     if (!string.Equals(encrypted.KeyId, credentialProtector.CurrentKeyId, StringComparison.Ordinal))
                     {
+                        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
                         var rewrapped = credentialProtector.Protect(
                             stablePayload, tenantId, idempotencyKey, databaseName);
                         try
@@ -133,7 +138,7 @@ public sealed class AgentProvisioningOperationStore(
                 reusedKey.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
                 var conflictingTenant = await reusedKey.ExecuteScalarAsync(cancellationToken);
                 if (conflictingTenant is Guid otherTenant && otherTenant != tenantId)
-                    throw new InvalidOperationException(
+                    throw new AgentProvisioningConflictException(
                         "The idempotency key is already assigned to another tenant.");
             }
 
@@ -144,6 +149,7 @@ public sealed class AgentProvisioningOperationStore(
             var envelope = credentialProtector.Protect(
                 payload, tenantId, idempotencyKey, databaseName);
 
+            await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
             await using (var insert = new NpgsqlCommand(
                 """
                 INSERT INTO mg_agent.provisioning_operations
@@ -200,6 +206,8 @@ public sealed class AgentProvisioningOperationStore(
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await AcquireControlPlaneMaintenanceTransactionLockAsync(connection, transaction, cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
         await using (var select = new NpgsqlCommand(
             """
             SELECT tenant_id, idempotency_key, database_name,
@@ -241,6 +249,7 @@ public sealed class AgentProvisioningOperationStore(
                     ?? throw new InvalidOperationException("Stored tenant credential bundle is invalid.");
                 ValidateCredentials(credentials, row.TenantId, row.DatabaseName);
 
+                await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
                 var newEnvelope = credentialProtector.Protect(
                     payload, row.TenantId, row.IdempotencyKey, row.DatabaseName);
                 try
@@ -298,6 +307,7 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Tenant and idempotency identifiers must be non-empty.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, null, cancellationToken);
         await using var command = new NpgsqlCommand(
             """
             SELECT phase
@@ -321,35 +331,43 @@ public sealed class AgentProvisioningOperationStore(
         ArgumentNullException.ThrowIfNull(action);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        const string lockSql = "SELECT pg_try_advisory_lock(hashtextextended(@tenant_id::text, 0));";
-        await using (var acquire = new NpgsqlCommand(lockSql, connection))
-        {
-            acquire.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
-            var acquired = await acquire.ExecuteScalarAsync(cancellationToken);
-            if (acquired is not true)
-                return new AgentExclusiveExecutionResult<T>(false, default);
-        }
-
+        await AcquireControlPlaneMaintenanceSessionLockAsync(connection, cancellationToken);
         try
         {
-            var value = await action(cancellationToken);
-            return new AgentExclusiveExecutionResult<T>(true, value);
+            const string lockSql = "SELECT pg_try_advisory_lock(hashtextextended(@tenant_id::text, 0));";
+            await using (var acquire = new NpgsqlCommand(lockSql, connection))
+            {
+                acquire.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                var acquired = await acquire.ExecuteScalarAsync(cancellationToken);
+                if (acquired is not true)
+                    return new AgentExclusiveExecutionResult<T>(false, default);
+            }
+
+            try
+            {
+                var value = await action(cancellationToken);
+                return new AgentExclusiveExecutionResult<T>(true, value);
+            }
+            finally
+            {
+                // If cancellation or a connection failure prevents unlock, disposing the session
+                // releases PostgreSQL's session-level advisory lock.
+                try
+                {
+                    await using var release = new NpgsqlCommand(
+                        "SELECT pg_advisory_unlock(hashtextextended(@tenant_id::text, 0));", connection);
+                    release.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
+                    await release.ExecuteScalarAsync(CancellationToken.None);
+                }
+                catch (NpgsqlException)
+                {
+                    // Connection disposal below is the final lock-release guarantee.
+                }
+            }
         }
         finally
         {
-            // If cancellation or a connection failure prevents unlock, disposing the session
-            // releases PostgreSQL's session-level advisory lock.
-            try
-            {
-                await using var release = new NpgsqlCommand(
-                    "SELECT pg_advisory_unlock(hashtextextended(@tenant_id::text, 0));", connection);
-                release.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
-                await release.ExecuteScalarAsync(CancellationToken.None);
-            }
-            catch (NpgsqlException)
-            {
-                // Connection disposal below is the final lock-release guarantee.
-            }
+            await ReleaseControlPlaneMaintenanceSessionLockAsync(connection);
         }
     }
 
@@ -369,6 +387,8 @@ public sealed class AgentProvisioningOperationStore(
             throw new ArgumentException("Provisioning phase transitions must advance exactly one step.");
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
         await using var command = new NpgsqlCommand(
             """
             UPDATE mg_agent.provisioning_operations
@@ -376,7 +396,7 @@ public sealed class AgentProvisioningOperationStore(
             WHERE tenant_id = @tenant_id
               AND idempotency_key = @idempotency_key
               AND phase = @expected_phase;
-            """, connection);
+            """, connection, transaction);
         command.Parameters.AddWithValue("next_phase", NpgsqlDbType.Text, nextPhase);
         command.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, tenantId);
         command.Parameters.AddWithValue("idempotency_key", NpgsqlDbType.Uuid, idempotencyKey);
@@ -385,6 +405,98 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private static async Task AcquireControlPlaneMaintenanceSessionLockAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_advisory_lock_shared(@class_id, @object_id);", connection);
+        command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+        command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task ReleaseControlPlaneMaintenanceSessionLockAsync(NpgsqlConnection connection)
+    {
+        try
+        {
+            await using var command = new NpgsqlCommand(
+                "SELECT pg_advisory_unlock_shared(@class_id, @object_id);", connection);
+            command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+            command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+            await command.ExecuteScalarAsync(CancellationToken.None);
+        }
+        catch (NpgsqlException)
+        {
+            // Connection disposal below releases the session-level shared lock.
+        }
+    }
+
+    private static async Task AcquireControlPlaneMaintenanceTransactionLockAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock_shared(@class_id, @object_id);", connection, transaction);
+        command.Parameters.AddWithValue("class_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockClassId);
+        command.Parameters.AddWithValue("object_id", NpgsqlDbType.Integer, ControlPlaneMaintenanceLockObjectId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task VerifyLedgerBoundaryAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT
+                has_schema_privilege(current_user, 'mg_agent', 'USAGE')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT')
+                AND has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE')
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    WHERE database.datname = current_database()
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMPORARY')
+                      )
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_namespace schema
+                    WHERE schema.nspname = 'mg_agent'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN ('USAGE', 'CREATE')
+                      )
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_class ledger
+                    JOIN pg_namespace schema ON schema.oid = ledger.relnamespace
+                    WHERE schema.nspname = 'mg_agent'
+                      AND ledger.relname = 'provisioning_operations'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM aclexplode(COALESCE(ledger.relacl, acldefault('r', ledger.relowner))) acl
+                          WHERE acl.grantee = 0
+                            AND acl.privilege_type IN
+                                ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+                      )
+                );
+            """, connection, transaction);
+        var allowed = await command.ExecuteScalarAsync(cancellationToken);
+        if (allowed is not true)
+            throw new InvalidOperationException(
+                "Agent control ledger ACL boundary changed; refusing ledger access or mutation.");
     }
 
     private static void ValidateCredentials(

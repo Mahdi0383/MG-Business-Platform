@@ -133,6 +133,11 @@ app.MapPost("/internal/v1/tenant-databases", async (HttpContext context, ILogger
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
         return Results.Json(new { connectionString });
     }
+    catch (AgentProvisioningConflictException)
+    {
+        return Results.Json(new { code = "IDEMPOTENCY_CONFLICT" },
+            statusCode: StatusCodes.Status409Conflict);
+    }
     catch (AgentProvisioningBusyException)
     {
         return Results.Json(new { code = "PROVISIONING_BUSY" }, statusCode: StatusCodes.Status429TooManyRequests);

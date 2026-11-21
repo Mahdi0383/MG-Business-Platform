@@ -18,7 +18,7 @@ The HTTP surface is intentionally narrow:
 - `GET /health/ready`
 - `POST /internal/v1/tenant-databases`
 
-The POST endpoint accepts only the exact JSON fields `tenantId`, `idempotencyKey` and `databaseName`; rejects unknown/duplicate properties and mismatched UUID-derived database names; caps request bodies at 4 KiB; and rate-limits each client certificate. Error responses contain stable codes only. Exception messages, SQL and credentials are never logged.
+The POST endpoint accepts only the exact JSON fields `tenantId`, `idempotencyKey` and `databaseName`; rejects unknown/duplicate properties and mismatched UUID-derived database names; caps request bodies at 4 KiB; and rate-limits each client certificate. Idempotency-key reuse or immutable tenant-resource marker conflicts return HTTP 409 with `IDEMPOTENCY_CONFLICT`; these are permanent failures, not retryable service outages. Other error responses contain stable codes only. Exception messages, SQL and credentials are never logged.
 
 
 ## Enabling the real handler
@@ -41,16 +41,17 @@ CREATE ROLE mg_agent_control
     NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS;
 ```
 
-Use a separate migration identity to apply `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql` to the agent control database. The API project copies this reviewed source artifact into its output as `agent-database/migrations/001_agent_provisioning_ledger.sql`; that output path is not a second source migration. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. Grant only:
+Use a separate migration identity to apply `backend/src/Mg.Provisioning.Agent.Core/database/001_agent_provisioning_ledger.sql` to the agent control database. The API project copies this reviewed source artifact into its output as `agent-database/migrations/001_agent_provisioning_ledger.sql`; that output path is not a second source migration. The migration identity owns `mg_agent`; the runtime control role must not own the schema or database. PostgreSQL grants CONNECT and TEMP on databases to PUBLIC by default, so revoke those inherited database privileges before granting the agent role its explicit access. Grant only:
 
 ```sql
+REVOKE ALL PRIVILEGES ON DATABASE mg_agent_control FROM PUBLIC;
 GRANT CONNECT ON DATABASE mg_agent_control TO mg_agent_control;
 GRANT USAGE ON SCHEMA mg_agent TO mg_agent_control;
 GRANT SELECT, INSERT, UPDATE
     ON TABLE mg_agent.provisioning_operations TO mg_agent_control;
 ```
 
-Do not grant DELETE, TRUNCATE, schema CREATE, database ownership or table ownership. Readiness stays 503 until the ledger exists and the live control role/privilege checks pass. The tenant baseline migration is packaged at `tenant-database/migrations/001_tenant_core_baseline.sql` and is applied by the agent provisioner only after the tenant database and owner/runtime roles have been safely created.
+Do not grant DELETE, TRUNCATE, TEMP, schema CREATE, database ownership or table ownership. Verify PUBLIC has no CONNECT, CREATE or TEMP privilege on the control database. Readiness stays 503 until the ledger exists and the live control role/privilege checks pass. The tenant baseline migration is packaged at `tenant-database/migrations/001_tenant_core_baseline.sql` and is applied by the agent provisioner only after the tenant database and owner/runtime roles have been safely created.
 
 
 ### PostgreSQL 17 role-creation semantics

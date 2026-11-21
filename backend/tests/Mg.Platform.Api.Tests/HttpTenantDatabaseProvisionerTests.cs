@@ -97,6 +97,27 @@ public sealed class HttpTenantDatabaseProvisionerTests
     }
 
     [Fact]
+    public async Task MapsAgentIdempotencyConflictToPermanentSafeFailure()
+    {
+        var handler = new StubHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Conflict)));
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://provisioner.internal/")
+        };
+        var provisioner = new HttpTenantDatabaseProvisioner(client);
+        var tenantId = Guid.NewGuid();
+
+        var exception = await Assert.ThrowsAsync<TenantProvisioningException>(() =>
+            provisioner.ProvisionAsync(
+                new TenantDatabaseProvisioningRequest(tenantId, Guid.NewGuid(), $"mg_tenant_{tenantId:N}"),
+                CancellationToken.None));
+
+        Assert.Equal("TENANT_PROVISIONING_IDEMPOTENCY_CONFLICT", exception.SafeErrorCode);
+        Assert.True(exception.Permanent);
+    }
+
+    [Fact]
     public async Task MapsAgentAuthorizationFailureToPermanentSafeFailure()
     {
         var handler = new StubHandler(_ =>
