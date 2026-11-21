@@ -662,3 +662,25 @@ The historical entries below remain as an audit trail; statements that the agent
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
 - Future sessions must append dated entries with PR/commit, concrete changes, tests/results, blockers and next task. Never erase historical verification; mark superseded evidence clearly.
+
+
+## 11.9 Platform business HTTP endpoint integration — 2026-11-22
+
+- Added `backend/tests/Mg.Platform.Api.Tests/PlatformBusinessEndpointsPostgresTests.cs` to Draft PR #166. Tests use ASP.NET Core TestServer, the real `PlatformEndpoints.MapPlatformEndpoints` route group, real `mg-creator` authorization policy and rate-limiter middleware, with disposable PostgreSQL.
+- 16 simultaneous POSTs to `/api/v1/platform/businesses/` for the same slug produce exactly one HTTP 201 and fifteen HTTP 409 responses; database ends with one business and one outbox job.
+- Negative endpoint cases: no auth => 401; authenticated non-platform role => 403; invalid slug => 400; all leave registry/outbox empty.
+- Authentication in this endpoint integration uses a test-only scheme to inject claims. It tests the real authorization policy and route middleware but does not prove JWT signature/JWKS/issuer/audience behavior. Production OIDC identity-provider staging remains open.
+- Exact code/test SHA `89cb2ceca29a41563d56e83ec2c18b34a9910428`: PostgreSQL 17 run `44958193288`, **178 passed, 0 failed, 0 skipped**; backend/web run `44958193261`, backend 178 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `1793e7debe0d051b6ba9bfde7fbc8be1f972c421` adds acceptance documentation only after the green code/test SHA.
+- The create-business request has no client-supplied idempotency key. Do not claim retry deduplication after a committed request's lost HTTP response; design/implement an explicit request idempotency contract and test it end-to-end.
+- No merge/deploy. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation tasks
+
+1. Design client idempotency for business creation: decide scope, key format, request fingerprint semantics, retention, conflict behavior, response replay representation and concurrent cross-key/tenant behavior. Record the decision in `docs/DECISIONS.md` before implementation.
+2. Implement durable API idempotency records atomically with business + outbox writes; same key/same payload must replay original 201 response, same key/different payload must return deterministic conflict, and same key cannot be reused by another creator/tenant scope.
+3. Add TestServer + PostgreSQL response-loss tests: let the first request commit, simulate connection drop before response delivery, retry with the same idempotency key and verify the same business/job/response; also cover simultaneous identical requests and changed-payload key reuse.
+4. Replace test-only auth in a separate OIDC integration suite with signed test JWTs and a local test issuer/JWKS endpoint to validate signature, issuer, audience, expiry and role claims through the real JwtBearer middleware.
+5. Continue real Vault process-kill/token-policy/key-rotation/backup-restore, deployed mTLS lifecycle, metrics/alerts, privileged admin controls and staging.
+6. Keep `Provisioning:WorkerEnabled=false`; do not merge, retarget, rebase or deploy without explicit approval.
+
