@@ -131,7 +131,7 @@ The tests host the real `PlatformEndpoints.MapPlatformEndpoints` route group thr
 - The route's real authorization policy and rate-limiting middleware are in the test pipeline; a test-only authentication handler supplies role claims. This does not test OIDC signature/JWKS validation or production issuer/audience behavior.
 - A 31-request same-client burst verifies the configured fixed-window rate limiter allows exactly 30 requests (201) and rejects the 31st (429), with exactly 30 business/outbox pairs persisted.
 
-The registry endpoint tests now cover route-level concurrency and role/validation boundaries. A client losing the response after commit and retrying remains an open contract question: `CreateBusinessRequest` currently has no client idempotency key, so the API must not claim retry deduplication until that contract is designed and implemented.
+The registry endpoint tests now cover route-level concurrency, role/validation boundaries and the client idempotency contract. The API requires a UUID `Idempotency-Key`; same-key/same-creator/same-normalized-payload retries replay the original business resource, while changed payload or creator identity returns HTTP 409. The exact evidence is recorded below. Production OIDC signature/JWKS validation and staging with the real identity provider remain open.
 
 ### Durable Creator API idempotency evidence
 
@@ -146,6 +146,17 @@ Exact code/test SHA `0775d7c774a0ceed860b5966679fe8fe1050a584`:
 Coverage includes normalized same-key replay, changed-payload and changed-creator conflicts, 16 concurrent identical idempotency requests yielding one business/job and 15 replays, API-level same-key retry returning the same business ID, missing/empty key rejection, and the prior 16-way slug race, 31-request rate-limit burst, 401/403/400 authorization/validation cases.
 
 This is PostgreSQL/TestServer evidence, not production IdP/JWKS validation or a real network disconnect injection. Clients must persist and reuse the key; no client may assume a request without the header will be accepted. Production OIDC, deployment of migration 006, response-loss fault injection through the production ingress, and staging remain release gates.
+
+
+### Creator business idempotency and response-loss replay evidence
+
+Exact code/test SHA `0775d7c774a0ceed860b5966679fe8fe1050a584`:
+- PostgreSQL 17 integration [run 44959390861](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959390861): **186 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44959390734](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959390734): backend tests **186 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit found **0 vulnerabilities**; production bundle passed; Pages deployment skipped for PR.
+
+The business registry now persists the idempotency key, a one-way hash of the validated OIDC issuer/subject and a SHA-256 fingerprint of the normalized name/slug in the same PostgreSQL transaction as the business row and provisioning outbox job. The endpoint returns the same resource and `Idempotency-Replayed: true` for a matching retry; a key reused by another creator or with a changed payload returns HTTP 409. Tests cover missing/empty keys (400), sequential HTTP replay, changed-payload/changed-creator rejection, and 16 concurrent service requests using the same key. The concurrent test exposed and fixed a preflight race: when the winner commits between the initial key lookup and slug check, the loser now re-reads the idempotency record and replays rather than incorrectly returning a slug conflict. The separate 16-request same-slug/different-key HTTP race still produces one 201 and fifteen 409 responses.
+
+HTTP integration uses a test-only authentication handler and PostgreSQL 17; it does not establish production OIDC/JWKS, issuer/audience, MFA or identity-provider staging. The central database migration `006_business_creation_idempotency.sql` must be applied before deploying the API version requiring the header. No deployment or worker enablement is implied.
 
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
