@@ -18,7 +18,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly int controlPort;
     private readonly Func<CancellationToken, Task>? afterOwnerRoleCreated;
     private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
-    private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
+    private readonly Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -29,11 +29,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         string controlConnectionString,
         Func<CancellationToken, Task>? afterOwnerRoleCreated,
         Func<CancellationToken, Task>? afterApplicationRoleCreated = null,
-        Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null)
+        Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null,
+        Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
         this.afterOwnerMembershipEnsured = afterOwnerMembershipEnsured;
+        this.afterDatabaseCreatedBeforeMarker = afterDatabaseCreatedBeforeMarker;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -350,7 +352,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task VerifyTenantOwnerConnectionAsync(
-        NpgsqlConnection connection, Guid tenantId, string databaseName, CancellationToken cancellationToken)
+        NpgsqlConnection connection,
+        Guid tenantId,
+        string databaseName,
+        CancellationToken cancellationToken,
+        bool allowPublicConnect = false,
+        bool requireDatabaseMarker = true)
     {
         await using var command = new NpgsqlCommand(
             """
@@ -395,6 +402,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM aclexplode(COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
                        WHERE database_acl.grantee = 0
                          AND database_acl.privilege_type IN ('CONNECT', 'CREATE', 'TEMP')
+                         AND NOT (@allow_public_connect AND database_acl.privilege_type = 'CONNECT')
                    ),
                    NOT EXISTS (
                        SELECT 1
@@ -410,6 +418,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             WHERE role.rolname = current_user;
             """, connection);
         command.Parameters.AddWithValue("control_role", NpgsqlDbType.Text, controlRoleName);
+        command.Parameters.AddWithValue("allow_public_connect", NpgsqlDbType.Boolean, allowPublicConnect);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken)
             || !string.Equals(reader.GetString(0), OwnerRoleName(tenantId), StringComparison.Ordinal)
@@ -426,7 +435,10 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !reader.GetBoolean(11)
             || reader.GetBoolean(12)
             || !string.Equals(reader.GetString(13), RoleMarker(tenantId, "owner"), StringComparison.Ordinal)
-            || !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
+            || (requireDatabaseMarker
+                ? !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)
+                : (!string.IsNullOrEmpty(reader.GetString(14))
+                    && !string.Equals(reader.GetString(14), DatabaseMarker(tenantId), StringComparison.Ordinal)))
             || !reader.GetBoolean(15)
             || !reader.GetBoolean(16)
             || await reader.ReadAsync(cancellationToken))
@@ -772,6 +784,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                 "SELECT format('CREATE DATABASE %I OWNER %I', @database, @owner);",
                 cancellationToken, ("database", databaseName), ("owner", ownerRole));
             await ExecuteDdlAsync(controlConnection, createSql, cancellationToken);
+            if (afterDatabaseCreatedBeforeMarker is not null)
+                await afterDatabaseCreatedBeforeMarker(cancellationToken);
             await SetDatabaseMarkerAsync(ownerConnectionString, tenantId, databaseName, cancellationToken);
             state = await GetDatabaseStateAsync(controlConnection, databaseName, cancellationToken);
         }
@@ -799,7 +813,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || !string.Equals(state.Comment, DatabaseMarker(tenantId), StringComparison.Ordinal))
             throw new AgentProvisioningConflictException("Tenant database owner or immutable database marker verification failed.");
 
-        await ConfigureDatabaseAccessAsync(ownerConnectionString, databaseName, appRole, cancellationToken);
+        await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
     }
 
     private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
@@ -855,6 +869,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await VerifyTenantOwnerConnectionAsync(
+            connection, tenantId, databaseName, cancellationToken,
+            allowPublicConnect: true, requireDatabaseMarker: false);
         await using var command = new NpgsqlCommand("COMMENT ON DATABASE " + QuoteIdentifier(databaseName)
             + " IS '" + DatabaseMarker(tenantId) + "';", connection);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -878,11 +895,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     }
 
     private async Task ConfigureDatabaseAccessAsync(
-        string ownerConnectionString, string databaseName, string appRole, CancellationToken cancellationToken)
+        string ownerConnectionString, Guid tenantId, string databaseName, string appRole, CancellationToken cancellationToken)
     {
         var builder = new NpgsqlConnectionStringBuilder(ownerConnectionString) { Pooling = false };
         await using var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
+        await VerifyTenantOwnerConnectionAsync(connection, tenantId, databaseName, cancellationToken, allowPublicConnect: true);
         var sql = await FormatSqlAsync(connection,
             """
             SELECT format(
