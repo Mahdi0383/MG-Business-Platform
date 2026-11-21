@@ -65,6 +65,29 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RefusesToApplyTenantBaselineWhenPublicDatabaseAclDrifts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: true);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+
+        await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+            fixture.Provisioner.ApplyTenantSchemaAsync(
+                fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+
+        Assert.False(await fixture.TenantSchemaExistsAsync());
+
+        await fixture.SetTenantPublicTemporaryPrivilegeAsync(grant: false);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantSchemaExistsAsync());
+    }
+
+    [Fact]
     public async Task RefusesToAdoptUnmarkedDatabaseContainingPublicFunction()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -375,6 +398,20 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 $"{operation} TEMPORARY ON DATABASE \"{DatabaseName}\" " +
                 $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> TenantSchemaExistsAsync()
+        {
+            var builder = new NpgsqlConnectionStringBuilder(adminConnectionString)
+            {
+                Database = DatabaseName,
+                Pooling = false
+            };
+            await using var admin = new NpgsqlConnection(builder.ConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT to_regnamespace('mg') IS NOT NULL;", admin);
+            return (bool)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task SetPublicTemporaryPrivilegeAsync(bool grant)
