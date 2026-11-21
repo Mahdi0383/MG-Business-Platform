@@ -38,6 +38,8 @@ public sealed class TenantProvisioningWorkerPostgresTests
         await Task.Delay(TestRenewalInterval + TestRenewalInterval);
         var renewed = await fixture.ReadJobAsync(job.Id);
         Assert.True(renewed.LeaseExpiresAtUtc > originalExpiry);
+        Assert.Equal(claimed.LeaseToken, renewed.LeaseToken);
+        Assert.Equal("heartbeat-worker", renewed.LeaseOwner);
 
         release.TrySetResult();
         await processing.WaitAsync(TimeSpan.FromSeconds(3));
@@ -174,6 +176,12 @@ public sealed class TenantProvisioningWorkerPostgresTests
         Assert.NotNull(stored.LeaseToken);
         Assert.Equal("PendingProvisioning", storedBusiness.Status);
         Assert.Null(storedBusiness.ActivatedAtUtc);
+
+        await fixture.ExpireLeaseAsync(job.Id);
+        var recovered = await fixture.ClaimAsync("heartbeat-recovery-worker");
+        Assert.Equal(job.Id, recovered.Id);
+        Assert.Equal("heartbeat-recovery-worker", recovered.LeaseOwner);
+        Assert.NotEqual(stored.LeaseToken, recovered.LeaseToken);
     }
 
     [Fact]
@@ -244,6 +252,11 @@ public sealed class TenantProvisioningWorkerPostgresTests
         Assert.NotNull(stored.LeaseToken);
         Assert.Equal("PendingProvisioning", storedBusiness.Status);
         Assert.Null(storedBusiness.ActivatedAtUtc);
+
+        var expiryAtShutdown = stored.LeaseExpiresAtUtc;
+        await Task.Delay(TestRenewalInterval + TestRenewalInterval);
+        var afterShutdown = await fixture.ReadJobAsync(job.Id);
+        Assert.Equal(expiryAtShutdown, afterShutdown.LeaseExpiresAtUtc);
     }
 
     private static ServiceProvider CreateServices(Fixture fixture, ITenantProvisioningHandler handler)
