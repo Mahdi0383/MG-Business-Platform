@@ -362,6 +362,28 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         Assert.Contains("retry-secret", created.ApplicationConnectionString, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task RevalidatesPublicLedgerAclAfterCredentialFactoryBeforePreparedInsert()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                tenantId, idempotencyKey, databaseName,
+                async _ =>
+                {
+                    await fixture.SetPublicLedgerSelectAsync(grant: true);
+                    return Fixture.Credentials(databaseName, "acl-drift-secret");
+                }));
+
+        await fixture.SetPublicLedgerSelectAsync(grant: false);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+    }
+
     private sealed class FakeResourceProvisioner : ITenantResourceProvisioner
     {
         public int EnsureCalls { get; private set; }
@@ -465,6 +487,17 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
             return new Fixture(dataSource, protector,
                 new AgentProvisioningOperationStore(dataSource, protector), keyMaterial);
+        }
+
+        public async Task SetPublicLedgerSelectAsync(bool grant)
+        {
+            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var command = new NpgsqlCommand(
+                grant
+                    ? "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;"
+                    : "REVOKE SELECT ON TABLE mg_agent.provisioning_operations FROM PUBLIC;",
+                connection);
+            await command.ExecuteNonQueryAsync();
         }
 
         public static AgentProvisioningCredentials Credentials(string databaseName, string password) =>
