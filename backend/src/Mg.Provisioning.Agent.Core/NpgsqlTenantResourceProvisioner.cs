@@ -23,7 +23,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration;
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
     private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
-    private readonly Func<CancellationToken, Task>? afterRoleCreatedBeforeMarker;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -38,8 +37,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterDatabaseCreatedBeforeMarker = null,
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
         Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
-        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null,
-        Func<CancellationToken, Task>? afterRoleCreatedBeforeMarker = null)
+        Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -48,7 +46,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterDatabaseMarkerWrittenBeforeAccessConfiguration = afterDatabaseMarkerWrittenBeforeAccessConfiguration;
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
-        this.afterRoleCreatedBeforeMarker = afterRoleCreatedBeforeMarker;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -627,11 +624,6 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                     "SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS', @role);",
                     cancellationToken, ("role", roleName));
             await ExecuteDdlAsync(connection, sql, cancellationToken, transaction);
-            if (afterRoleCreatedBeforeMarker is not null)
-                await afterRoleCreatedBeforeMarker(cancellationToken);
-            // Role creation and its immutable marker are separate catalog mutations.
-            // Recheck the full control-role boundary before writing the marker.
-            await VerifyControlRoleAsync(connection, cancellationToken, transaction);
             var commentSql = await FormatSqlAsync(connection, transaction,
                 "SELECT format('COMMENT ON ROLE %I IS %L', @role, @comment);",
                 cancellationToken, ("role", roleName), ("comment", marker));
