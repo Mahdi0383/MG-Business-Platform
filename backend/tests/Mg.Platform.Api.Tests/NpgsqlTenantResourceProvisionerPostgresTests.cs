@@ -272,6 +272,37 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RejectsPublicConnectDriftAfterDatabaseMarkerBeforeAccessConfigurationAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseMarkerWritten(async _ =>
+            await fixture.SetTenantPublicConnectPrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+            Assert.True(await fixture.TenantPublicConnectPrivilegeExistsAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicConnectPrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+
+        Assert.True(await fixture.DatabaseMarkerMatchesAsync());
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
+    }
+
+    [Fact]
     public async Task RevalidatesOwnerSchemaAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -760,6 +791,37 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 $"{operation} CREATE ON SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
                 admin);
             await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicConnectPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} CONNECT ON DATABASE \"{DatabaseName}\" " +
+                $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task<bool> TenantPublicConnectPrivilegeExistsAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_database database
+                    CROSS JOIN LATERAL aclexplode(
+                        COALESCE(database.datacl, acldefault('d', database.datdba))) AS database_acl
+                    WHERE database.datname = @database
+                      AND database_acl.grantee = 0
+                      AND database_acl.privilege_type = 'CONNECT'
+                );
+                """, admin);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public async Task SetTenantPublicCreatePrivilegeAsync(bool grant)
