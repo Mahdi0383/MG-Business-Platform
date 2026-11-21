@@ -2,12 +2,13 @@
 
 ## Caddy
 
-The Windows release package downloads the Caddy executable from the official Caddy download service at build time. Caddy is distributed under the Apache License 2.0. Project source and license information are available from the official repository:
+The Windows release package includes the unmodified Caddy 2.11.9 Windows amd64 executable from the official GitHub release asset `caddy_2.11.9_windows_amd64.zip`. The packaging script pins the asset SHA-256 to `ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472` and refuses to package the binary if the downloaded archive does not match. Caddy is distributed under the Apache License 2.0.
 
-- Caddy source: https://github.com/caddyserver/caddy
+- Caddy source and releases: https://github.com/caddyserver/caddy
+- Pinned Caddy 2.11.9 release: https://github.com/caddyserver/caddy/releases/tag/v2.11.9
 - Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
 
-The release packaging workflow records the Caddy version in `caddy/VERSION.txt`. The Caddy executable is not modified by this project.
+The release packaging workflow records the executable's reported version in `caddy/VERSION.txt`. The Caddy executable is not modified by this project.
 
 ## QRCoder
 

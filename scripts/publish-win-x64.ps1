@@ -109,31 +109,59 @@ $caddyDirectory = Join-Path $desktopOutput "caddy"
 New-Item -ItemType Directory -Path $caddyDirectory -Force | Out-Null
 $caddyPath = Join-Path $caddyDirectory "caddy.exe"
 Copy-Item (Join-Path $repoRoot "LICENSES/Caddy-Apache-2.0.txt") (Join-Path $caddyDirectory "LICENSE.txt") -Force
-$caddyUri = "https://caddyserver.com/api/download?os=windows&arch=amd64"
+
+# Use the official immutable GitHub release asset, not the best-effort interactive
+# download service. Pin both version and SHA-256 so the package is reproducible.
+$caddyVersion = "2.11.9"
+$caddyArchiveName = "caddy_$($caddyVersion)_windows_amd64.zip"
+$caddySha256 = "ad93112d335ee687100c4c9f11bced16ca590377976b7fe7883882b9e797e472"
+$caddyUri = "https://github.com/caddyserver/caddy/releases/download/v$($caddyVersion)/$($caddyArchiveName)"
+$caddyArchivePath = Join-Path $env:TEMP $caddyArchiveName
+$caddyExtractDirectory = Join-Path $env:TEMP "mg-caddy-$($caddyVersion)-$PID"
 $caddyDownloaded = $false
-for ($attempt = 1; $attempt -le 3; $attempt++) {
-    try {
-        if (Test-Path $caddyPath) { Remove-Item $caddyPath -Force }
-        Invoke-WebRequest -Uri $caddyUri -OutFile $caddyPath -UseBasicParsing -TimeoutSec 90
-        if ((Test-Path $caddyPath) -and (Get-Item $caddyPath).Length -ge 1MB) {
+
+try {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            if (Test-Path $caddyArchivePath) { Remove-Item $caddyArchivePath -Force }
+            Invoke-WebRequest -Uri $caddyUri -OutFile $caddyArchivePath -UseBasicParsing -TimeoutSec 120
+            if (-not (Test-Path $caddyArchivePath) -or (Get-Item $caddyArchivePath).Length -lt 1MB) {
+                throw "Downloaded Caddy archive is missing or smaller than 1 MB."
+            }
+
+            $actualCaddySha256 = (Get-FileHash $caddyArchivePath -Algorithm SHA256).Hash
+            if (-not [string]::Equals($actualCaddySha256, $caddySha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Official Caddy archive SHA-256 mismatch. Expected $caddySha256, received $actualCaddySha256."
+            }
+
+            if (Test-Path $caddyExtractDirectory) { Remove-Item $caddyExtractDirectory -Recurse -Force }
+            Expand-Archive -LiteralPath $caddyArchivePath -DestinationPath $caddyExtractDirectory -Force
+            $extractedCaddyPath = Join-Path $caddyExtractDirectory "caddy.exe"
+            if (-not (Test-Path $extractedCaddyPath)) {
+                throw "Verified Caddy archive does not contain caddy.exe at its expected root."
+            }
+            Copy-Item $extractedCaddyPath $caddyPath -Force
             $caddyDownloaded = $true
             break
+        } catch {
+            if ($attempt -eq 3) {
+                throw "Caddy download or verification failed after $attempt attempts: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 5
         }
-        throw "Downloaded Caddy file is missing or smaller than 1 MB."
-    } catch {
-        if ($attempt -eq 3) {
-            throw "Caddy download failed after $attempt attempts: $($_.Exception.Message)"
-        }
-        Start-Sleep -Seconds 5
     }
+} finally {
+    if (Test-Path $caddyArchivePath) { Remove-Item $caddyArchivePath -Force }
+    if (Test-Path $caddyExtractDirectory) { Remove-Item $caddyExtractDirectory -Recurse -Force }
 }
-if (-not $caddyDownloaded) {
+
+if (-not $caddyDownloaded -or -not (Test-Path $caddyPath)) {
     throw "Caddy download failed; refusing to package a build without the HTTPS reverse proxy."
 }
-$caddyVersion = & $caddyPath version
+$caddyBinaryVersion = & $caddyPath version
 if ($LASTEXITCODE -ne 0) { throw "Downloaded Caddy binary failed its version check." }
-Set-Content -Path (Join-Path $caddyDirectory "VERSION.txt") -Value $caddyVersion -Encoding UTF8
-Write-Host "Bundled Caddy: $caddyVersion"
+Set-Content -Path (Join-Path $caddyDirectory "VERSION.txt") -Value $caddyBinaryVersion -Encoding UTF8
+Write-Host "Bundled Caddy: $caddyBinaryVersion (SHA-256 verified)"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path (Join-Path $desktopOutput "*") -DestinationPath $zipPath -CompressionLevel Optimal
