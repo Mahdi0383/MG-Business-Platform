@@ -220,6 +220,35 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesOwnerSchemaAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        var provisioner = fixture.CreateProvisionerWithAfterTenantBaselineApplied(async _ =>
+            await fixture.SetTenantPublicSchemaCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.ApplyTenantSchemaAsync(
+                    fixture.TenantId, fixture.Credentials, migration, CancellationToken.None));
+            Assert.True(await fixture.TenantBaselineMigrationExistsAsync());
+            Assert.False(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicSchemaCreatePrivilegeAsync(grant: false);
+        }
+
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+        Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
+    }
+
+    [Fact]
     public async Task RevalidatesOwnerDatabaseAclAfterBaselineCommitBeforeRuntimeGrantsAndRecoversOnRetry()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -622,6 +651,22 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 $"{operation} EXECUTE ON ALL FUNCTIONS IN SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
                 connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetTenantPublicSchemaCreatePrivilegeAsync(bool grant)
+        {
+            var builder = new NpgsqlConnectionStringBuilder(adminConnectionString)
+            {
+                Database = DatabaseName,
+                Pooling = false
+            };
+            await using var admin = new NpgsqlConnection(builder.ConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} CREATE ON SCHEMA mg {(grant ? "TO" : "FROM")} PUBLIC;",
+                admin);
             await command.ExecuteNonQueryAsync();
         }
 
