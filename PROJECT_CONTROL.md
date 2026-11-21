@@ -635,7 +635,30 @@ The historical entries below remain as an audit trail; statements that the agent
 4. Review PR #159 quality gates and the full #153→#154→#155/#158→#160→#161→#165→#166 dependency stack before any human-approved integration. Do not merge, retarget, rebase or deploy without authorization.
 5. Keep `Provisioning:WorkerEnabled=false` until every mandatory operations acceptance gate has dated production evidence.
 
-## 12. Change log
+## 11.8 Business registry and outbox concurrency tranche — 2026-11-22
+
+- Added `backend/tests/Mg.Platform.Api.Tests/BusinessRegistryConcurrencyPostgresTests.cs` to Draft PR #166.
+- PostgreSQL tests use independent EF Core DbContexts against disposable schema:
+  1. 16 concurrent same-slug requests result in exactly one business + one provisioning job; 15 return conflict.
+  2. 12 concurrent distinct slugs result in 12 businesses + 12 jobs, with 12 distinct idempotency keys.
+  3. A PostgreSQL trigger forces outbox insert failure; EF's SaveChanges transaction rolls back the preceding business insert, leaving zero businesses and zero jobs.
+- Exact code/test SHA `d04368366b4f12230b6091a09b705fb000b3d87f`: PostgreSQL 17 run `44957701458`, **176 passed, 0 failed, 0 skipped**; backend/web run `44957701527`, backend 176 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current PR head `22b18f40a46e55d52832cbdac8c857f84c743773` adds acceptance docs only after the green code/test SHA.
+- These are service-level tests, not HTTP authentication/endpoint or client response-loss replay. Keep those end-to-end acceptance gates open. No merge/deploy; worker remains disabled.
+
+### Next continuation tasks
+
+1. Add HTTP integration tests for `POST /api/v1/platform/businesses` through the real authorization and routing pipeline using signed test JWTs and disposable PostgreSQL. Verify same-slug concurrent requests return exactly one 201 and remaining 409s, and business/outbox rows are atomic.
+2. Add a simulated client response-loss/retry test against the API route: after the first request commits but before the client receives the response, define and verify the intended idempotency contract. Current create-business contract has no client-supplied idempotency key, so do not assume a retry deduplicates; decide whether to add an explicit request idempotency key before claiming replay safety.
+3. Add API-level negative tests for unauthenticated, wrong-role, malformed request, rate-limit and duplicate slug cases.
+4. Continue real Vault process-kill/token-policy/key-rotation/backup-restore, deployed mTLS lifecycle, metrics/alerts, privileged admin controls and staging.
+5. Keep `Provisioning:WorkerEnabled=false`; do not merge, retarget, rebase or deploy without explicit approval.
+
+
+
+- 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
+- Future sessions must append dated entries with PR/commit, concrete changes, tests/results, blockers and next task. Never erase historical verification; mark superseded evidence clearly.
+
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
 - Future sessions must append dated entries with PR/commit, concrete changes, tests/results, blockers and next task. Never erase historical verification; mark superseded evidence clearly.
