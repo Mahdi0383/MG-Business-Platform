@@ -478,6 +478,25 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Resolve the PR #154 → #155 → #158 branch divergence with a non-destructive integration candidate; preserve all commits, inspect conflicts and rerun the complete quality gates. Do not merge or force-push.
 3. Continue the remaining Issue #157 crash/recovery and production operational acceptance work. Keep the provisioning worker disabled until all production gates pass.
 
+## 11.3 Provisioning stack integration candidate — 2026-11-21
+
+- Created Draft PR #160: integration/provisioning-agent-security-stack-20261121 → feature/mg-provisioning-job-leases.
+- Candidate merge commit: d0b962a46378fd152d0181e1fb3af7c37ff108d5, with two parents:
+  - current lease parent 0977e9f5ba03ebbd9b07b24e77fd54dc43efe71c;
+  - security hardening PR #155 head 6282c3795b48a6d478457698cb8dbff395782d61.
+- This is a new integration candidate; no existing branch was force-pushed, rebased, or rewritten. Original PR #155 and #154 remain open/Draft.
+- Three overlapping files were reconciled against merge base 519100d1df6b7ec2c668335eabacf72e73997d51 with no textual conflicts:
+  - operations acceptance checklist: preserved the parent worker-heartbeat/fault-injection gates and the security branch's stricter control-role/PUBLIC ACL requirements;
+  - Platform API Program.cs: preserved the parent's shared Creator OIDC registration and the security branch's certificate revocation check;
+  - AgentProvisioningOperationStorePostgresTests.cs: preserved both parent cancellation recovery and security control-plane maintenance-lock coverage.
+- The two parent-only changes to the test project dependency and lease tests remain inherited from the first parent. The 21 expected security/provisioning files appear in the candidate diff.
+- Exact-head CI on merge commit d0b962a46378fd152d0181e1fb3af7c37ff108d5:
+  - PostgreSQL 17 integration run 44922593856: 136 passed, 0 failed, 0 skipped.
+  - Web/backend run 44922593816: backend Release build passed; isolated agent API build 0 warnings / 0 errors; backend tests 136 passed; frontend tests 20 passed; dependency audit passed; production bundle succeeded; Pages deployment skipped as expected for a PR.
+- Formatting and CodeQL have not yet run on this merge candidate. It is not eligible to merge until those checks, code review, and the remaining production acceptance gates pass.
+- PR #158's centralized readiness verifier was audited during the continuation. Its initial SQL had an incorrect aclexplode privilege label (TEMP rather than PostgreSQL's TEMPORARY) and omitted PUBLIC grants on the mg_agent schema and operation ledger. The PR #158 branch now contains a correction and regression tests for PUBLIC schema USAGE and ledger SELECT grants at commit 8661aeaca8ca3aa5bd4110a4ebd2f9c303ac0457. This corrected child branch has not yet been integrated into #160 or validated by CI. Do not consume its older provisioner snapshot wholesale: it removes the later fault-injection hooks and must be semantically reconciled with the current #160 provisioner before integration.
+- Issue #157 remains open. Real child-process termination and restart/recovery at every external side-effect boundary, production secret-manager rotation/backup restore, deployed mTLS lifecycle, monitoring and administrator operational controls remain outstanding. Keep Provisioning:WorkerEnabled=false.
+
 ## 12. Change log
 
 - 2026-11-18: Master requirements, architecture, continuation rules, implementation snapshot and production release gates consolidated into this repository governance document.\n- 2026-11-18: Recorded Draft PR #153 for Creator OIDC authentication hardening; its exact-head MG Web workflow subsequently passed.\n- 2026-11-18: Recorded Draft PR #154 adding durable provisioning lease and idempotency schema; exact-head CI was queued. Initial implementation status is based on PR #105 snapshot; revalidate before further work.
