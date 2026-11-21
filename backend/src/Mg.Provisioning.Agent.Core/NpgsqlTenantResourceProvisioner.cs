@@ -24,6 +24,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants;
     private readonly Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline;
     private readonly Func<CancellationToken, Task>? afterRuntimeGrantsApplied;
+    private readonly Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker;
+    private readonly Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -39,7 +41,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         Func<CancellationToken, Task>? afterDatabaseMarkerWrittenBeforeAccessConfiguration = null,
         Func<CancellationToken, Task>? afterTenantBaselineAppliedBeforeRuntimeGrants = null,
         Func<CancellationToken, Task>? afterOwnerReadinessBeforeTenantBaseline = null,
-        Func<CancellationToken, Task>? afterRuntimeGrantsApplied = null)
+        Func<CancellationToken, Task>? afterRuntimeGrantsApplied = null,
+        Func<CancellationToken, Task>? afterDatabasePublicAclRevokedBeforeMarker = null,
+        Func<CancellationToken, Task>? afterDatabaseAccessConfiguredBeforeSchema = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
@@ -49,6 +53,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         this.afterTenantBaselineAppliedBeforeRuntimeGrants = afterTenantBaselineAppliedBeforeRuntimeGrants;
         this.afterOwnerReadinessBeforeTenantBaseline = afterOwnerReadinessBeforeTenantBaseline;
         this.afterRuntimeGrantsApplied = afterRuntimeGrantsApplied;
+        this.afterDatabasePublicAclRevokedBeforeMarker = afterDatabasePublicAclRevokedBeforeMarker;
+        this.afterDatabaseAccessConfiguredBeforeSchema = afterDatabaseAccessConfiguredBeforeSchema;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -853,6 +859,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         if (afterDatabaseMarkerWrittenBeforeAccessConfiguration is not null)
             await afterDatabaseMarkerWrittenBeforeAccessConfiguration(cancellationToken);
         await ConfigureDatabaseAccessAsync(ownerConnectionString, tenantId, databaseName, appRole, cancellationToken);
+        if (afterDatabaseAccessConfiguredBeforeSchema is not null)
+            await afterDatabaseAccessConfiguredBeforeSchema(cancellationToken);
     }
 
     private async Task<bool> IsFreshDatabaseAsync(string databaseName, CancellationToken cancellationToken)
@@ -919,6 +927,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
         await using (var revokePublic = new NpgsqlCommand(
             "REVOKE ALL ON DATABASE " + QuoteIdentifier(databaseName) + " FROM PUBLIC;", connection))
             await revokePublic.ExecuteNonQueryAsync(cancellationToken);
+
+        if (afterDatabasePublicAclRevokedBeforeMarker is not null)
+            await afterDatabasePublicAclRevokedBeforeMarker(cancellationToken);
 
         await VerifyTenantOwnerConnectionAsync(
             connection, tenantId, databaseName, cancellationToken,
