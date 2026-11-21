@@ -31,7 +31,6 @@ public sealed class TenantProvisioningWorkerPostgresTests
         });
         using var services = CreateServices(fixture, handler);
         var worker = CreateWorker(services);
-        
         var processing = worker.ProcessOneAsync("heartbeat-worker", CancellationToken.None);
         var claimed = await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
         var originalExpiry = claimed.LeaseExpiresAtUtc!.Value;
