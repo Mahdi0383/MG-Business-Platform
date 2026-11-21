@@ -525,20 +525,50 @@ The historical entries below remain as an audit trail; statements that the agent
 3. Run formatting and CodeQL on the #160/#161 stacked candidate after the parent PR quality-gate workflow change is available; keep all PRs Draft.
 4. Complete production secret-manager, backup/restore, mTLS, monitoring and administrator operational acceptance. Worker remains disabled.
 
-## 11.5 Durable ledger process-kill coverage — 2026-11-21
+## 11.5 Granular database/runtime ACL process-kill recovery — 2026-11-21
 
-- PR #161 advanced to exact head 19ee188b433973feebdbd286ae1b5b8341a58a9f.
-- Added three real process-kill cases around durable operation-ledger transactions:
-  - kill after prepared credential INSERT but before commit; confirm rollback leaves no row and retry creates exactly one Prepared row;
-  - kill after credential rewrap UPDATE but before commit; confirm old ciphertext/key ID remain and tenant-scoped retry completes rewrap;
-  - kill after phase UPDATE but before commit; confirm previous phase remains and retry advances exactly one phase.
-- The crash worker now supports tenant-resource and ledger modes. Ledger hooks are internal constructor seams; production callers retain the normal two-argument store constructor.
-- Added an internal tenant-scoped rewrap path that shares the same transaction/update implementation as the production global rewrap method. This isolates the crash-recovery test from unrelated rows encrypted with other test keys; production global behavior remains unchanged.
-- The first rewrap test attempt failed because the global routine correctly encountered unrelated test-key rows from the shared integration database. The test was narrowed to the tenant-scoped shared implementation; no production encryption logic was weakened.
-- Exact-head PostgreSQL 17 integration run 44924709251: **147 passed, 0 failed, 0 skipped**.
-- Exact-head backend/web run 44924709196: backend Release and isolated agent API builds passed; isolated agent API build 0 warnings/0 errors; backend tests 147 passed; frontend tests 20 passed; dependency audit passed; production bundle succeeded; Pages deployment skipped for PR.
-- Tenant resource side effects plus ledger insert, rewrap and phase update are now covered by actual child-process termination and retry. Production secret-manager/key rotation and backup/restore, deployed mTLS issuance/revocation/rotation, monitoring/alerting, and privileged administrator controls remain open gates. Issue #157 remains open.
-- Keep PR #161 Draft. No merge/deploy. Keep Provisioning:WorkerEnabled=false.
+- PR #161: `test/provisioning-process-kill-recovery` → `integration/provisioning-agent-security-stack-20261121`; remains Draft/open/unmerged.
+- Current PR head: `25d66a17e7f83096cfd74c3960ec5e7cd1a4b0dd`. Latest code/test SHA: `5ad6256b7e5ca9268b35f9a608ea65b8e26b6f3c`; subsequent commit updates only the acceptance documentation.
+- A dedicated .NET crash-worker executable runs in a separate OS process. Integration tests wait for explicit boundary signals, forcibly terminate the process tree, inspect persisted PostgreSQL state and retry through fresh provisioner/store contexts. These are hard process-kill tests, not injected exceptions or graceful cancellation.
+- The tenant provisioner now exposes individual test seams after each database access ACL/CONNECT mutation and after each tenant runtime ACL mutation. The multi-command grant batch was split into independently committed idempotent DDL statements so a crash can occur between them.
+- 23 hard-kill boundaries are covered:
+  1. owner role creation before role-transaction commit;
+  2. application role creation before role-transaction commit;
+  3. owner membership before role-transaction commit;
+  4. CREATE DATABASE before immutable marker;
+  5. PUBLIC database ACL revoke before marker;
+  6. marker before database access configuration;
+  7. PUBLIC database ACL re-revoke during access configuration;
+  8. application-role CONNECT grant;
+  9. control-role CONNECT grant;
+  10. completed database access configuration;
+  11. owner readiness before tenant baseline;
+  12. tenant baseline before runtime grants;
+  13. PUBLIC schema privilege revoke;
+  14. PUBLIC table privilege revoke;
+  15. PUBLIC function privilege revoke;
+  16. default PUBLIC function EXECUTE revoke;
+  17. runtime schema USAGE grant;
+  18. runtime mutable-table privileges grant;
+  19. runtime read-only-table privileges grant;
+  20. prepared credential INSERT before transaction commit;
+  21. credential rewrap UPDATE before transaction commit;
+  22. operation phase UPDATE before transaction commit;
+  23. runtime-grant completion before coordinator phase advancement.
+- Database access cases inspect PUBLIC ACL and application/control CONNECT state. Runtime ACL cases independently verify intermediate runtime readiness. Every test retries and verifies final runtime readiness. Ledger tests verify transaction rollback and idempotent retry.
+- Exact code/test PostgreSQL 17 run `44943851135`: **159 passed, 0 failed, 0 skipped**.
+- Exact code/test full backend/web run `44943851128`: backend tests 159 passed; isolated agent API Release build 0 warnings/0 errors; frontend tests 20 passed; dependency audit and production bundle passed; Pages deployment skipped for PR.
+- Current docs-only PR head PostgreSQL run `44944097189`: success.
+- Updated PR #161 body and Issue #157 with this evidence. Issue #157 remains open. Production secret-manager/key rotation and backup/restore, deployed mTLS lifecycle, monitoring/alerting, privileged administrator operational controls, worker heartbeat/orchestration acceptance and staging remain outstanding.
+- Keep PR #161 Draft and unmerged. No deployment. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation tasks
+
+1. Extend process-kill tests to the isolated secret-manager/Vault side effects and API/agent response-loss boundaries using a disposable test provider; prove no credential is lost or rotated on retry.
+2. Add worker-level heartbeat/orchestration fault tests (lease renewal, heartbeat loss, shutdown, stale handler completion) rather than relying only on lease-store fencing tests.
+3. Finish production mTLS certificate issuance/revocation/rotation, secret-manager policy/key rotation, backup/restore drills, monitoring/alerting and staging evidence.
+4. Review PR #158/#160/#161 stack dependency and the quality-gate PR #159 before any human-approved integration. Do not merge, rebase, retarget or deploy without authorization.
+5. Keep worker disabled until every mandatory operations acceptance checkbox has real deployment evidence.
 
 ## 12. Change log
 
