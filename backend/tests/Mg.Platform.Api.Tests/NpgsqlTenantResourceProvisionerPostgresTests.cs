@@ -96,6 +96,18 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await fixture.SetPublicTemporaryPrivilegeAsync(grant: false);
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
 
+        await fixture.SetPublicAgentSchemaUsagePrivilegeAsync(grant: true);
+        using (var publicSchemaAclDriftHandler = fixture.CreateAgentHandler())
+            Assert.False(await publicSchemaAclDriftHandler.IsReadyAsync(CancellationToken.None));
+        await fixture.SetPublicAgentSchemaUsagePrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
+        await fixture.SetPublicAgentLedgerSelectPrivilegeAsync(grant: true);
+        using (var publicLedgerAclDriftHandler = fixture.CreateAgentHandler())
+            Assert.False(await publicLedgerAclDriftHandler.IsReadyAsync(CancellationToken.None));
+        await fixture.SetPublicAgentLedgerSelectPrivilegeAsync(grant: false);
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+
         await fixture.AddUnexpectedBootstrapMembershipAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: false);
         await fixture.RemoveUnexpectedBootstrapMembershipAsync();
@@ -444,6 +456,26 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 $"{operation} TEMPORARY ON DATABASE \"{new NpgsqlConnectionStringBuilder(adminConnectionString).Database}\" " +
                 $"{(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetPublicAgentSchemaUsagePrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} USAGE ON SCHEMA mg_agent {(grant ? "TO" : "FROM")} PUBLIC;", admin);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task SetPublicAgentLedgerSelectPrivilegeAsync(bool grant)
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            var operation = grant ? "GRANT" : "REVOKE";
+            await using var command = new NpgsqlCommand(
+                $"{operation} SELECT ON TABLE mg_agent.provisioning_operations {(grant ? "TO" : "FROM")} PUBLIC;", admin);
             await command.ExecuteNonQueryAsync();
         }
 
