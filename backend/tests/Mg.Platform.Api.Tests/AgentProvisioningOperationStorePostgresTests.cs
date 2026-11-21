@@ -406,7 +406,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         foreach (var drift in new[]
         {
             (Scope: "database", Privilege: "CONNECT"),
-            (Scope: "database", Privilege: "TEMP"),
+            (Scope: "database", Privilege: "TEMPORARY"),
             (Scope: "database", Privilege: "CREATE"),
             (Scope: "schema", Privilege: "USAGE"),
             (Scope: "schema", Privilege: "CREATE"),
@@ -587,8 +587,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             {
                 ("database", "CONNECT", true) => "GRANT CONNECT ON DATABASE %I TO PUBLIC;",
                 ("database", "CONNECT", false) => "REVOKE CONNECT ON DATABASE %I FROM PUBLIC;",
-                ("database", "TEMP", true) => "GRANT TEMP ON DATABASE %I TO PUBLIC;",
-                ("database", "TEMP", false) => "REVOKE TEMP ON DATABASE %I FROM PUBLIC;",
+                ("database", "TEMPORARY", true) => "GRANT TEMPORARY ON DATABASE %I TO PUBLIC;",
+                ("database", "TEMPORARY", false) => "REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC;",
                 ("database", "CREATE", true) => "GRANT CREATE ON DATABASE %I TO PUBLIC;",
                 ("database", "CREATE", false) => "REVOKE CREATE ON DATABASE %I FROM PUBLIC;",
                 ("schema", "USAGE", true) => "GRANT USAGE ON SCHEMA mg_agent TO PUBLIC;",
@@ -630,7 +630,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             var sql = (scope, privilege) switch
             {
                 ("database", "CONNECT") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CONNECT');",
-                ("database", "TEMP") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'TEMP');",
+                ("database", "TEMPORARY") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'TEMPORARY');",
                 ("database", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_database d, LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a WHERE d.datname = current_database() AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
                 ("schema", "USAGE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'USAGE');",
                 ("schema", "CREATE") => "SELECT EXISTS (SELECT 1 FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a WHERE n.nspname = 'mg_agent' AND a.grantee = 0 AND a.privilege_type = 'CREATE');",
