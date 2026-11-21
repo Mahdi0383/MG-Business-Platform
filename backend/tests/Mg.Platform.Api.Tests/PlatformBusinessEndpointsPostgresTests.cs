@@ -181,6 +181,7 @@ public sealed class PlatformBusinessEndpointsPostgresTests
                 new CreateBusinessRequest("Wrong Role", "wrong-role"))
         };
         wrongRoleRequest.Headers.Add("X-Test-Role", "StoreManager");
+        wrongRoleRequest.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
         using var wrongRole = await client.SendAsync(wrongRoleRequest);
         Assert.Equal(StatusCodes.Status403Forbidden, (int)wrongRole.StatusCode);
 
@@ -191,11 +192,52 @@ public sealed class PlatformBusinessEndpointsPostgresTests
                 new CreateBusinessRequest("Invalid Slug", "Not A Valid Slug"))
         };
         invalidSlugRequest.Headers.Add("X-Test-Role", "PlatformOwner");
+        invalidSlugRequest.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
         using var invalidSlug = await client.SendAsync(invalidSlugRequest);
         Assert.Equal(StatusCodes.Status400BadRequest, (int)invalidSlug.StatusCode);
 
         Assert.Equal(0, await fixture.CountBusinessesAsync());
         Assert.Equal(0, await fixture.CountJobsAsync());
+    }
+
+
+    [Fact]
+    public async Task BusinessEndpointReplaysSameIdempotentRequestAndRejectsChangedPayloadOrCreator()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        using var host = CreateHost(fixture.TestConnection);
+        using var client = host.GetTestClient();
+        var key = Guid.NewGuid().ToString();
+        var payload = new CreateBusinessRequest("Replay Cafe", "replay-cafe");
+
+        async Task<HttpResponseMessage> SendAsync(CreateBusinessRequest requestBody, string subject)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/platform/businesses/")
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            request.Headers.Add("X-Test-Role", "PlatformOwner");
+            request.Headers.Add("X-Test-Subject", subject);
+            request.Headers.Add("Idempotency-Key", key);
+            return await client.SendAsync(request);
+        }
+
+        using var first = await SendAsync(payload, "creator-one");
+        using var replay = await SendAsync(
+            payload with { Name = " Replay Cafe ", Slug = "REPLAY-CAFE" }, "creator-one");
+        using var changedPayload = await SendAsync(
+            new CreateBusinessRequest("Different Cafe", "different-cafe"), "creator-one");
+        using var changedCreator = await SendAsync(payload, "creator-two");
+
+        Assert.Equal(StatusCodes.Status201Created, (int)first.StatusCode);
+        Assert.Equal(StatusCodes.Status201Created, (int)replay.StatusCode);
+        Assert.Equal(first.Headers.Location, replay.Headers.Location);
+        Assert.Equal("true", replay.Headers.GetValues("Idempotency-Replayed").Single());
+        Assert.Equal(StatusCodes.Status409Conflict, (int)changedPayload.StatusCode);
+        Assert.Equal(StatusCodes.Status409Conflict, (int)changedCreator.StatusCode);
+        Assert.Equal(1, await fixture.CountBusinessesAsync());
+        Assert.Equal(1, await fixture.CountJobsAsync());
+        Assert.Equal(1, await fixture.CountIdempotencyRecordsAsync());
     }
 
     private static IHost CreateHost(string connectionString) =>
