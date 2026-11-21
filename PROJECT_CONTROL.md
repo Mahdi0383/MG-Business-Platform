@@ -732,3 +732,11 @@ The historical entries below remain as an audit trail; statements that the agent
 - Exact current-head backend/web run `44960849725`: backend 190 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
 - PR remains Draft/open/unmerged; no deployment. `Provisioning:WorkerEnabled=false` remains mandatory.
 
+
+## 11.14 Latest exact-head validation — 2026-11-22
+
+- Draft PR #166 current head `a1a64864f92b730716c072ca8f20e144f793f237`; acceptance documentation only after the validated implementation.
+- Exact current-head PostgreSQL 17 run `44961023483`: **190 passed, 0 failed, 0 skipped**.
+- Exact current-head backend/web run `44961023493`: backend 190 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
+- PR remains open/Draft/unmerged. No deployment. Keep `Provisioning:WorkerEnabled=false`.
+
