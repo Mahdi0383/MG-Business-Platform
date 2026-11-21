@@ -102,15 +102,23 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
 
-        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
-        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
-        await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
-        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        try
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
 
-        await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: true);
-        await fixture.AssertAgentHandlerReadinessAsync(expected: false);
-        await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
-        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: true);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: false);
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+            await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+            await fixture.SetControlLedgerPublicSelectPrivilegeAsync(grant: false);
+        }
     }
 
     [Fact]
