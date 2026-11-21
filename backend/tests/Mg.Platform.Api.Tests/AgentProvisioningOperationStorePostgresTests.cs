@@ -370,16 +370,22 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var idempotencyKey = Guid.NewGuid();
         var databaseName = $"mg_tenant_{tenantId:N}";
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            fixture.Store.GetOrCreatePreparedCredentialsAsync(
-                tenantId, idempotencyKey, databaseName,
-                async _ =>
-                {
-                    await fixture.SetPublicLedgerSelectAsync(grant: true);
-                    return Fixture.Credentials(databaseName, "acl-drift-secret");
-                }));
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                    tenantId, idempotencyKey, databaseName,
+                    async _ =>
+                    {
+                        await fixture.SetPublicLedgerSelectAsync(grant: true);
+                        return Fixture.Credentials(databaseName, "acl-drift-secret");
+                    }));
+        }
+        finally
+        {
+            await fixture.SetPublicLedgerSelectAsync(grant: false);
+        }
 
-        await fixture.SetPublicLedgerSelectAsync(grant: false);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
     }
