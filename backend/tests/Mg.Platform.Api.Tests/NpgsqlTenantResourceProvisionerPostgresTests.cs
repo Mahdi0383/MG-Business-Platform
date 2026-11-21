@@ -166,6 +166,30 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RefusesToMarkNewTenantDatabaseWhenPublicCreateAclDriftsAfterCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterDatabaseCreatedBeforeMarker(async _ =>
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<AgentProvisioningConflictException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.True(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.DatabaseMarkerMatchesAsync());
+            Assert.True(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetTenantPublicCreatePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -332,6 +356,12 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             Func<CancellationToken, Task> callback) =>
             new(controlConnectionString, afterOwnerRoleCreated: null,
                 afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterDatabaseCreatedBeforeMarker(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null,
+                afterApplicationRoleCreated: null, afterOwnerMembershipEnsured: null,
+                afterDatabaseCreatedBeforeMarker: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
@@ -641,6 +671,18 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             command.Parameters.AddWithValue("owner", NpgsqlDbType.Text, ownerRoleName);
             command.Parameters.AddWithValue("app", NpgsqlDbType.Text, applicationRoleName);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        public async Task<bool> DatabaseMarkerMatchesAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT COALESCE(shobj_description(oid, 'pg_database'), '') = @marker FROM pg_database WHERE datname = @database;",
+                admin);
+            command.Parameters.AddWithValue("marker", NpgsqlDbType.Text, "mg-tenant:" + TenantId.ToString("D"));
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
         public async Task<bool> DatabaseExistsAsync()
