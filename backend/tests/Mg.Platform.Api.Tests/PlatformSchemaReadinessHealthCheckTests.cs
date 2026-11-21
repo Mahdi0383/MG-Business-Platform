@@ -13,7 +13,7 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await using var context = fixture.CreateContext();
         var check = new PlatformSchemaReadinessHealthCheck(context);
 
-        var result = await check.CheckHealthAsync(CreateContext());
+        var result = await check.CheckHealthAsync(CreateContext(check));
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
@@ -32,13 +32,14 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static HealthCheckContext CreateContext()
+    private static HealthCheckContext CreateContext(IHealthCheck check)
     {
         var registration = new HealthCheckRegistration(
             "platform-schema",
-            _ => throw new InvalidOperationException("The check instance is supplied directly."),
+            _ => check,
             HealthStatus.Unhealthy,
-            tags: null);
+            tags: null,
+            timeout: TimeSpan.FromSeconds(5));
         return new HealthCheckContext { Registration = registration };
     }
 }
