@@ -34,13 +34,15 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 
 ### Vault KV v2 response-loss and create-only CAS evidence (partial)
 
-Exact code/test SHA `3792d120244661283a5800e607f1b57c1e0f3bf6`:
-- PostgreSQL integration [run 44946279568](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44946279568): **172 passed, 0 failed, 0 skipped**.
-- Backend/web [run 44946279558](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44946279558): backend tests **172 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+Exact code/test SHA `62e05f99df264e55f2374270143b5f36b64aff38`:
+- PostgreSQL 17 integration [run 44957225349](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225349): **173 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44957225288](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225288): backend tests **173 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit found **0 vulnerabilities**; production bundle passed; Pages deployment skipped for PR.
 
 Automated tests now simulate Vault committing a KV v2 secret while the HTTP write response is lost, and separately simulate a lost readback response after the write. In both cases, a retry reads and reuses the exact stored tenant connection string, does not provision a second database credential, and does not issue a second secret write. A stateful KV v2 HTTP test server enforces `cas=0`: concurrent create-only writes allow one winner, reject the conflicting write, and preserve the winning credential on subsequent reads.
 
 This is response-loss/CAS adapter evidence using a deterministic test server and PostgreSQL-backed handler fixture. It is not a production Vault deployment, a real Vault process-kill test, a key-rotation rehearsal or a backup/restore drill. Keep the secret-manager production acceptance gates open.
+
+The handler-level tests also cover both write-commit/response-loss and readback-response-loss: a retry reuses the exact credential, does not reprovision and does not issue a second write. The HTTP adapter test enforces KV v2 `cas=0`, proves the first committed value survives a lost response, rejects replacement, and races two concurrent create-only writes so exactly one wins.
 
 ## 4. End-to-end fault injection
 Run only against disposable PostgreSQL instances and isolated test certificates.
@@ -98,6 +100,12 @@ For database-access boundaries, tests inspect PUBLIC ACL and application/control
 
 This remains partial acceptance evidence, not a claim that every secret-manager operation, every external platform side effect or every production deployment scenario has been exercised. Keep the master fault-injection checkbox above open until production secret-manager behavior, external integrations and operational gates are evidenced.
 
+### Coordinator idempotency and tenant concurrency evidence
+
+The PostgreSQL suite also verifies eight concurrent duplicate requests for one tenant/idempotency key generate and persist one credential, rejects cross-tenant idempotency-key reuse, and proves two different tenant provisioning operations can both enter their external provisioning stage concurrently while the first tenant remains blocked. This validates tenant-scoped locks do not accidentally serialize independent tenants. Exact latest PostgreSQL run: [44957225349](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225349), **173 passed, 0 failed, 0 skipped**.
+
+The top-level end-to-end checkbox below remains open: it requires exercising the deployed Platform API request path and its durable registry/queue, not only the coordinator and operation-store integration tests.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [x] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires. (PostgreSQL worker integration test; exact evidence recorded below.)
@@ -127,7 +135,7 @@ The worker integration tests exercise the actual `TenantProvisioningWorker.Proce
 - generic handler exception text is not persisted; only `PROVISIONING_FAILED` is stored;
 - structured worker log messages include exception type but not secret-bearing exception text or connection details.
 
-Still open: repeated heartbeat/completion race stress, assertions over sanitized heartbeat/handler logs and metrics, and any production-host/staging exercise. This is test evidence only; it does not authorize enabling the worker.
+The seven worker lifecycle checks above now have automated PostgreSQL test evidence on code/test SHA `1c87f546646dc71337e71ceb99ab773b4415568d`. Repeated success and lease-expiry races (eight iterations each) and sanitized log assertions passed. Production-host/staging exercise and a dedicated metrics assertion remain open. This is test evidence only; it does not authorize enabling the worker.
 
 
 ## 5. Platform worker rollout
