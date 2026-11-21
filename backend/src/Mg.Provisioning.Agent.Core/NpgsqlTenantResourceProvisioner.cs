@@ -566,6 +566,13 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                        FROM aclexplode(COALESCE(schema.nspacl, acldefault('n', schema.nspowner))) AS schema_acl
                        WHERE schema_acl.grantee = 0
                          AND schema_acl.privilege_type IN ('USAGE', 'CREATE')
+                   ),
+                   NOT EXISTS (
+                       SELECT 1
+                       FROM aclexplode(COALESCE(ledger.relacl, acldefault('r', ledger.relowner))) AS ledger_acl
+                       WHERE ledger_acl.grantee = 0
+                         AND ledger_acl.privilege_type IN
+                             ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
                    )
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
@@ -599,7 +606,8 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             || string.Equals(reader.GetString(21), reader.GetString(22), StringComparison.Ordinal)
             || !reader.GetBoolean(23)
             || !reader.GetBoolean(24)
-            || !reader.GetBoolean(25))
+            || !reader.GetBoolean(25)
+            || !reader.GetBoolean(26))
             throw new InvalidOperationException("Agent control-role membership, ACL, ownership or privilege boundary is not ready.");
     }
 
