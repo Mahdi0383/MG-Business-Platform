@@ -104,7 +104,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
 
         using var newProtector = new AgentCredentialProtector("new", keys);
         var newStore = new AgentProvisioningOperationStore(dataSource, newProtector);
-        Assert.Equal(1, await newStore.RewrapStoredCredentialsAsync(100, CancellationToken.None));
+        Assert.Equal(1, await newStore.RewrapStoredCredentialsForTenantAsync(fixture.TenantId, 100, CancellationToken.None));
         Assert.Equal("new", await fixture.StoredCredentialKeyIdAsync());
     }
 
