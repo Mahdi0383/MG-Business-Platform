@@ -426,16 +426,16 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
                    role.rolreplication,
                    role.rolbypassrls,
                    role.rolinherit,
-                   to_regclass('mg_agent.provisioning_operations') IS NOT NULL,
-                   has_schema_privilege(current_user, 'mg_agent', 'USAGE'),
-                   has_schema_privilege(current_user, 'mg_agent', 'CREATE'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'SELECT'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'INSERT'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'UPDATE'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'DELETE'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRUNCATE'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'REFERENCES'),
-                   has_table_privilege(current_user, 'mg_agent.provisioning_operations', 'TRIGGER'),
+                   ledger.oid IS NOT NULL,
+                   has_schema_privilege(current_user, schema.oid, 'USAGE'),
+                   has_schema_privilege(current_user, schema.oid, 'CREATE'),
+                   has_table_privilege(current_user, ledger.oid, 'SELECT'),
+                   has_table_privilege(current_user, ledger.oid, 'INSERT'),
+                   has_table_privilege(current_user, ledger.oid, 'UPDATE'),
+                   has_table_privilege(current_user, ledger.oid, 'DELETE'),
+                   has_table_privilege(current_user, ledger.oid, 'TRUNCATE'),
+                   has_table_privilege(current_user, ledger.oid, 'REFERENCES'),
+                   has_table_privilege(current_user, ledger.oid, 'TRIGGER'),
                    has_database_privilege(current_user, current_database(), 'CREATE'),
                    has_database_privilege(current_user, current_database(), 'TEMPORARY'),
                    pg_get_userbyid(database.datdba),
@@ -516,7 +516,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             FROM pg_roles role
             JOIN pg_database database ON database.datname = current_database()
             JOIN pg_namespace schema ON schema.nspname = 'mg_agent'
-            JOIN pg_class ledger ON ledger.oid = to_regclass('mg_agent.provisioning_operations')
+            JOIN pg_class ledger ON ledger.relnamespace = schema.oid AND ledger.relname = 'provisioning_operations'
             WHERE role.rolname = current_user;
             """, connection, transaction);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
