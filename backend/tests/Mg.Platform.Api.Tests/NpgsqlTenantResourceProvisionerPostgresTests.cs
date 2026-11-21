@@ -64,6 +64,47 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         Assert.True(await fixture.TenantRuntimeRoleHasSchemaUsageAsync());
     }
 
+    [Theory]
+    [InlineData("after-database-public-acl-revoked-during-access-configuration", false, false, false)]
+    [InlineData("after-application-database-connect-granted", true, false, false)]
+    [InlineData("after-control-database-connect-granted", true, true, false)]
+    [InlineData("after-runtime-public-schema-revoked", true, true, false)]
+    [InlineData("after-runtime-public-tables-revoked", true, true, false)]
+    [InlineData("after-runtime-public-functions-revoked", true, true, false)]
+    [InlineData("after-runtime-default-function-privileges-revoked", true, true, false)]
+    [InlineData("after-runtime-schema-usage-granted", true, true, false)]
+    [InlineData("after-runtime-mutable-table-privileges-granted", true, true, false)]
+    [InlineData("after-runtime-read-only-table-privileges-granted", true, true, true)]
+    public async Task HardProcessTerminationAtEachDatabaseAndRuntimePrivilegeMutationRecovers(
+        string boundary,
+        bool applicationConnectExpected,
+        bool controlConnectExpected,
+        bool runtimeReadyExpected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var exitCode = await fixture.KillCrashWorkerAtBoundaryAsync(boundary);
+        Assert.NotEqual(0, exitCode);
+        Assert.True(await fixture.TenantPublicDatabaseAclIsRestrictedAsync());
+        Assert.Equal(applicationConnectExpected, await fixture.TenantApplicationCanConnectAsync());
+        Assert.Equal(controlConnectExpected, await fixture.TenantControlCanConnectAsync());
+
+        var migration = TenantSchemaMigrationArtifact.LoadTenantCoreBaseline(AppContext.BaseDirectory);
+        Assert.Equal(runtimeReadyExpected, await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+
+        await fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+            fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+            fixture.Credentials, CancellationToken.None);
+        await fixture.Provisioner.ApplyTenantSchemaAsync(
+            fixture.TenantId, fixture.Credentials, migration, CancellationToken.None);
+
+        Assert.True(await fixture.Provisioner.VerifyRuntimeAsync(
+            fixture.TenantId, fixture.DatabaseName, fixture.ApplicationConnectionString,
+            migration.Version, migration.Sha256, CancellationToken.None));
+    }
+
     [Fact]
     public async Task HardProcessTerminationAfterPreparedCredentialInsertRollsBackAndRetryCreatesSingleRow()
     {
@@ -1240,6 +1281,28 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 "SELECT has_schema_privilege(@role, 'mg', 'USAGE');", owner);
             command.Parameters.AddWithValue("role", NpgsqlDbType.Text, $"mg_tenant_{TenantId:N}_app");
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantApplicationCanConnectAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_database_privilege(@role, @database, 'CONNECT');", admin);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, applicationRoleName);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<bool> TenantControlCanConnectAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT has_database_privilege(@role, @database, 'CONNECT');", admin);
+            command.Parameters.AddWithValue("role", NpgsqlDbType.Text, controlRoleName);
+            command.Parameters.AddWithValue("database", NpgsqlDbType.Text, DatabaseName);
             return (bool)(await command.ExecuteScalarAsync() ?? false);
         }
 
