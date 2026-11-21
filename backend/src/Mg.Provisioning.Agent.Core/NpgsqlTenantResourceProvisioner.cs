@@ -18,6 +18,7 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     private readonly int controlPort;
     private readonly Func<CancellationToken, Task>? afterOwnerRoleCreated;
     private readonly Func<CancellationToken, Task>? afterApplicationRoleCreated;
+    private readonly Func<CancellationToken, Task>? afterOwnerMembershipEnsured;
 
     public NpgsqlTenantResourceProvisioner(string controlConnectionString)
         : this(controlConnectionString, afterOwnerRoleCreated: null)
@@ -27,10 +28,12 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
     internal NpgsqlTenantResourceProvisioner(
         string controlConnectionString,
         Func<CancellationToken, Task>? afterOwnerRoleCreated,
-        Func<CancellationToken, Task>? afterApplicationRoleCreated = null)
+        Func<CancellationToken, Task>? afterApplicationRoleCreated = null,
+        Func<CancellationToken, Task>? afterOwnerMembershipEnsured = null)
     {
         this.afterOwnerRoleCreated = afterOwnerRoleCreated;
         this.afterApplicationRoleCreated = afterApplicationRoleCreated;
+        this.afterOwnerMembershipEnsured = afterOwnerMembershipEnsured;
         ArgumentException.ThrowIfNullOrWhiteSpace(controlConnectionString);
         var parsed = new NpgsqlConnectionStringBuilder(controlConnectionString);
         if (string.IsNullOrWhiteSpace(parsed.Host)
@@ -75,6 +78,9 @@ public sealed class NpgsqlTenantResourceProvisioner : ITenantResourceProvisioner
             if (afterApplicationRoleCreated is not null)
                 await afterApplicationRoleCreated(cancellationToken);
             await EnsureOwnerRoleMembershipAsync(connection, roleTransaction, ownerRole, cancellationToken);
+            if (afterOwnerMembershipEnsured is not null)
+                await afterOwnerMembershipEnsured(cancellationToken);
+            await VerifyControlRoleAsync(connection, cancellationToken, roleTransaction);
             await roleTransaction.CommitAsync(cancellationToken);
         }
         await EnsureDatabaseAsync(connection, tenantId, databaseName, ownerRole,
