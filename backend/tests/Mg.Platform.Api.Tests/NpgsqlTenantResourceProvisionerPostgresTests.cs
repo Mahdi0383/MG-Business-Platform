@@ -102,7 +102,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.AssertAgentHandlerReadinessAsync(expected: true);
 
-        foreach (var privilege in new[] { "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE" })
+        foreach (var privilege in new[] { "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER" })
         {
             try
             {
