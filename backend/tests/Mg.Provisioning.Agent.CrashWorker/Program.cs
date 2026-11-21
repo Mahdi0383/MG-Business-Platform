@@ -96,7 +96,7 @@ switch (mode)
         break;
 
     case "ledger-rewrap":
-        await store.RewrapStoredCredentialsAsync(100, CancellationToken.None);
+        await store.RewrapStoredCredentialsForTenantAsync(tenantId, 100, CancellationToken.None);
         break;
 
     case "ledger-phase":
