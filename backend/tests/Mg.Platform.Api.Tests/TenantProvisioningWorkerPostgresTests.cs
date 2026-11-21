@@ -185,6 +185,30 @@ public sealed class TenantProvisioningWorkerPostgresTests
     }
 
     [Fact]
+    public async Task HandlerExceptionStoresOnlySafeFallbackCodeAndReleasesLease()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var (business, job) = await fixture.AddBusinessAndJobAsync("heartbeat-handler-error");
+        var handler = new DelegateHandler((_, _) =>
+            Task.FromException(new InvalidOperationException("password=must-never-be-persisted")));
+        using var services = CreateServices(fixture, handler);
+        var worker = CreateWorker(services);
+
+        await worker.ProcessOneAsync("handler-error-worker", CancellationToken.None);
+
+        var stored = await fixture.ReadJobAsync(job.Id);
+        var storedBusiness = await fixture.ReadBusinessAsync(business.Id);
+        Assert.Equal(TenantProvisioningStatus.Retry, stored.Status);
+        Assert.Equal("PROVISIONING_FAILED", stored.LastErrorCode);
+        Assert.DoesNotContain("password", stored.LastErrorCode, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(stored.LeaseOwner);
+        Assert.Null(stored.LeaseToken);
+        Assert.Null(stored.LeaseExpiresAtUtc);
+        Assert.Equal("PendingProvisioning", storedBusiness.Status);
+        Assert.Null(storedBusiness.ActivatedAtUtc);
+    }
+
+    [Fact]
     public async Task CompletionRacingWithLeaseExpiryCannotActivateBusiness()
     {
         await using var fixture = await Fixture.CreateAsync();
