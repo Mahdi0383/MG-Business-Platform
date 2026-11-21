@@ -121,14 +121,15 @@ This validates service-level concurrency and the atomic business/outbox persiste
 
 ### Platform business HTTP endpoint integration evidence (test authentication scheme)
 
-Exact code/test SHA `89cb2ceca29a41563d56e83ec2c18b34a9910428`:
-- PostgreSQL 17 integration [run 44958193288](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958193288): **178 passed, 0 failed, 0 skipped**.
-- Backend/web [run 44958193261](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958193261): backend tests **178 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+Exact code/test SHA `cd057ef7b35617466d70749211881854417226b5`:
+- PostgreSQL 17 integration [run 44958557297](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958557297): **179 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44958557395](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958557395): backend tests **179 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
 
 The tests host the real `PlatformEndpoints.MapPlatformEndpoints` route group through ASP.NET Core TestServer and PostgreSQL:
 - 16 simultaneous `POST /api/v1/platform/businesses/` requests for the same slug return exactly one HTTP 201 and fifteen HTTP 409 responses, with exactly one business row and one durable provisioning job.
 - Missing authentication returns HTTP 401; an authenticated principal with a non-platform role returns HTTP 403; invalid slug returns HTTP 400. None writes registry or queue rows.
 - The route's real authorization policy and rate-limiting middleware are in the test pipeline; a test-only authentication handler supplies role claims. This does not test OIDC signature/JWKS validation or production issuer/audience behavior.
+- A 31-request same-client burst verifies the configured fixed-window rate limiter allows exactly 30 requests (201) and rejects the 31st (429), with exactly 30 business/outbox pairs persisted.
 
 The registry endpoint tests now cover route-level concurrency and role/validation boundaries. A client losing the response after commit and retrying remains an open contract question: `CreateBusinessRequest` currently has no client idempotency key, so the API must not claim retry deduplication until that contract is designed and implemented.
 
