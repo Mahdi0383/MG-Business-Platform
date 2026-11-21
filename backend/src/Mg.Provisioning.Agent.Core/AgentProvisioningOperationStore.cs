@@ -25,9 +25,9 @@ public sealed class AgentProvisioningOperationStore(
     internal AgentProvisioningOperationStore(
         NpgsqlDataSource dataSourceValue,
         AgentCredentialProtector credentialProtectorValue,
-        Func<CancellationToken, Task>? afterPreparedCredentialInserted = null,
-        Func<CancellationToken, Task>? afterCredentialRewrapped = null,
-        Func<CancellationToken, Task>? afterPhaseUpdated = null)
+        Func<CancellationToken, Task>? afterPreparedCredentialInserted,
+        Func<CancellationToken, Task>? afterCredentialRewrapped,
+        Func<CancellationToken, Task>? afterPhaseUpdated)
         : this(dataSourceValue, credentialProtectorValue)
     {
         this.afterPreparedCredentialInserted = afterPreparedCredentialInserted;
