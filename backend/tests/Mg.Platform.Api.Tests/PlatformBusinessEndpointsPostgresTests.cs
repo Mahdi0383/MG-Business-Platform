@@ -61,6 +61,38 @@ public sealed class PlatformBusinessEndpointsPostgresTests
     }
 
     [Fact]
+    public async Task BusinessEndpointRateLimitsRequestsFromOneClientBeforeRegistryWrites()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        using var host = CreateHost(fixture.TestConnection);
+        using var client = host.GetTestClient();
+
+        async Task<HttpResponseMessage> CreateAsync(int index)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/platform/businesses/")
+            {
+                Content = JsonContent.Create(new CreateBusinessRequest($"Rate Cafe {index}", $"rate-cafe-{index}"))
+            };
+            request.Headers.Add("X-Test-Role", "PlatformOwner");
+            return await client.SendAsync(request);
+        }
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 31).Select(CreateAsync));
+        try
+        {
+            Assert.Equal(30, responses.Count(response => response.StatusCode == System.Net.HttpStatusCode.Created));
+            Assert.Single(responses, response => response.StatusCode == System.Net.HttpStatusCode.TooManyRequests);
+            Assert.Equal(30, await fixture.CountBusinessesAsync());
+            Assert.Equal(30, await fixture.CountJobsAsync());
+        }
+        finally
+        {
+            foreach (var response in responses)
+                response.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task BusinessEndpointRejectsUnauthenticatedAndWrongRoleRequestsBeforePersistence()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
