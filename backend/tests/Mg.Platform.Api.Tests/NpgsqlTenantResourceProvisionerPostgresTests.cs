@@ -97,6 +97,28 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesControlSchemaAclAfterFirstRoleMutationBeforeCreatingSecondRole()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.EnableControlSchemaAclDriftAfterRoleCreationAsync();
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.RemoveControlSchemaAclDriftTriggerAsync();
+        }
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -462,6 +484,65 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
             await using var command = new NpgsqlCommand(
                 "SELECT to_regnamespace('mg') IS NOT NULL;", admin);
             return (bool)(await command.ExecuteScalarAsync())!;
+        }
+
+        private string? controlAclDriftFunctionName;
+        private string? controlAclDriftTriggerName;
+
+        public async Task EnableControlSchemaAclDriftAfterRoleCreationAsync()
+        {
+            controlAclDriftFunctionName = "mg_test_acl_drift_" + Guid.NewGuid().ToString("N")[..12];
+            controlAclDriftTriggerName = "mg_test_acl_trigger_" + Guid.NewGuid().ToString("N")[..12];
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+
+            await using var createFunctionFormat = new NpgsqlCommand(
+                "SELECT format($ddl$CREATE FUNCTION public.%I() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $body$ BEGIN IF TG_TAG = 'CREATE ROLE' THEN EXECUTE 'GRANT USAGE ON SCHEMA mg_agent TO PUBLIC'; END IF; END $body$;$ddl$, @function);",
+                admin);
+            createFunctionFormat.Parameters.AddWithValue("function", NpgsqlDbType.Text, controlAclDriftFunctionName);
+            var createFunctionSql = (string)(await createFunctionFormat.ExecuteScalarAsync())!;
+            await using (var createFunction = new NpgsqlCommand(createFunctionSql, admin))
+                await createFunction.ExecuteNonQueryAsync();
+
+            await using var createTriggerFormat = new NpgsqlCommand(
+                "SELECT format('CREATE EVENT TRIGGER %I ON ddl_command_end WHEN TAG IN (''CREATE ROLE'') EXECUTE FUNCTION public.%I();', @trigger, @function);",
+                admin);
+            createTriggerFormat.Parameters.AddWithValue("trigger", NpgsqlDbType.Text, controlAclDriftTriggerName);
+            createTriggerFormat.Parameters.AddWithValue("function", NpgsqlDbType.Text, controlAclDriftFunctionName);
+            var createTriggerSql = (string)(await createTriggerFormat.ExecuteScalarAsync())!;
+            await using var createTrigger = new NpgsqlCommand(createTriggerSql, admin);
+            await createTrigger.ExecuteNonQueryAsync();
+        }
+
+        public async Task RemoveControlSchemaAclDriftTriggerAsync()
+        {
+            await using var admin = new NpgsqlConnection(adminConnectionString);
+            await admin.OpenAsync();
+            if (controlAclDriftTriggerName is not null)
+            {
+                await using var format = new NpgsqlCommand(
+                    "SELECT format('DROP EVENT TRIGGER IF EXISTS %I;', @trigger);", admin);
+                format.Parameters.AddWithValue("trigger", NpgsqlDbType.Text, controlAclDriftTriggerName);
+                var sql = (string)(await format.ExecuteScalarAsync())!;
+                await using var drop = new NpgsqlCommand(sql, admin);
+                await drop.ExecuteNonQueryAsync();
+                controlAclDriftTriggerName = null;
+            }
+
+            await using (var revoke = new NpgsqlCommand(
+                "REVOKE USAGE ON SCHEMA mg_agent FROM PUBLIC;", admin))
+                await revoke.ExecuteNonQueryAsync();
+
+            if (controlAclDriftFunctionName is not null)
+            {
+                await using var format = new NpgsqlCommand(
+                    "SELECT format('DROP FUNCTION IF EXISTS public.%I();', @function);", admin);
+                format.Parameters.AddWithValue("function", NpgsqlDbType.Text, controlAclDriftFunctionName);
+                var sql = (string)(await format.ExecuteScalarAsync())!;
+                await using var drop = new NpgsqlCommand(sql, admin);
+                await drop.ExecuteNonQueryAsync();
+                controlAclDriftFunctionName = null;
+            }
         }
 
         public async Task SetControlSchemaPublicUsagePrivilegeAsync(bool grant)
