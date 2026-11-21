@@ -120,6 +120,29 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RevalidatesControlSchemaAclAfterApplicationRoleMutationBeforeOwnerMembershipGrant()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var provisioner = fixture.CreateProvisionerWithAfterApplicationRoleCreated(async _ =>
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: true));
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.SetControlSchemaPublicUsagePrivilegeAsync(grant: false);
+        }
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlRoleMembershipDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -277,6 +300,10 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
         public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterOwnerRoleCreated(
             Func<CancellationToken, Task> callback) =>
             new(controlConnectionString, callback);
+
+        public NpgsqlTenantResourceProvisioner CreateProvisionerWithAfterApplicationRoleCreated(
+            Func<CancellationToken, Task> callback) =>
+            new(controlConnectionString, afterOwnerRoleCreated: null, afterApplicationRoleCreated: callback);
 
         public static async Task<Fixture> CreateAsync()
         {
