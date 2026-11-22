@@ -740,3 +740,37 @@ The historical entries below remain as an audit trail; statements that the agent
 - Exact current-head backend/web run `44961023493`: backend 190 passed, isolated agent API Release build 0 warnings/0 errors, frontend 20 passed, dependency audit and production bundle passed; Pages deployment skipped for PR.
 - PR remains open/Draft/unmerged. No deployment. Keep `Provisioning:WorkerEnabled=false`.
 
+## 11.15 Current repository and release-gate checkpoint — 2026-11-22
+
+### Main and repository controls
+- Default branch remains `main` at `88ea40799eda5c457c6c742eff26f2e8868f7f8a`; no PR was merged and no release was created in this run.
+- Main's last verified Windows CI remains 300/300 tests, Release build 0 warnings/0 errors, installer/package/checksum verification successful. Scheduled dependency audit run `44996001272` completed successfully.
+- Active main ruleset `26519007` requires one approving human review, strict up-to-date `build-test-package`, non-fast-forward protection and branch deletion protection. Do not use the configured bypass.
+- The repository has 19 open PRs after adding #167 and #168. Keep product and integration candidates Draft until their exact-head quality gates and review requirements are satisfied.
+
+### CI and release automation
+- PR #159 removes the main-only base filter from pull_request triggers for Windows build/test/package, CodeQL, formatting and NuGet audit. Exact head `495d400b0ae0572032059f663191d65e797e43f2`: Windows run `44882937558` passed 300/300 tests, 0 warnings/0 errors, both installers and source/portable archives, SHA-256 verification and artifact upload (artifact `14698398415`, digest `566c617f934f83170ba8f5cb7afa734c217f2bfeecd1303bae0e5c19dc0a813d)); CodeQL `44882937661`, formatting `44882937577` and NuGet audit `44882937631` all passed. PR #159 is Ready for Review but still requires one human approval; it is not merged.
+- PR #156 splits Windows release build/verify from publish, leaves workflow permissions read-only and grants contents:write only to publish. It pins Caddy 2.11.9 and verifies the official asset SHA-256. Exact head `84a729f0592797347f2a5533dd926aa62524c3df`: Windows run `44921237401` passed 300/300 tests with 0 warnings/0 errors and uploaded artifact `14713313853`; CodeQL `44921237437`, NuGet audit `44921237517`, formatting `44921237441` and PR-only artifact transfer/checksum test `44921237408` passed. On the PR, real build-and-publish jobs were correctly skipped. No GitHub Release was created. PR #156 is Ready for Review; do not dispatch the real publish path until an approved main release candidate exists.
+- The current main release workflow remains unexecuted for a real release candidate. Synthetic transfer tests are not a production publication test.
+
+### Provisioning and migration candidates
+- PR #160 current head `233f33ba4be6be3c23205475d5403a4445cd9e31` passed PostgreSQL 17 integration `44958816107` (138/138) and backend/web `44958816105` (backend 138, frontend 20, 0 build warnings/errors, npm audit 0 vulnerabilities, Vite production bundle). Only the two workflows defined on this stacked base ran.
+- PR #161's base snapshot was older integration commit `d0b962a46378fd152d0181e1fb3af7c37ff108d5`, while current #160 advanced three commits. The current parent/child comparison is diverged (23 ahead / 3 behind). The three parent-only commits change `AgentProvisioningOperationStorePostgresTests.cs`, which is not in #161's changed-file set.
+- To avoid force-push/rebase, Draft PR #168 was created from current #160 head `233f33ba4be6be3c23205475d5403a4445cd9e31` and overlays exactly the eight files changed by #161. Candidate head `343a6397049fbb243d166f83169a1d02abed8c1f`; CI runs `45000864366` (PostgreSQL provisioning) and `45000863625` (backend/web) were triggered and must be checked to completion on this exact SHA. Do not rely on the old #161 results for the combined tree.
+- PR #166 exact current head `a1a64864f92b730716c072ca8f20e144f793f237` passed PostgreSQL 17 integration `44961221072` (190/190) and backend/web `44961221016` (backend 190, frontend 20, npm audit 0, production bundle). Earlier runs `44960300320` and `44960300347` failed because the OpenAPI test assumed an inline parameter and threw KeyNotFoundException on a referenced parameter. The test was corrected to resolve local OpenAPI references; the exact current head passes. PR #166 remains based on the older #165/#161 stack and must be synchronized after #168 is validated.
+- PR #167 strengthens migration 006 readiness: all five required idempotency columns/types/not-null, primary key, business foreign key with RESTRICT, both hash checks and valid/ready lookup index. Six PostgreSQL failure-mode tests were added. Exact head `44df3b40437d27d8bf52b0da999aadec0ef6024f`: PostgreSQL run `45000201961` passed 196/196; backend/web `45000201930` passed 196 backend tests, 0 build warnings/errors, npm audit 0 vulnerabilities, Vite bundle and artifact `14745637016`. These are the two workflows available on the stacked base; Windows installer packaging, CodeQL, formatting and dedicated NuGet audit remain pending until #159 is merged and the base is synchronized. Keep #167 Draft.
+- PR #121 still has an old 299/300 Windows failure. PR #150's exact head `9db1a36682f41de30161ed75eabe49f8a2283df1` passed 300/300 with formatting, CodeQL, NuGet audit and Windows packaging; #121 must be updated non-destructively and retested. Do not count #150's result as validation of #121.
+
+### Production blockers remain
+- No real OIDC/JWKS issuer validation/staging integration, socket-level response-loss/ingress test, production Vault process/response-loss/key-rotation rehearsal, mTLS deployment/rotation/revocation, monitoring/alerting or privileged administrator operational acceptance.
+- No tenant production provisioning agent deployment or production worker enablement. Keep `Provisioning:WorkerEnabled=false`.
+- No verified production tenant migration/upgrade/rollback, central/tenant backup restore drill, measured RPO/RTO, pilot acceptance or real hardware/network validation.
+- Accounting, POS/inventory, cafe/game-net, licensing and customer-facing workflows remain incomplete end-to-end; do not infer product completeness from backend provisioning tests or green CI.
+
+### Next continuation order
+1. Verify exact-head completion of PR #168's two workflows; inspect any failing job logs before changes.
+2. If #168 is green, build a non-destructive current-parent integration for PR #165 and then #166, preserving their exact changes and rerunning all applicable tests at each step.
+3. Obtain the required human review for #159 and #156; do not merge or publish without approval.
+4. After #159 is merged by an authorized reviewer, synchronize stacked bases and require Windows packaging, CodeQL, formatting and NuGet audit on each release candidate.
+5. Refresh PR #121 with the #150 migration-test correction and rerun its exact-head full CI.
+6. Continue the highest-priority production gates above; keep worker disabled and do not claim release readiness until all section 10 gates are evidenced.
