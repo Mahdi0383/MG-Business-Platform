@@ -14,6 +14,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
@@ -83,6 +86,42 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
     }
 
     [Fact]
+    public async Task RefreshesJwksAndAcceptsNewSigningKeyAfterIssuerRotation()
+    {
+        using var originalKey = RSA.Create(2048);
+        using var rotatedKey = RSA.Create(2048);
+        var keySet = new JwksKeySet(originalKey, KeyId);
+        using var host = CreateHost(keySet);
+        using var client = host.GetTestClient();
+
+        var originalToken = CreateToken(
+            originalKey, Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "PlatformOwner", KeyId);
+        using var originalResponse = await SendAsync(client, originalToken);
+        Assert.Equal(HttpStatusCode.OK, originalResponse.StatusCode);
+
+        var options = host.Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+        var configurationManager = Assert.IsType<ConfigurationManager<OpenIdConnectConfiguration>>(
+            options.ConfigurationManager);
+        configurationManager.RefreshInterval = TimeSpan.FromSeconds(2);
+        await Task.Delay(TimeSpan.FromSeconds(2.1));
+
+        var fetchesBeforeRotation = keySet.JwksFetchCount;
+        const string rotatedKeyId = "mg-creator-rotated-key";
+        keySet.Replace(rotatedKey, rotatedKeyId);
+        configurationManager.RequestRefresh();
+
+        var rotatedToken = CreateToken(
+            rotatedKey, Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "PlatformOwner", rotatedKeyId);
+        using var rotatedResponse = await SendAsync(client, rotatedToken);
+
+        Assert.Equal(HttpStatusCode.OK, rotatedResponse.StatusCode);
+        Assert.True(
+            keySet.JwksFetchCount > fetchesBeforeRotation,
+            "The issuer JWKS document should be fetched again after the configured refresh request.");
+    }
+
+    [Fact]
     public async Task RejectsValidlySignedTokenWithoutAnAuthorizedCreatorRole()
     {
         using var signingKey = RSA.Create(2048);
@@ -95,7 +134,9 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    private static IHost CreateHost(RSA signingKey)
+    private static IHost CreateHost(RSA signingKey) => CreateHost(new JwksKeySet(signingKey, KeyId));
+
+    private static IHost CreateHost(JwksKeySet keySet)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -117,7 +158,7 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
                         JwtBearerDefaults.AuthenticationScheme,
                         options =>
                         {
-                            options.BackchannelHttpHandler = new LocalOidcJwksHandler(signingKey);
+                            options.BackchannelHttpHandler = new LocalOidcJwksHandler(keySet);
                             options.BackchannelTimeout = TimeSpan.FromSeconds(5);
                         });
                     services.AddCreatorAuthorization();
@@ -153,9 +194,10 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
         string issuer,
         string audience,
         DateTime expiresUtc,
-        string role)
+        string role,
+        string keyId = KeyId)
     {
-        var securityKey = new RsaSecurityKey(signingKey) { KeyId = KeyId };
+        var securityKey = new RsaSecurityKey(signingKey) { KeyId = keyId };
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.RsaSha256);
         var now = DateTime.UtcNow;
         var token = new JwtSecurityToken(
@@ -172,7 +214,32 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private sealed class LocalOidcJwksHandler(RSA signingKey) : HttpMessageHandler
+    private sealed record JwksSigningKey(RSA Key, string KeyId);
+
+    private sealed class JwksKeySet(RSA initialKey, string initialKeyId)
+    {
+        private readonly object gate = new();
+        private JwksSigningKey[] keys = [new(initialKey, initialKeyId)];
+        private int jwksFetchCount;
+
+        public int JwksFetchCount => Volatile.Read(ref jwksFetchCount);
+
+        public void Replace(RSA key, string keyId)
+        {
+            lock (gate)
+                keys = [new JwksSigningKey(key, keyId)];
+        }
+
+        public JwksSigningKey[] Snapshot()
+        {
+            lock (gate)
+                return keys.ToArray();
+        }
+
+        public void RecordJwksFetch() => Interlocked.Increment(ref jwksFetchCount);
+    }
+
+    private sealed class LocalOidcJwksHandler(JwksKeySet keySet) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -190,23 +257,21 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
 
             if (path == "/.well-known/jwks.json")
             {
-                var parameters = signingKey.ExportParameters(false);
-                var jwks = JsonSerializer.Serialize(new
+                keySet.RecordJwksFetch();
+                var keys = keySet.Snapshot().Select(entry =>
                 {
-                    keys = new[]
+                    var parameters = entry.Key.ExportParameters(false);
+                    return new
                     {
-                        new
-                        {
-                            kty = "RSA",
-                            use = "sig",
-                            kid = KeyId,
-                            alg = SecurityAlgorithms.RsaSha256,
-                            n = Base64UrlEncoder.Encode(parameters.Modulus!),
-                            e = Base64UrlEncoder.Encode(parameters.Exponent!)
-                        }
-                    }
-                });
-                return Task.FromResult(JsonResponse(jwks));
+                        kty = "RSA",
+                        use = "sig",
+                        kid = entry.KeyId,
+                        alg = SecurityAlgorithms.RsaSha256,
+                        n = Base64UrlEncoder.Encode(parameters.Modulus!),
+                        e = Base64UrlEncoder.Encode(parameters.Exponent!)
+                    };
+                }).ToArray();
+                return Task.FromResult(JsonResponse(JsonSerializer.Serialize(new { keys })));
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
