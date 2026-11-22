@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
+using Mg.Platform.Api.Health;
 using Mg.Platform.Api.Security;
 using Mg.Platform.Api.Secrets;
 using Mg.Platform.Api.Provisioning;
@@ -20,7 +21,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddCreatorAuthentication(builder.Configuration);
 builder.Services.AddCreatorAuthorization();
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy);
+    .AddDbContextCheck<PlatformDbContext>("platform-database", HealthStatus.Unhealthy)
+    .AddCheck<PlatformSchemaReadinessHealthCheck>("platform-schema", HealthStatus.Unhealthy);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

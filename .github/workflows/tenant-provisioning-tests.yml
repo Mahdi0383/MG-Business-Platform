@@ -13,6 +13,7 @@ on:
       - 'backend/docs/PROVISIONING_AGENT_OPERATIONS_ACCEPTANCE.md'
       - 'backend/tests/Mg.Platform.Api.Tests/**'
       - 'backend/tests/scripts/enable-postgres-tls.sh'
+      - 'PROJECT_CONTROL.md'
       - '.github/workflows/tenant-provisioning-tests.yml'
   push:
     branches: [main, 'feature/mg-business-web-foundation', 'feature/mg-provisioning-job-leases']
@@ -64,5 +65,59 @@ jobs:
           dotnet-version: 10.0.x
       - name: Enable PostgreSQL TLS for strict certificate validation tests
         run: bash backend/tests/scripts/enable-postgres-tls.sh
+      - name: Start disposable Vault KV v2 test server
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/vault-tls"
+          chmod 777 "$RUNNER_TEMP/vault-tls"
+          docker run --detach --name mg-vault-ci --publish 8200:8200 \
+            --volume "$RUNNER_TEMP/vault-tls:/vault/tls" \
+            hashicorp/vault:2.2.2@sha256:18c03dcc5589b1a67eb3c7bd74d6982747f0d835a285516b87e3992f085de5a4 \
+            server -dev -dev-root-token-id=mg-ci-vault-token -dev-tls \
+            -dev-tls-cert-dir=/vault/tls -dev-listen-address=0.0.0.0:8200
+          for attempt in $(seq 1 60); do
+            if [[ -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]]; then
+              sudo chmod 644 "$RUNNER_TEMP/vault-tls/vault-ca.pem"
+              if curl --silent --show-error --fail \
+                --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
+                --header "X-Vault-Token: mg-ci-vault-token" \
+                https://127.0.0.1:8200/v1/sys/health >/dev/null; then
+                break
+              fi
+            fi
+            sleep 1
+          done
+          if [[ ! -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]] || ! \
+            curl --silent --show-error --fail \
+              --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
+              --header "X-Vault-Token: mg-ci-vault-token" \
+              https://127.0.0.1:8200/v1/sys/health >/dev/null; then
+            docker logs mg-vault-ci
+            exit 1
+          fi
+          curl --silent --show-error --fail \
+            --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
+            --header "X-Vault-Token: mg-ci-vault-token" \
+            --header "Content-Type: application/json" \
+            --request PUT \
+            --data-binary '{"policy":"path \"secret/data/ci/*\" { capabilities = [\"create\", \"update\", \"read\"] }\npath \"secret/metadata/ci/*\" { capabilities = [\"read\", \"delete\", \"list\"] }"}' \
+            https://127.0.0.1:8200/v1/sys/policies/acl/mg-ci-tenant-secret-test >/dev/null
+          TEST_TOKEN=$(curl --silent --show-error --fail \
+            --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
+            --header "X-Vault-Token: mg-ci-vault-token" \
+            --header "Content-Type: application/json" \
+            --request POST \
+            --data-binary '{"policies":["mg-ci-tenant-secret-test"],"no_parent":true,"no_default_policy":true,"renewable":false,"ttl":"15m"}' \
+            https://127.0.0.1:8200/v1/auth/token/create | python3 -c 'import json,sys; print(json.load(sys.stdin)["auth"]["client_token"])')
+          test -n "$TEST_TOKEN"
+          echo "::add-mask::$TEST_TOKEN"
+          {
+            echo "MG_TEST_VAULT_ADDRESS=https://127.0.0.1:8200"
+            echo "MG_TEST_VAULT_TOKEN=$TEST_TOKEN"
+            echo "MG_TEST_VAULT_CA_CERT=$RUNNER_TEMP/vault-tls/vault-ca.pem"
+          } >> "$GITHUB_ENV"
       - name: Run provisioning and tenant schema integration tests
         run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
+      - name: Stop disposable Vault test server
+        if: always()
+        run: docker rm --force mg-vault-ci >/dev/null 2>&1 || true

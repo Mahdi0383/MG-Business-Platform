@@ -98,6 +98,60 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task ConcurrentDifferentTenantProvisioningRunsIndependently()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provisionerA = new FakeResourceProvisioner
+        {
+            OnEnsure = async token =>
+            {
+                firstEntered.TrySetResult();
+                await releaseFirst.Task.WaitAsync(token);
+            }
+        };
+        var provisionerB = new FakeResourceProvisioner
+        {
+            OnEnsure = _ =>
+            {
+                secondEntered.TrySetResult();
+                return Task.CompletedTask;
+            }
+        };
+        var coordinatorA = new AgentProvisioningCoordinator(fixture.Store, provisionerA, LoadMigration());
+        var coordinatorB = new AgentProvisioningCoordinator(fixture.Store, provisionerB, LoadMigration());
+
+        ValueTask<AgentProvisioningCredentials> Credentials(Guid tenantId, CancellationToken _) =>
+            ValueTask.FromResult(Fixture.Credentials($"mg_tenant_{tenantId:N}", $"tenant-{tenantId:N}-secret"));
+
+        var first = coordinatorA.ProvisionAsync(
+            new AgentProvisioningRequest(tenantA, Guid.NewGuid()),
+            token => Credentials(tenantA, token));
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var second = coordinatorB.ProvisionAsync(
+            new AgentProvisioningRequest(tenantB, Guid.NewGuid()),
+            token => Credentials(tenantB, token));
+
+        await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseFirst.TrySetResult();
+
+        var results = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains($"mg_tenant_{tenantA:N}_app", results[0], StringComparison.Ordinal);
+        Assert.Contains($"mg_tenant_{tenantB:N}_app", results[1], StringComparison.Ordinal);
+        Assert.Equal(1, provisionerA.EnsureCalls);
+        Assert.Equal(1, provisionerA.MigrationCalls);
+        Assert.Equal(1, provisionerA.VerifyCalls);
+        Assert.Equal(1, provisionerB.EnsureCalls);
+        Assert.Equal(1, provisionerB.MigrationCalls);
+        Assert.Equal(1, provisionerB.VerifyCalls);
+    }
+
+    [Fact]
     public async Task CoordinatorReleasesTenantLockAndResumesAfterCancellation()
     {
         await using var fixture = await Fixture.CreateAsync();
