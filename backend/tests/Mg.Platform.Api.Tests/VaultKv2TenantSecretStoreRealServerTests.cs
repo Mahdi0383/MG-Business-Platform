@@ -51,6 +51,19 @@ public sealed class VaultKv2TenantSecretStoreRealServerTests
     }
 
     [Fact]
+    public async Task RealVaultTestTokenCannotReadOutsideItsGrantedSecretPrefix()
+    {
+        using var rootCertificate = LoadVaultRootCertificate();
+        using var client = CreateClient(rootCertificate);
+        var store = CreateStore(client);
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            store.ReadAsync($"tenants/{Guid.NewGuid():N}/postgres", CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task RealVaultCommittedWriteCanBeRecoveredWhenClientLosesResponse()
     {
         using var rootCertificate = LoadVaultRootCertificate();
