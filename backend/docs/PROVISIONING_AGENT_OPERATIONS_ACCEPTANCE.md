@@ -32,6 +32,18 @@ Status: **release blocked** until every mandatory gate below has dated evidence.
 - [ ] Verify backups cover the agent ledger and key-version metadata. Demonstrate restore using the corresponding retained key material.
 - [ ] Confirm logs, traces, metrics and error responses contain no passwords, connection strings, access tokens, SQL parameter values or decrypted credential payloads.
 
+### Vault KV v2 response-loss and create-only CAS evidence (partial)
+
+Exact code/test SHA `62e05f99df264e55f2374270143b5f36b64aff38`:
+- PostgreSQL 17 integration [run 44957225349](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225349): **173 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44957225288](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225288): backend tests **173 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit found **0 vulnerabilities**; production bundle passed; Pages deployment skipped for PR.
+
+Automated tests now simulate Vault committing a KV v2 secret while the HTTP write response is lost, and separately simulate a lost readback response after the write. In both cases, a retry reads and reuses the exact stored tenant connection string, does not provision a second database credential, and does not issue a second secret write. A stateful KV v2 HTTP test server enforces `cas=0`: concurrent create-only writes allow one winner, reject the conflicting write, and preserve the winning credential on subsequent reads.
+
+This is response-loss/CAS adapter evidence using a deterministic test server and PostgreSQL-backed handler fixture. It is not a production Vault deployment, a real Vault process-kill test, a key-rotation rehearsal or a backup/restore drill. Keep the secret-manager production acceptance gates open.
+
+The handler-level tests also cover both write-commit/response-loss and readback-response-loss: a retry reuses the exact credential, does not reprovision and does not issue a second write. The HTTP adapter test enforces KV v2 `cas=0`, proves the first committed value survives a lost response, rejects replacement, and races two concurrent create-only writes so exactly one wins.
+
 ## 4. End-to-end fault injection
 Run only against disposable PostgreSQL instances and isolated test certificates.
 - [ ] Submit the same tenant/idempotency request concurrently; exactly one durable operation and one credential bundle must be created.
@@ -88,6 +100,66 @@ For database-access boundaries, tests inspect PUBLIC ACL and application/control
 
 This remains partial acceptance evidence, not a claim that every secret-manager operation, every external platform side effect or every production deployment scenario has been exercised. Keep the master fault-injection checkbox above open until production secret-manager behavior, external integrations and operational gates are evidenced.
 
+### Coordinator idempotency and tenant concurrency evidence
+
+The PostgreSQL suite also verifies eight concurrent duplicate requests for one tenant/idempotency key generate and persist one credential, rejects cross-tenant idempotency-key reuse, and proves two different tenant provisioning operations can both enter their external provisioning stage concurrently while the first tenant remains blocked. This validates tenant-scoped locks do not accidentally serialize independent tenants. Exact latest PostgreSQL run: [44957225349](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957225349), **173 passed, 0 failed, 0 skipped**.
+
+The top-level end-to-end checkbox below remains open: it requires exercising the deployed Platform API request path and its durable registry/queue, not only the coordinator and operation-store integration tests.
+
+### Platform business registry and outbox concurrency evidence (service-level)
+
+Exact code/test SHA `d04368366b4f12230b6091a09b705fb000b3d87f`:
+- PostgreSQL 17 integration [run 44957701458](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957701458): **176 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44957701527](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44957701527): backend tests **176 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+New PostgreSQL integration tests exercise `BusinessRegistryService` with independent DbContexts:
+- 16 simultaneous requests for the same slug produce exactly one business and one provisioning outbox job; the other 15 return a slug conflict.
+- 12 simultaneous requests for distinct slugs produce 12 independent businesses and 12 outbox jobs with unique idempotency keys.
+- A forced outbox insert failure rolls back the business row; no orphan registry record remains.
+
+This validates service-level concurrency and the atomic business/outbox persistence invariant. The HTTP endpoint/authentication pipeline and true client response-loss/replay through the Platform API remain untested; keep the top-level end-to-end API acceptance gate open.
+
+### Platform business HTTP endpoint integration evidence (test authentication scheme)
+
+Exact code/test SHA `cd057ef7b35617466d70749211881854417226b5`:
+- PostgreSQL 17 integration [run 44958557297](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958557297): **179 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44958557395](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44958557395): backend tests **179 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+The tests host the real `PlatformEndpoints.MapPlatformEndpoints` route group through ASP.NET Core TestServer and PostgreSQL:
+- 16 simultaneous `POST /api/v1/platform/businesses/` requests for the same slug return exactly one HTTP 201 and fifteen HTTP 409 responses, with exactly one business row and one durable provisioning job.
+- Missing authentication returns HTTP 401; an authenticated principal with a non-platform role returns HTTP 403; invalid slug returns HTTP 400. None writes registry or queue rows.
+- The route's real authorization policy and rate-limiting middleware are in the test pipeline; a test-only authentication handler supplies role claims. This does not test OIDC signature/JWKS validation or production issuer/audience behavior.
+- A 31-request same-client burst verifies the configured fixed-window rate limiter allows exactly 30 requests (201) and rejects the 31st (429), with exactly 30 business/outbox pairs persisted.
+
+The registry endpoint tests now cover route-level concurrency, role/validation boundaries and the client idempotency contract. The API requires a UUID `Idempotency-Key`; same-key/same-creator/same-normalized-payload retries replay the original business resource, while changed payload or creator identity returns HTTP 409. The exact evidence is recorded below. Production OIDC signature/JWKS validation and staging with the real identity provider remain open.
+
+### Durable Creator API idempotency evidence
+
+Migration `backend/database/migrations/006_business_creation_idempotency.sql` creates a globally unique UUID idempotency record bound to one-way SHA-256 hashes of the validated OIDC issuer+subject and normalized request. It is committed in the same EF Core transaction as the business row and provisioning outbox job. Records are retained for the business lifetime.
+
+The `POST /api/v1/platform/businesses/` endpoint now requires a non-empty UUID `Idempotency-Key` header and validated `iss` + `sub` claims. Same key + same creator + same normalized name/slug replays HTTP 201 for the same business ID and Location, with `Idempotency-Replayed: true`. A changed payload or creator identity returns HTTP 409. The API contract is documented in `backend/docs/PLATFORM_API_CONTRACT.md`; ADR-009 records the decision.
+
+Exact current PR head `910d343a0e0cbf9679a0f1981ab46bcc7fab646e` (acceptance documentation only after the validated implementation head):
+- PostgreSQL 17 integration [run 44961023483](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44961023483): **190 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44961023493](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44961023493): backend tests **190 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+Coverage includes normalized same-key replay, changed-payload and changed-creator conflicts, 16 concurrent identical idempotency requests yielding one business/job and 15 replays, TestServer response-body failure after commit followed by successful same-key retry, missing/empty key rejection, and the prior 16-way slug race, 31-request rate-limit burst, 401/403/400 authorization/validation cases.
+
+This is PostgreSQL/TestServer evidence, not production IdP/JWKS validation or an actual socket/ingress disconnect. A dedicated TestServer middleware throws during response-body delivery after the business/outbox/idempotency transaction commits; the client observes transport failure, then retries with the same key and receives the same business ID with `Idempotency-Replayed: true`. Clients must persist and reuse the key; no client may assume a request without the header will be accepted. Production OIDC, deployment of migration 006, response-loss fault injection through the production ingress, and staging remain release gates.
+
+The API readiness endpoint now includes `PlatformSchemaReadinessHealthCheck`: it verifies the registry, outbox and business-creation idempotency table, required hash/key columns and the named primary-key constraint. Missing or incomplete migration 006 returns Unhealthy. PostgreSQL tests prove healthy readiness with the schema and fail-closed readiness after dropping the idempotency table.
+
+
+### Creator business idempotency and response-loss replay evidence
+
+Exact code/test SHA `0775d7c774a0ceed860b5966679fe8fe1050a584`:
+- PostgreSQL 17 integration [run 44959390861](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959390861): **186 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44959390734](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44959390734): backend tests **186 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit found **0 vulnerabilities**; production bundle passed; Pages deployment skipped for PR.
+
+The business registry now persists the idempotency key, a one-way hash of the validated OIDC issuer/subject and a SHA-256 fingerprint of the normalized name/slug in the same PostgreSQL transaction as the business row and provisioning outbox job. The endpoint returns the same resource and `Idempotency-Replayed: true` for a matching retry; a key reused by another creator or with a changed payload returns HTTP 409. Tests cover missing/empty keys (400), sequential HTTP replay, changed-payload/changed-creator rejection, and 16 concurrent service requests using the same key. The concurrent test exposed and fixed a preflight race: when the winner commits between the initial key lookup and slug check, the loser now re-reads the idempotency record and replays rather than incorrectly returning a slug conflict. The separate 16-request same-slug/different-key HTTP race still produces one 201 and fifteen 409 responses.
+
+HTTP integration uses a test-only authentication handler and PostgreSQL 17; it does not establish production OIDC/JWKS, issuer/audience, MFA or identity-provider staging. The central database migration `006_business_creation_idempotency.sql` must be applied before deploying the API version requiring the header. No deployment or worker enablement is implied.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [x] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires. (PostgreSQL worker integration test; exact evidence recorded below.)
@@ -117,7 +189,7 @@ The worker integration tests exercise the actual `TenantProvisioningWorker.Proce
 - generic handler exception text is not persisted; only `PROVISIONING_FAILED` is stored;
 - structured worker log messages include exception type but not secret-bearing exception text or connection details.
 
-Still open: repeated heartbeat/completion race stress, assertions over sanitized heartbeat/handler logs and metrics, and any production-host/staging exercise. This is test evidence only; it does not authorize enabling the worker.
+The seven worker lifecycle checks above now have automated PostgreSQL test evidence on code/test SHA `1c87f546646dc71337e71ceb99ab773b4415568d`. Repeated success and lease-expiry races (eight iterations each) and sanitized log assertions passed. Production-host/staging exercise and a dedicated metrics assertion remain open. This is test evidence only; it does not authorize enabling the worker.
 
 
 ## 5. Platform worker rollout
