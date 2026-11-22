@@ -43,6 +43,51 @@ Run only against disposable PostgreSQL instances and isolated test certificates.
 - [ ] Expire/revoke the mTLS client certificate and verify the request is rejected before the handler runs.
 - [ ] Interrupt the platform worker during provisioning; lease expiry and fencing must prevent a stale worker from completing a reclaimed job.
 
+### Automated hard process-kill evidence (partial boundary coverage)
+
+The disposable PostgreSQL 17 integration suite starts a separate crash-worker process, waits for a named side-effect boundary, forcibly kills the process tree, inspects persisted state and retries through a fresh process context. These are OS process-termination tests, not callback exceptions or graceful cancellation.
+
+Exact-head evidence on `5ad6256b7e5ca9268b35f9a608ea65b8e26b6f3c`:
+- PostgreSQL 17 provisioning integration [run 44943851135](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44943851135): **159 passed, 0 failed, 0 skipped**.
+- Backend/web [run 44943851128](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/44943851128): backend tests **159 passed**; isolated agent API Release build **0 warnings / 0 errors**; frontend tests **20 passed**; dependency audit and production bundle passed; Pages deployment skipped for PR.
+
+The current hard-kill suite covers 23 named boundaries:
+
+**Tenant role and database creation**
+1. Owner role creation before role-transaction commit.
+2. Application role creation before role-transaction commit.
+3. Owner membership setup before role-transaction commit.
+4. CREATE DATABASE before immutable marker.
+5. PUBLIC database ACL revocation before marker.
+6. Immutable marker written before access configuration.
+
+**Database access grants**
+7. PUBLIC database ACL re-revocation during access configuration.
+8. Application-role CONNECT grant.
+9. Control-role CONNECT grant.
+10. Complete database access configuration before schema work.
+
+**Tenant schema and runtime grants**
+11. Owner readiness before tenant baseline DDL.
+12. Tenant baseline committed before runtime grants.
+13. PUBLIC schema privilege revocation.
+14. PUBLIC table privilege revocation.
+15. PUBLIC function privilege revocation.
+16. Default PUBLIC function EXECUTE revocation.
+17. Runtime schema USAGE grant.
+18. Runtime mutable-table privileges grant.
+19. Runtime read-only-table privileges grant (final runtime-ready boundary).
+
+**Durable operation ledger**
+20. Prepared credential INSERT before transaction commit.
+21. Credential rewrap UPDATE before transaction commit.
+22. Provisioning phase UPDATE before transaction commit.
+23. Runtime grants completion before the coordinator advances its durable phase.
+
+For database-access boundaries, tests inspect PUBLIC ACL and application/control CONNECT state. For runtime-grant boundaries, tests independently verify whether the runtime is ready at that exact intermediate state. Every case then retries and proves final runtime verification succeeds. Ledger cases verify transaction rollback leaves the previous durable state intact and a fresh attempt completes idempotently.
+
+This remains partial acceptance evidence, not a claim that every secret-manager operation, every external platform side effect or every production deployment scenario has been exercised. Keep the master fault-injection checkbox above open until production secret-manager behavior, external integrations and operational gates are evidenced.
+
 ### Worker lifecycle and heartbeat fault injection
 Run these checks against a disposable PostgreSQL queue and a controllable fake provisioning handler before enabling the hosted worker:
 - [ ] Hold a handler operation open beyond one renewal interval and verify the same claim token is renewed before the lease expires.

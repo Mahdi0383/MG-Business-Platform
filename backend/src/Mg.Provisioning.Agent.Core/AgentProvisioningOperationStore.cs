@@ -18,6 +18,23 @@ public sealed class AgentProvisioningOperationStore(
     private const int ControlPlaneMaintenanceLockClassId = 19783;
     private const int ControlPlaneMaintenanceLockObjectId = 20562;
 
+    private readonly Func<CancellationToken, Task>? afterPreparedCredentialInserted;
+    private readonly Func<CancellationToken, Task>? afterCredentialRewrapped;
+    private readonly Func<CancellationToken, Task>? afterPhaseUpdated;
+
+    internal AgentProvisioningOperationStore(
+        NpgsqlDataSource dataSourceValue,
+        AgentCredentialProtector credentialProtectorValue,
+        Func<CancellationToken, Task>? afterPreparedCredentialInserted,
+        Func<CancellationToken, Task>? afterCredentialRewrapped,
+        Func<CancellationToken, Task>? afterPhaseUpdated)
+        : this(dataSourceValue, credentialProtectorValue)
+    {
+        this.afterPreparedCredentialInserted = afterPreparedCredentialInserted;
+        this.afterCredentialRewrapped = afterCredentialRewrapped;
+        this.afterPhaseUpdated = afterPhaseUpdated;
+    }
+
     private static readonly string[] Phases =
         ["Prepared", "DatabaseCreated", "SchemaApplied", "Verified"];
 
@@ -175,6 +192,9 @@ public sealed class AgentProvisioningOperationStore(
                 await insert.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            if (afterPreparedCredentialInserted is not null)
+                await afterPreparedCredentialInserted(cancellationToken);
+
             await transaction.CommitAsync(cancellationToken);
             return credentials;
         }
@@ -188,9 +208,25 @@ public sealed class AgentProvisioningOperationStore(
     /// Re-encrypts a bounded batch of stored credential bundles with the current key.
     /// Keep all historical keys in the configured key ring until this returns zero.
     /// </summary>
-    public async Task<int> RewrapStoredCredentialsAsync(
+    public Task<int> RewrapStoredCredentialsAsync(
+        int batchSize = 100,
+        CancellationToken cancellationToken = default) =>
+        RewrapStoredCredentialsCoreAsync(null, batchSize, cancellationToken);
+
+    internal Task<int> RewrapStoredCredentialsForTenantAsync(
+        Guid tenantId,
         int batchSize = 100,
         CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty)
+            throw new ArgumentException("Tenant identifier must be non-empty.", nameof(tenantId));
+        return RewrapStoredCredentialsCoreAsync(tenantId, batchSize, cancellationToken);
+    }
+
+    private async Task<int> RewrapStoredCredentialsCoreAsync(
+        Guid? tenantId,
+        int batchSize,
+        CancellationToken cancellationToken)
     {
         if (batchSize is < 1 or > 1000)
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Credential rewrap batch size must be between 1 and 1000.");
@@ -215,12 +251,14 @@ public sealed class AgentProvisioningOperationStore(
                    credential_ciphertext, credential_tag
             FROM mg_agent.provisioning_operations
             WHERE credential_key_id <> @current_key_id
+              AND (@tenant_id IS NULL OR tenant_id = @tenant_id)
             ORDER BY updated_at
             LIMIT @batch_size
             FOR UPDATE;
             """, connection, transaction))
         {
             select.Parameters.AddWithValue("current_key_id", NpgsqlDbType.Text, credentialProtector.CurrentKeyId);
+            select.Parameters.AddWithValue("tenant_id", NpgsqlDbType.Uuid, (object?)tenantId ?? DBNull.Value);
             select.Parameters.AddWithValue("batch_size", NpgsqlDbType.Integer, batchSize);
             await using var reader = await select.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
@@ -282,6 +320,9 @@ public sealed class AgentProvisioningOperationStore(
                     CryptographicOperations.ZeroMemory(newEnvelope.Ciphertext);
                     CryptographicOperations.ZeroMemory(newEnvelope.Tag);
                 }
+
+                if (afterCredentialRewrapped is not null)
+                    await afterCredentialRewrapped(cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
@@ -405,6 +446,8 @@ public sealed class AgentProvisioningOperationStore(
         if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
             throw new InvalidOperationException(
                 "Provisioning operation is missing or its phase changed; reconcile actual tenant resources before retrying.");
+        if (afterPhaseUpdated is not null)
+            await afterPhaseUpdated(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
