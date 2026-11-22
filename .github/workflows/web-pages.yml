@@ -8,6 +8,7 @@ on:
       - 'backend/**'
       - 'docker-compose.web.yml'
       - '.github/workflows/web-pages.yml'
+      - 'PROJECT_CONTROL.md'
   pull_request:
     paths:
       - 'web/**'

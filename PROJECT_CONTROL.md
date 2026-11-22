@@ -865,3 +865,24 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Continue the highest-priority unblocked provisioning acceptance work: real Vault process-kill/response-loss/token renewal/revocation/CAS testing and secret policy/key rotation.
 3. Complete real staging OIDC/JWKS rollover and emergency signing-key incident rehearsal, deployed mTLS issuance/revocation/rotation, monitoring/alerting, controlled migration 006 deployment/rollback, and backup/restore with measured RPO/RTO.
 4. Keep the worker disabled and integration PR Draft until all required human review and production gates are complete.
+
+
+## 11.21 Real Vault KV v2 integration tests with TLS and least-privilege CI token — 2026-11-22
+
+- Added a real disposable HashiCorp Vault server to both backend CI workflows, using the official Vault 2.2.2 linux/amd64 image pinned by digest `sha256:18c03dcc5589b1a67eb3c7bd74d6982747f0d835a285516b87e3992f085de5a4`.
+- Vault runs only inside the isolated CI job in dev mode with TLS enabled and generated CA material. Tests validate the Vault server certificate chain against that CA while still enforcing the 127.0.0.1 hostname; no certificate-validation bypass is used by the test client.
+- CI creates a short-lived, non-renewable orphan token with no default policy and a dedicated ACL restricted to `secret/data/ci/*` and `secret/metadata/ci/*`. The dynamic token is masked in Actions logs; the root token remains confined to disposable server setup.
+- Added real-server tests for KV v2 create/read/delete, CAS=0 create-only protection against overwrite, denial outside the granted path (403), and committed-write response-loss recovery: the real Vault accepts the write, the test client discards the successful response, a fresh client reads the committed value, and a retry cannot overwrite it.
+- Exact code/test head `5c5e7ec811bc8dcd110a27d85b223e0332805ccd` passed:
+  - PostgreSQL 17 integration run `45042568210`: **211 passed, 0 failed, 0 skipped**.
+  - Backend/web run `45042568184`: backend **211 passed**, frontend **20 passed**, platform backend and isolated provisioning-agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, Vite production bundle succeeded; Pages deployment skipped as expected for a PR.
+- Two test-harness corrections were made before this green head: CI now changes the generated CA file's permissions with runner privilege, and the test loads the CA PEM as a certificate-only PEM rather than asking .NET to locate a matching private key. The ephemeral Vault token is explicitly masked.
+- This is real Vault API/TLS integration against an ephemeral in-memory dev server, not persistent-storage/HA, server-process-kill recovery, token renewal/revocation, production policy review, key rotation, or backup/restore acceptance. No production Vault was contacted.
+- Keep `Provisioning:WorkerEnabled=false`; PR #170 remains Draft/open/unmerged. No production deployment or data changes were made.
+
+### Next continuation order
+
+1. Build a disposable persistent Vault integration environment (not dev-mode in-memory) and add real server-process termination/restart coverage around write commit, readback, CAS conflict and token renewal/revocation boundaries. Preserve state across restart and explicitly initialize/unseal the test server.
+2. Validate production-style least-privilege policy, short-lived token renewal/revocation, audit-device evidence, TLS rotation and Vault backup/restore in a controlled staging environment.
+3. Complete real OIDC/JWKS staging and emergency signing-key incident rehearsal, deployed mTLS issuance/revocation/rotation, monitoring/alerting, controlled migration 006 deployment/rollback and backup/restore with measured RPO/RTO.
+4. Keep the worker disabled and integration PR Draft until all required human review and production gates are complete.
