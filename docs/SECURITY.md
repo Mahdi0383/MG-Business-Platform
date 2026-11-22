@@ -46,7 +46,7 @@ The current implementation uses a JSON payload signed with RSA-PSS/SHA-256. The 
 
 ## OIDC signing-key rollover
 
-- Keep `Authentication:UseLastKnownGoodConfiguration=true` for normal issuer key rotation. The IdentityModel configuration manager can retain a last-known-good configuration for resilience; a key removed from the latest JWKS may therefore remain usable through that fallback window.
+- Keep `Authentication:UseLastKnownGoodConfiguration=true` for normal issuer key rotation. The IdentityModel configuration manager can retain a last-known-good configuration for resilience; a key removed from the latest JWKS may therefore remain usable through that fallback window. The current IdentityModel dependency's default last-known-good configuration lifetime is one hour; this API does not override it.
 - For a confirmed signing-key compromise, operators can set `Authentication:UseLastKnownGoodConfiguration=false` on every API instance and recycle/restart those instances. This disables last-known-good configuration fallback for JWT validation; it is an emergency control, not the normal rollover mode.
 - The setting is read when the JwtBearer options are initialized. Apply it consistently to every instance and verify the effective configuration after restart. Rotating the issuer key and publishing the replacement JWKS are still required.
 - Do not claim instant global revocation: already-issued tokens, other services, in-flight requests and external caches are outside this API-local control. Maintain an incident procedure for issuer key compromise and test it in staging.

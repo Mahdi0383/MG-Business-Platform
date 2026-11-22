@@ -827,3 +827,21 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Validate issuer, audience, roles and signing-key lifecycle against a real staging identity provider when a controlled staging issuer and credentials are available.
 3. Continue production Vault process-kill/response-loss/key-rotation, deployed mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
 4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
+
+
+## 11.19 Emergency OIDC last-known-good fallback control — 2026-11-22
+
+- Added `Authentication:UseLastKnownGoodConfiguration` to the Creator JwtBearer registration. It defaults to `true` for normal rollover resilience and is applied to the IdentityModel `BaseConfigurationManager` after JwtBearer post-configuration.
+- Added the explicit safe default to API `appsettings.json` and documented the emergency operation in `docs/SECURITY.md`: for a confirmed signing-key compromise, set the value to `false` consistently on every API instance and recycle/restart those instances. This disables LKG configuration fallback; it is not instant global token revocation.
+- Added integration coverage for both modes: normal rotation verifies LKG remains enabled by default and accepts the newly published signing key after JWKS refresh; emergency mode disables LKG and verifies that the retired signing key is rejected after the new JWKS is loaded.
+- The current IdentityModel dependency's default LKG configuration lifetime is one hour unless overridden; the API does not currently override that lifetime. Verify this behavior on dependency upgrades and staging identity providers.
+- Exact code/test head `86ac8d8a02873c2e95963c036bc076ee532c04d6` passed PostgreSQL 17 run `45040224427`: **201 passed, 0 failed, 0 skipped**.
+- Exact code/test head backend/web run `45040224374`: backend **201 passed**, frontend **20 passed**, platform backend and isolated provisioning-agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, Vite production bundle succeeded; Pages deployment was skipped as expected for a PR.
+- This remains test-fixture evidence, not real identity-provider staging or a production incident drill. The emergency value must be applied consistently and verified after restart across every API instance. Keep `Provisioning:WorkerEnabled=false`; PR #170 remains Draft/open/unmerged. No deployment or production changes were made.
+
+### Next continuation order
+
+1. Validate normal rollover and emergency LKG-off behavior against a real staging identity provider, including multi-instance restart/config propagation and the provider's actual key-removal/overlap policy.
+2. Define and rehearse the signing-key compromise runbook, including operator authorization, config propagation, instance recycle, telemetry/verification and rollback; do not promise instant global revocation.
+3. Continue production Vault process-kill/response-loss/key-rotation, deployed mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
+4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
