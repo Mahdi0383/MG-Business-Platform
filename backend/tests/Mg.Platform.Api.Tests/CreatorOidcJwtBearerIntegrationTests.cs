@@ -166,7 +166,7 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
                 new Claim("sub", "creator-oidc-123"),
                 new Claim(CreatorAuthorizationExtensions.PlatformRoleClaim, role)
             },
-            now.AddMinutes(-1),
+            expiresUtc <= now ? expiresUtc.AddMinutes(-10) : now.AddMinutes(-1),
             expiresUtc,
             credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
