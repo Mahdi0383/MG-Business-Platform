@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Mg.Platform.Api.Security;
 
@@ -21,6 +22,21 @@ public static class CreatorAuthenticationServiceCollectionExtensions
                 options.Audience = authentication.Audience;
                 options.RequireHttpsMetadata = true;
                 options.MapInboundClaims = false;
+            });
+
+        var useLastKnownGoodConfiguration =
+            configuration.GetValue("Authentication:UseLastKnownGoodConfiguration", true);
+        services.PostConfigure<JwtBearerOptions>(
+            JwtBearerDefaults.AuthenticationScheme,
+            options =>
+            {
+                if (options.ConfigurationManager is not BaseConfigurationManager manager)
+                {
+                    throw new InvalidOperationException(
+                        "The OIDC configuration manager does not support last-known-good configuration controls.");
+                }
+
+                manager.UseLastKnownGoodConfiguration = useLastKnownGoodConfiguration;
             });
 
         return services;

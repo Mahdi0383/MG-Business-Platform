@@ -123,6 +123,41 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
     }
 
     [Fact]
+    public async Task DisablingLastKnownGoodConfigurationRejectsRetiredKeyAfterJwksRefresh()
+    {
+        using var originalKey = RSA.Create(2048);
+        using var rotatedKey = RSA.Create(2048);
+        var keySet = new JwksKeySet(originalKey, KeyId);
+        using var host = CreateHost(keySet, useLastKnownGoodConfiguration: false);
+        using var client = host.GetTestClient();
+
+        var originalToken = CreateToken(
+            originalKey, Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "PlatformOwner", KeyId);
+        using var originalResponse = await SendAsync(client, originalToken);
+        Assert.Equal(HttpStatusCode.OK, originalResponse.StatusCode);
+
+        var options = host.Services.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+        var configurationManager = Assert.IsType<ConfigurationManager<OpenIdConnectConfiguration>>(
+            options.ConfigurationManager);
+        Assert.False(configurationManager.UseLastKnownGoodConfiguration);
+        configurationManager.RefreshInterval = TimeSpan.FromSeconds(2);
+        await Task.Delay(TimeSpan.FromSeconds(2.1));
+
+        const string rotatedKeyId = "mg-creator-emergency-rotated-key";
+        keySet.Replace(rotatedKey, rotatedKeyId);
+        configurationManager.RequestRefresh();
+
+        var rotatedToken = CreateToken(
+            rotatedKey, Issuer, Audience, DateTime.UtcNow.AddMinutes(5), "PlatformOwner", rotatedKeyId);
+        using var rotatedResponse = await SendAsync(client, rotatedToken);
+        Assert.Equal(HttpStatusCode.OK, rotatedResponse.StatusCode);
+
+        using var retiredKeyResponse = await SendAsync(client, originalToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, retiredKeyResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task RejectsValidlySignedTokenWithoutAnAuthorizedCreatorRole()
     {
         using var signingKey = RSA.Create(2048);
@@ -137,13 +172,14 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
 
     private static IHost CreateHost(RSA signingKey) => CreateHost(new JwksKeySet(signingKey, KeyId));
 
-    private static IHost CreateHost(JwksKeySet keySet)
+    private static IHost CreateHost(JwksKeySet keySet, bool useLastKnownGoodConfiguration = true)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Authentication:Authority"] = Issuer,
-                ["Authentication:Audience"] = Audience
+                ["Authentication:Audience"] = Audience,
+                ["Authentication:UseLastKnownGoodConfiguration"] = useLastKnownGoodConfiguration.ToString()
             })
             .Build();
 
