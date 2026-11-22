@@ -119,6 +119,9 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
         Assert.True(
             keySet.JwksFetchCount > fetchesBeforeRotation,
             "The issuer JWKS document should be fetched again after the configured refresh request.");
+
+        using var retiredKeyResponse = await SendAsync(client, originalToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, retiredKeyResponse.StatusCode);
     }
 
     [Fact]
