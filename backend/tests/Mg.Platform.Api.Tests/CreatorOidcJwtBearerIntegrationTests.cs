@@ -103,6 +103,7 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
             .Get(JwtBearerDefaults.AuthenticationScheme);
         var configurationManager = Assert.IsType<ConfigurationManager<OpenIdConnectConfiguration>>(
             options.ConfigurationManager);
+        Assert.True(configurationManager.UseLastKnownGoodConfiguration);
         configurationManager.RefreshInterval = TimeSpan.FromSeconds(2);
         await Task.Delay(TimeSpan.FromSeconds(2.1));
 
