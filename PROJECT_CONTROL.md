@@ -793,3 +793,21 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Add an issuer/JWKS rotation and key-refresh test, including unknown-key behavior and bounded metadata refresh, then validate against an actual staging identity provider when credentials/environment are available.
 3. Continue production Vault process-kill/response-loss, mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
 4. Preserve the current worker-disabled setting and keep all integration/release candidates Draft until exact-head checks, human reviews and operational gates are complete.
+
+
+## 11.17 Socket-level business creation response-loss recovery — 2026-11-22
+
+- Added `BusinessCreationSocketResponseLossTests`, which runs the real platform endpoint on loopback Kestrel rather than TestServer. The response is held at `OnStarting` only after the endpoint has completed its database transaction; the client then cancels the request, and a retry with the same UUID idempotency key must return the original HTTP 201 resource with `Idempotency-Replayed: true`.
+- The test verifies exactly one business, one provisioning outbox job and one idempotency record remain after the interrupted response and successful retry.
+- Exact current code/test head `7403ada7be706c66214f39b3790a59b2cf3bfe6e` passed PostgreSQL 17 integration run `45038482705`: **199 passed, 0 failed, 0 skipped**.
+- Exact current code/test head backend/web run `45038482702`: backend **199 passed**, frontend **20 passed**, platform backend and isolated provisioning-agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, Vite production bundle succeeded; Pages deployment was skipped as expected for a PR.
+- The first Kestrel harness attempt exposed a missing hosting namespace import; this was fixed in commit `1bd6510...` before the passing exact-head runs.
+- This is a loopback Kestrel socket-disconnect test, not a public ingress/reverse-proxy test or production network acceptance. Actual identity-provider staging, signing-key rotation, Vault process-kill/response-loss/key rotation, deployed mTLS, monitoring/alerts, controlled migration/rollback, backup/restore and operator acceptance remain open.
+- Keep `Provisioning:WorkerEnabled=false`; PR #170 remains Draft/open/unmerged. No deployment or production changes were made.
+
+### Next continuation order
+
+1. Add OIDC signing-key rotation and JWKS refresh coverage, including an initially unknown key, bounded metadata refresh and safe transition from old to new signing key.
+2. Validate issuer/audience/role mapping against a real staging identity provider when a controlled staging issuer and credentials are available; do not substitute the local fake issuer for staging evidence.
+3. Continue production Vault process-kill/response-loss/key-rotation, mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
+4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
