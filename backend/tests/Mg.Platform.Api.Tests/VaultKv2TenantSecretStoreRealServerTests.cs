@@ -102,7 +102,7 @@ public sealed class VaultKv2TenantSecretStoreRealServerTests
             throw new InvalidOperationException(
                 "MG_TEST_VAULT_CA_CERT must point to the CA certificate of the disposable Vault test server.");
 
-        return X509Certificate2.CreateFromPemFile(path);
+        return X509Certificate2.CreateFromPem(File.ReadAllText(path));
     }
 
     private static HttpClient CreateClient(X509Certificate2 rootCertificate) =>

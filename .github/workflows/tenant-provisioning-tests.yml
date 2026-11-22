@@ -109,6 +109,7 @@ jobs:
             --data-binary '{"policies":["mg-ci-tenant-secret-test"],"no_parent":true,"no_default_policy":true,"renewable":false,"ttl":"15m"}' \
             https://127.0.0.1:8200/v1/auth/token/create | python3 -c 'import json,sys; print(json.load(sys.stdin)["auth"]["client_token"])')
           test -n "$TEST_TOKEN"
+          echo "::add-mask::$TEST_TOKEN"
           {
             echo "MG_TEST_VAULT_ADDRESS=https://127.0.0.1:8200"
             echo "MG_TEST_VAULT_TOKEN=$TEST_TOKEN"
