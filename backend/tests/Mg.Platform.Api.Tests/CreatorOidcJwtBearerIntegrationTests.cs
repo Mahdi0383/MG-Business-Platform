@@ -111,6 +111,7 @@ public sealed class CreatorOidcJwtBearerIntegrationTests
                 webHost.UseTestServer();
                 webHost.ConfigureServices(services =>
                 {
+                    services.AddRouting();
                     services.AddCreatorAuthentication(configuration);
                     services.Configure<JwtBearerOptions>(
                         JwtBearerDefaults.AuthenticationScheme,
