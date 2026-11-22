@@ -69,7 +69,7 @@ jobs:
             -dev-tls-cert-dir=/vault/tls -dev-listen-address=0.0.0.0:8200
           for attempt in $(seq 1 60); do
             if [[ -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]]; then
-              chmod 644 "$RUNNER_TEMP/vault-tls/vault-ca.pem"
+              sudo chmod 644 "$RUNNER_TEMP/vault-tls/vault-ca.pem"
               if curl --silent --show-error --fail \
                 --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
                 --header "X-Vault-Token: mg-ci-vault-token" \
