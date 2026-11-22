@@ -8,14 +8,51 @@ namespace Mg.Platform.Api.Provisioning;
 /// Opt-in durable queue consumer. It fails closed unless a reviewed provisioner
 /// is registered; no job is claimed before that validation succeeds.
 /// </summary>
-public sealed class TenantProvisioningWorker(
-    IServiceScopeFactory scopeFactory,
-    IConfiguration configuration,
-    ILogger<TenantProvisioningWorker> logger) : BackgroundService
+public sealed class TenantProvisioningWorker : BackgroundService
 {
-    private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan RenewalInterval = TimeSpan.FromSeconds(30);
+    private readonly IServiceScopeFactory scopeFactory;
+    private readonly IConfiguration configuration;
+    private readonly ILogger<TenantProvisioningWorker> logger;
+    private readonly TimeSpan leaseDuration;
+    private readonly TimeSpan pollInterval;
+    private readonly TimeSpan renewalInterval;
+
+    private static readonly TimeSpan DefaultLeaseDuration = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultRenewalInterval = TimeSpan.FromSeconds(30);
+
+    public TenantProvisioningWorker(
+        IServiceScopeFactory scopeFactory,
+        IConfiguration configuration,
+        ILogger<TenantProvisioningWorker> logger)
+        : this(scopeFactory, configuration, logger,
+            DefaultLeaseDuration, DefaultPollInterval, DefaultRenewalInterval)
+    {
+    }
+
+    internal TenantProvisioningWorker(
+        IServiceScopeFactory scopeFactory,
+        IConfiguration configuration,
+        ILogger<TenantProvisioningWorker> logger,
+        TimeSpan leaseDuration,
+        TimeSpan pollInterval,
+        TimeSpan renewalInterval)
+    {
+        this.scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
+        this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        if (leaseDuration < TimeSpan.FromSeconds(15) || leaseDuration > TimeSpan.FromMinutes(10))
+            throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+        if (pollInterval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(pollInterval));
+        if (renewalInterval <= TimeSpan.Zero || renewalInterval >= leaseDuration)
+            throw new ArgumentOutOfRangeException(nameof(renewalInterval));
+
+        this.leaseDuration = leaseDuration;
+        this.pollInterval = pollInterval;
+        this.renewalInterval = renewalInterval;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -48,12 +85,12 @@ public sealed class TenantProvisioningWorker(
             {
                 logger.LogError("Provisioning worker iteration failed ({ExceptionType}).",
                     exception.GetType().Name);
-                await Task.Delay(PollInterval, stoppingToken);
+                await Task.Delay(pollInterval, stoppingToken);
             }
         }
     }
 
-    private async Task ProcessOneAsync(string workerId, CancellationToken stoppingToken)
+    internal async Task ProcessOneAsync(string workerId, CancellationToken stoppingToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -61,10 +98,10 @@ public sealed class TenantProvisioningWorker(
         var handler = services.GetRequiredService<ITenantProvisioningHandler>();
 
         _ = await leases.DeadLetterExhaustedAsync(stoppingToken);
-        var job = await leases.ClaimNextAsync(workerId, LeaseDuration, stoppingToken);
+        var job = await leases.ClaimNextAsync(workerId, leaseDuration, stoppingToken);
         if (job is null)
         {
-            await Task.Delay(PollInterval, stoppingToken);
+            await Task.Delay(pollInterval, stoppingToken);
             return;
         }
 
@@ -133,11 +170,11 @@ public sealed class TenantProvisioningWorker(
         {
             while (true)
             {
-                await Task.Delay(RenewalInterval, linked.Token);
+                await Task.Delay(renewalInterval, linked.Token);
                 await using var heartbeatScope = scopeFactory.CreateAsyncScope();
                 var leases = heartbeatScope.ServiceProvider
                     .GetRequiredService<TenantProvisioningLeaseService>();
-                if (!await leases.RenewAsync(jobId, workerId, leaseToken, LeaseDuration, linked.Token))
+                if (!await leases.RenewAsync(jobId, workerId, leaseToken, leaseDuration, linked.Token))
                 {
                     handlerCancellation.Cancel();
                     return false;
