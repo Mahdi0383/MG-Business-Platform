@@ -845,3 +845,23 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Define and rehearse the signing-key compromise runbook, including operator authorization, config propagation, instance recycle, telemetry/verification and rollback; do not promise instant global revocation.
 3. Continue production Vault process-kill/response-loss/key-rotation, deployed mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
 4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
+
+
+## 11.20 Fail-closed verification of the complete business-idempotency schema — 2026-11-22
+
+- Ported the schema-readiness hardening from Draft PR #167 onto the current PR #170 integration branch without changing or rewriting PR #167 or its source branch.
+- `PlatformSchemaReadinessHealthCheck` now verifies all five required idempotency columns with exact PostgreSQL types and NOT NULL constraints; the named primary key; the `business_id → business_tenants(id)` foreign key with `ON DELETE RESTRICT`; both creator/request SHA-256 format check constraints; and a valid/ready business lookup index. It remains fail-closed and never applies migrations.
+- Expanded PostgreSQL readiness failure-mode coverage for absent table, missing business reference column, nullable business reference, missing foreign key, missing creation timestamp and missing creator-hash constraint, plus lookup-index absence. The healthy fixture explicitly creates the migration's required lookup index.
+- Updated `backend/docs/PLATFORM_API_CONTRACT.md` so the documented readiness behavior matches the actual schema contract.
+- Exact code/test head `78e58e6f1b1ace61e4de863eede62fdbe68217ad`:
+  - PostgreSQL 17 integration run `45041267932`: **207 passed, 0 failed, 0 skipped**.
+  - Backend/web run `45041267939`: backend **207 passed**, frontend **20 passed**, both platform backend and isolated provisioning-agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, Vite production bundle succeeded; Pages deployment correctly skipped for a PR.
+- This is automated disposable-PostgreSQL evidence, not a production migration rollout or restore/rollback rehearsal. Migration 006 still requires controlled deployment and verification before the API version that requires `Idempotency-Key` receives traffic.
+- PR #170 remains Draft/open/unmerged. No production deployment was performed. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation order
+
+1. Re-run exact-head CI after this ledger-only update; never transfer the code-head evidence to a different commit without checking.
+2. Continue the highest-priority unblocked provisioning acceptance work: real Vault process-kill/response-loss/token renewal/revocation/CAS testing and secret policy/key rotation.
+3. Complete real staging OIDC/JWKS rollover and emergency signing-key incident rehearsal, deployed mTLS issuance/revocation/rotation, monitoring/alerting, controlled migration 006 deployment/rollback, and backup/restore with measured RPO/RTO.
+4. Keep the worker disabled and integration PR Draft until all required human review and production gates are complete.
