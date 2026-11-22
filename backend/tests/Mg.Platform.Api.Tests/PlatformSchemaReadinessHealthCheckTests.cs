@@ -1,5 +1,6 @@
 using Mg.Platform.Api.Health;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Npgsql;
 using Xunit;
 
 namespace Mg.Platform.Api.Tests;
@@ -10,10 +11,9 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
     public async Task ReadinessIsHealthyWhenBusinessRegistryOutboxAndIdempotencyMigrationExist()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
-        await using var context = fixture.CreateContext();
-        var check = new PlatformSchemaReadinessHealthCheck(context);
+        await CreateBusinessLookupIndexAsync(fixture);
 
-        var result = await check.CheckHealthAsync(CreateContext(check));
+        var result = await CheckAsync(fixture);
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
@@ -22,14 +22,110 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
     public async Task ReadinessFailsClosedWhenBusinessIdempotencyMigrationIsMissing()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
         await fixture.DropIdempotencyTableAsync();
-        await using var context = fixture.CreateContext();
-        var check = new PlatformSchemaReadinessHealthCheck(context);
 
-        var result = await check.CheckHealthAsync(CreateContext(check));
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessReferenceColumnIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP COLUMN business_id");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessReferenceIsNullable()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ALTER COLUMN business_id DROP NOT NULL");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessReferenceForeignKeyIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT business_creation_requests_business_id_fkey");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenCreationTimestampColumnIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP COLUMN created_at_utc");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenCreatorHashConstraintIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT ck_business_creation_creator_hash");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessLookupIndexIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "DROP INDEX ix_business_creation_requests_business");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    private static async Task AssertUnhealthyAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        var result = await CheckAsync(fixture);
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
         Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<HealthCheckResult> CheckAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        await using var context = fixture.CreateContext();
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        return await check.CheckHealthAsync(CreateContext(check));
+    }
+
+    private static async Task CreateBusinessLookupIndexAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture) =>
+        await ExecuteSchemaCommandAsync(fixture, """
+            CREATE INDEX ix_business_creation_requests_business
+                ON business_creation_requests (business_id, created_at_utc)
+            """);
+
+    private static async Task ExecuteSchemaCommandAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture,
+        string sql)
+    {
+        await using var connection = new NpgsqlConnection(fixture.TestConnection);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
     }
 
     private static HealthCheckContext CreateContext(IHealthCheck check)
