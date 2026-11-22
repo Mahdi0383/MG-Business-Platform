@@ -75,12 +75,14 @@ jobs:
             server -dev -dev-root-token-id=mg-ci-vault-token -dev-tls \
             -dev-tls-cert-dir=/vault/tls -dev-listen-address=0.0.0.0:8200
           for attempt in $(seq 1 60); do
-            if [[ -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]] && \
-              curl --silent --show-error --fail \
+            if [[ -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]]; then
+              chmod 644 "$RUNNER_TEMP/vault-tls/vault-ca.pem"
+              if curl --silent --show-error --fail \
                 --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
                 --header "X-Vault-Token: mg-ci-vault-token" \
                 https://127.0.0.1:8200/v1/sys/health >/dev/null; then
-              break
+                break
+              fi
             fi
             sleep 1
           done
@@ -97,7 +99,7 @@ jobs:
             --header "X-Vault-Token: mg-ci-vault-token" \
             --header "Content-Type: application/json" \
             --request PUT \
-            --data-binary '{"policy":"path \"secret/data/ci/*\" { capabilities = [\"create\", \"update\", \"read\"] }\\npath \"secret/metadata/ci/*\" { capabilities = [\"read\", \"delete\", \"list\"] }"}' \
+            --data-binary '{"policy":"path \"secret/data/ci/*\" { capabilities = [\"create\", \"update\", \"read\"] }\npath \"secret/metadata/ci/*\" { capabilities = [\"read\", \"delete\", \"list\"] }"}' \
             https://127.0.0.1:8200/v1/sys/policies/acl/mg-ci-tenant-secret-test >/dev/null
           TEST_TOKEN=$(curl --silent --show-error --fail \
             --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \
