@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Mg.Platform.Api.Contracts;
 
@@ -15,7 +17,8 @@ public static class PlatformEndpoints
         group.MapGet("/", async (BusinessRegistryService registry, CancellationToken ct) =>
             Results.Ok(await registry.ListAsync(ct)));
 
-        group.MapPost("/", async (CreateBusinessRequest request,
+        group.MapPost("/", async (CreateBusinessRequest request, HttpContext httpContext,
+            [FromHeader(Name = "Idempotency-Key"), Description("Required non-empty UUID. Reuse the same value when retrying the same logical business-creation request.")] string idempotencyKeyHeader,
             BusinessRegistryService registry, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 160)
@@ -28,10 +31,27 @@ public static class PlatformEndpoints
                 {
                     ["slug"] = ["شناسه باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد."]
                 });
+            if (!Guid.TryParse(idempotencyKeyHeader, out var idempotencyKey)
+                || idempotencyKey == Guid.Empty)
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["Idempotency-Key"] = ["A non-empty UUID Idempotency-Key header is required."]
+                });
 
-            var normalizedRequest = request with { Slug = normalizedSlug };
-            var (business, conflict) = await registry.CreateAsync(normalizedRequest, ct);
-            if (conflict) return Results.Conflict(new { code = "business_slug_conflict" });
+            var issuer = httpContext.User.FindFirst("iss")?.Value;
+            var subject = httpContext.User.FindFirst("sub")?.Value;
+            if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
+                return Results.Forbid();
+
+            var normalizedRequest = request with { Name = request.Name.Trim(), Slug = normalizedSlug };
+            var (business, conflict, replayed) = await registry.CreateAsync(
+                normalizedRequest, idempotencyKey, issuer, subject, ct);
+            if (conflict)
+                return Results.Conflict(new { code = "business_creation_conflict" });
+
+            if (replayed)
+                httpContext.Response.Headers["Idempotency-Replayed"] = "true";
+
             return Results.Created($"/api/v1/platform/businesses/{business!.Id}", business);
         });
 
