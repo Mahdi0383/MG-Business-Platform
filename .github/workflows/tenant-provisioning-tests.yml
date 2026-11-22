@@ -64,5 +64,41 @@ jobs:
           dotnet-version: 10.0.x
       - name: Enable PostgreSQL TLS for strict certificate validation tests
         run: bash backend/tests/scripts/enable-postgres-tls.sh
+      - name: Start disposable Vault KV v2 test server
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/vault-tls"
+          chmod 777 "$RUNNER_TEMP/vault-tls"
+          docker run --detach --name mg-vault-ci --publish 8200:8200 \\
+            --volume "$RUNNER_TEMP/vault-tls:/vault/tls" \\
+            hashicorp/vault:2.2.2@sha256:18c03dcc5589b1a67eb3c7bd74d6982747f0d835a285516b87e3992f085de5a4 \\
+            server -dev -dev-root-token-id=mg-ci-vault-token -dev-tls \\
+            -dev-tls-cert-dir=/vault/tls -dev-listen-address=0.0.0.0:8200
+          for attempt in $(seq 1 60); do
+            if [[ -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]] && \\
+              curl --silent --show-error --fail \\
+                --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \\
+                --header "X-Vault-Token: mg-ci-vault-token" \\
+                https://127.0.0.1:8200/v1/sys/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ ! -s "$RUNNER_TEMP/vault-tls/vault-ca.pem" ]] || ! \\
+            curl --silent --show-error --fail \\
+              --cacert "$RUNNER_TEMP/vault-tls/vault-ca.pem" \\
+              --header "X-Vault-Token: mg-ci-vault-token" \\
+              https://127.0.0.1:8200/v1/sys/health >/dev/null; then
+            docker logs mg-vault-ci
+            exit 1
+          fi
+          {
+            echo "MG_TEST_VAULT_ADDRESS=https://127.0.0.1:8200"
+            echo "MG_TEST_VAULT_TOKEN=mg-ci-vault-token"
+            echo "MG_TEST_VAULT_CA_CERT=$RUNNER_TEMP/vault-tls/vault-ca.pem"
+          } >> "$GITHUB_ENV"
       - name: Run provisioning and tenant schema integration tests
         run: dotnet test backend/tests/Mg.Platform.Api.Tests/Mg.Platform.Api.Tests.csproj --configuration Release
+      - name: Stop disposable Vault test server
+        if: always()
+        run: docker rm --force mg-vault-ci >/dev/null 2>&1 || true
