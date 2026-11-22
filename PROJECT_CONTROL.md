@@ -811,3 +811,19 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Validate issuer/audience/role mapping against a real staging identity provider when a controlled staging issuer and credentials are available; do not substitute the local fake issuer for staging evidence.
 3. Continue production Vault process-kill/response-loss/key-rotation, mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
 4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
+
+
+## 11.18 OIDC JWKS refresh and signing-key rotation — 2026-11-22
+
+- Extended `CreatorOidcJwtBearerIntegrationTests` with a mutable local JWKS issuer. The test first authenticates with the original RSA key, rotates the published JWKS to a new key ID, requests a configuration refresh using a shortened test-only refresh interval, and verifies a token signed by the new key is accepted and the JWKS endpoint is fetched again.
+- Exact current code/test head `98f0363647429a88a30b9296351d5405caf6bd55` passed PostgreSQL 17 run `45039621909`: **200 passed, 0 failed, 0 skipped**.
+- Exact current code/test head backend/web run `45039621902`: backend **200 passed**, frontend **20 passed**, platform backend and isolated provisioning-agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, Vite production bundle succeeded; Pages deployment was skipped as expected for a PR.
+- An exploratory assertion expecting the old key to become immediately unauthorized after a refresh failed: the old token was still accepted. That assertion was removed rather than claiming immediate revocation. The observed old-key retention/grace behavior is not yet explained or specified; key retirement, overlap windows, emergency revocation and cache invalidation need a dedicated design and deterministic test.
+- This is a local OIDC/JWKS behavior test, not real identity-provider staging or production key-rotation acceptance. Keep `Provisioning:WorkerEnabled=false`; PR #170 remains Draft/open/unmerged. No deployment or production changes were made.
+
+### Next continuation order
+
+1. Investigate and specify old-key retention, normal rollover overlap, expiry/grace windows and emergency revocation. Add deterministic tests for both overlap and retirement; do not assume a refreshed JWKS immediately invalidates a previously cached key.
+2. Validate issuer, audience, roles and signing-key lifecycle against a real staging identity provider when a controlled staging issuer and credentials are available.
+3. Continue production Vault process-kill/response-loss/key-rotation, deployed mTLS lifecycle, monitoring/alerting, migration 006 deployment/rollback and backup/restore rehearsals.
+4. Preserve the worker-disabled setting and keep integration/release candidates Draft until exact-head checks, required human reviews and operational gates are complete.
