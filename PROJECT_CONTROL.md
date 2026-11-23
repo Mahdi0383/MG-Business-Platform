@@ -886,3 +886,21 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Validate production-style least-privilege policy, short-lived token renewal/revocation, audit-device evidence, TLS rotation and Vault backup/restore in a controlled staging environment.
 3. Complete real OIDC/JWKS staging and emergency signing-key incident rehearsal, deployed mTLS issuance/revocation/rotation, monitoring/alerting, controlled migration 006 deployment/rollback and backup/restore with measured RPO/RTO.
 4. Keep the worker disabled and integration PR Draft until all required human review and production gates are complete.
+
+## 11.22 Exact PostgreSQL catalog validation for migration 006 readiness — 2026-11-23
+
+- Follow-up review of the current PR #170 readiness implementation found a fail-closed gap: it checked the names and types of the migration 006 primary key, hash checks and lookup index, but not their complete definitions. A same-named primary key on the wrong column, a weak same-named CHECK, or an index with the wrong key columns could therefore be reported Healthy.
+- Created Draft follow-up branch `fix/platform-schema-readiness-catalog-validation-20261123` from the exact PR #170 head `8d2f9716c3d18160330bfab49f2790397c618978`.
+- Strengthened `PlatformSchemaReadinessHealthCheck` to verify the primary key definition, validated foreign/check constraints, expected SHA-256 CHECK expressions, and exact non-unique/non-partial/non-expression lookup-index keys/order plus PostgreSQL valid/ready state.
+- Added disposable-PostgreSQL failure-mode tests for a same-named primary key on the wrong column, weak creator/request hash checks, an unvalidated hash constraint, and a same-named index on the wrong key.
+- Updated the API contract to describe the exact catalog contract. No production schema was changed and no migration was applied to a live database.
+- Exact branch head and GitHub Actions results are pending. Do not treat PR #170's earlier 211-test evidence as validation of this new commit.
+- Production blockers remain: controlled migration 006 deployment/rollback and checksum strategy; persistent Vault/process-kill/token/key-rotation and backup/restore; real OIDC/JWKS staging; deployed mTLS; monitoring/alerts; complete business workflows and real hardware/network/operator acceptance. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation order
+
+1. Run PostgreSQL 17 integration and backend/web CI on this exact follow-up head; inspect any failing job logs before changing code.
+2. If green, verify the exact follow-up PR head and retain Draft status pending human review and the full release-gate chain.
+3. Define the controlled migration 006 deployment/rollback/checksum procedure without deleting durable idempotency records during rollback.
+4. Continue production Vault, OIDC/JWKS, mTLS, observability, backup/restore and end-to-end POS/accounting/cafe/game-net acceptance.
+
