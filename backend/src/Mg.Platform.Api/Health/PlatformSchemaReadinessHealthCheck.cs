@@ -92,9 +92,15 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                           AND creator_hash_check.conname = 'ck_business_creation_creator_hash'
                           AND creator_hash_check.contype = 'c'
                           AND creator_hash_check.convalidated
-                          AND position('creator_identity_hash' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
-                          AND position('~' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
-                          AND position('^[0-9a-f]{64}$' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
+                          AND regexp_replace(
+                              pg_get_expr(creator_hash_check.conbin, creator_hash_check.conrelid),
+                              '[()[:space:]]', '', 'g'
+                          ) IN (
+                              'creator_identity_hash~''^[0-9a-f]{64}$''',
+                              'creator_identity_hash~''^[0-9a-f]{64}$''::bpchar',
+                              'creator_identity_hash~''^[0-9a-f]{64}$''::character',
+                              'creator_identity_hash~''^[0-9a-f]{64}$''::text'
+                          )
                     )
                     AND EXISTS (
                         SELECT 1
@@ -103,9 +109,15 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                           AND request_hash_check.conname = 'ck_business_creation_request_hash'
                           AND request_hash_check.contype = 'c'
                           AND request_hash_check.convalidated
-                          AND position('request_fingerprint' IN pg_get_constraintdef(request_hash_check.oid)) > 0
-                          AND position('~' IN pg_get_constraintdef(request_hash_check.oid)) > 0
-                          AND position('^[0-9a-f]{64}$' IN pg_get_constraintdef(request_hash_check.oid)) > 0
+                          AND regexp_replace(
+                              pg_get_expr(request_hash_check.conbin, request_hash_check.conrelid),
+                              '[()[:space:]]', '', 'g'
+                          ) IN (
+                              'request_fingerprint~''^[0-9a-f]{64}$''',
+                              'request_fingerprint~''^[0-9a-f]{64}$''::bpchar',
+                              'request_fingerprint~''^[0-9a-f]{64}$''::character',
+                              'request_fingerprint~''^[0-9a-f]{64}$''::text'
+                          )
                     )
                     AND EXISTS (
                         SELECT 1

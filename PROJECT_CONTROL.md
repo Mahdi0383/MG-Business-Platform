@@ -907,3 +907,34 @@ The historical entries below remain as an audit trail; statements that the agent
 3. Define the controlled migration 006 deployment/rollback/checksum procedure without deleting durable idempotency records during rollback.
 4. Continue production Vault, OIDC/JWKS, mTLS, observability, backup/restore and end-to-end POS/accounting/cafe/game-net acceptance.
 
+
+
+## 11.16 Adversarial validation of migration 006 hash constraints — 2026-11-24
+
+- Follow-up to Draft PR #171 static review finding: the previous readiness predicate searched independently for the target column name, regex operator and expected pattern in `pg_get_constraintdef`. A same-named CHECK could satisfy those substring tests while applying the regex to a constant instead of the column.
+- New candidate change replaces those substring checks with exact normalized-expression matching against PostgreSQL's deparsed CHECK expression via `pg_get_expr(conbin, conrelid)`. Parentheses/whitespace are normalized, then only the exact target-column regex expression is accepted (with known PostgreSQL text/bpchar/character cast renderings). This rejects extra predicates and regexes applied to constants.
+- Added PostgreSQL regression cases for both creator identity hash and request fingerprint where the target column is merely NOT NULL and the valid regex is applied to a constant. Both must fail readiness closed.
+- Candidate branch: `fix/platform-exact-hash-check-expressions`, based on exact PR #171 head `8b0564f15a9158b0523a06d892ac134c429dd106`. This is a non-destructive follow-up; no existing branch was rewritten.
+- Validation status at creation: not yet run. Do not claim the new predicate or tests pass until the exact candidate SHA completes PostgreSQL 17 and backend/web workflows. Review generated PostgreSQL expression formatting if the strict predicate rejects the valid migration expression.
+- No production migration, merge, deployment or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Next: inspect the candidate diff, run exact-head CI, fix any PostgreSQL catalog rendering mismatch, and obtain independent review before integration.
+
+
+
+## 11.23 Exact-head validation completed for migration 006 expression hardening — 2026-11-24
+
+- Candidate branch: `fix/platform-exact-hash-check-expressions`; exact application/test head: `5cb7190df56fdd50e58e1e6c359da787a13600ac`.
+- PostgreSQL 17 integration [run 45263341344](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45263341344): completed successfully on this exact SHA. The job completed the PostgreSQL-backed provisioning and tenant-schema integration test command and all teardown steps.
+- MG Business Web backend/web [run 45263341410](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45263341410): completed successfully on this exact SHA. Backend Release build, isolated provisioning-agent API build, backend unit tests, dependency audit, frontend unit tests, production bundle and build-artifact upload all succeeded. GitHub Pages deploy steps were skipped as expected for a pull request.
+- The implementation diff was re-inspected: only `PROJECT_CONTROL.md`, `PlatformSchemaReadinessHealthCheck.cs` and `PlatformSchemaReadinessHealthCheckTests.cs` differ from PR #171's exact head. The two constant-operand regression tests are present.
+- PR #172's validation description and Issue #82 engineering log were updated with these exact-head results. PR #172 remains Draft and unmerged.
+- Still not evidenced on this stacked candidate: Windows installer/package CI, CodeQL, formatting and NuGet audit. PR #159 contains the branch-independent trigger correction and passed its own exact-head checks, but is not merged because its required independent human approval and main ruleset checks remain outstanding. Do not transfer PR #159's results to this candidate SHA.
+- No production migration, deployment, merge or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation order
+
+1. Obtain the required independent human review for PR #159; do not bypass the main ruleset or self-approve.
+2. After an authorized merge of #159, synchronize the stacked base non-destructively and rerun Windows CI/package, CodeQL, formatting and NuGet audit on the exact candidate head.
+3. Obtain independent review of PR #172 and its parent #171/#170 stack; preserve Draft/unmerged state until all gates and parent-stack requirements are satisfied.
+4. Continue production-only gates that require authorized staging access: migration 006 deployment/rollback/checksum rehearsal, real OIDC/JWKS and emergency key-rotation drill, persistent Vault recovery/key rotation/backup, deployed mTLS lifecycle, monitoring/alerting and backup/restore with measured RPO/RTO.
+5. Keep `Provisioning:WorkerEnabled=false`; do not claim MG Business Web production readiness while identity, tenant isolation, business POS/accounting modules, operations and pilot acceptance remain incomplete.
