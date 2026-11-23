@@ -907,3 +907,14 @@ The historical entries below remain as an audit trail; statements that the agent
 3. Define the controlled migration 006 deployment/rollback/checksum procedure without deleting durable idempotency records during rollback.
 4. Continue production Vault, OIDC/JWKS, mTLS, observability, backup/restore and end-to-end POS/accounting/cafe/game-net acceptance.
 
+
+
+## 11.16 Adversarial validation of migration 006 hash constraints — 2026-11-24
+
+- Follow-up to Draft PR #171 static review finding: the previous readiness predicate searched independently for the target column name, regex operator and expected pattern in `pg_get_constraintdef`. A same-named CHECK could satisfy those substring tests while applying the regex to a constant instead of the column.
+- New candidate change replaces those substring checks with anchored validation of PostgreSQL's deparsed CHECK expression via `pg_get_expr(conbin, conrelid)`. The expression must place the expected hash column on the left side of the regex operator and the exact lowercase 64-hex pattern on the right; only expected PostgreSQL text/bpchar casts and expression parentheses are accepted.
+- Added PostgreSQL regression cases for both creator identity hash and request fingerprint where the target column is merely NOT NULL and the valid regex is applied to a constant. Both must fail readiness closed.
+- Candidate branch: `fix/platform-exact-hash-check-expressions`, based on exact PR #171 head `8b0564f15a9158b0523a06d892ac134c429dd106`. This is a non-destructive follow-up; no existing branch was rewritten.
+- Validation status at creation: not yet run. Do not claim the new predicate or tests pass until the exact candidate SHA completes PostgreSQL 17 and backend/web workflows. Review generated PostgreSQL expression formatting if the strict predicate rejects the valid migration expression.
+- No production migration, merge, deployment or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Next: inspect the candidate diff, run exact-head CI, fix any PostgreSQL catalog rendering mismatch, and obtain independent review before integration.
