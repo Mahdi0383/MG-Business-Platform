@@ -159,6 +159,144 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await AssertUnhealthyAsync(fixture);
     }
 
+    [Fact]
+    public async Task ReadinessFailsClosedWhenCreatorHashRegexIsAppliedToAConstant()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            """
+            ALTER TABLE business_creation_requests
+                DROP CONSTRAINT ck_business_creation_creator_hash
+            """);
+        await ExecuteSchemaCommandAsync(fixture,
+            """
+            ALTER TABLE business_creation_requests
+                ADD CONSTRAINT ck_business_creation_creator_hash
+                CHECK (
+                    creator_identity_hash IS NOT NULL
+                    AND 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                        ~ '^[0-9a-f]{64}
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        var result = await CheckAsync(fixture);
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<HealthCheckResult> CheckAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        await using var context = fixture.CreateContext();
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        return await check.CheckHealthAsync(CreateContext(check));
+    }
+
+    private static async Task CreateBusinessLookupIndexAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture) =>
+        await ExecuteSchemaCommandAsync(fixture, """
+            CREATE INDEX ix_business_creation_requests_business
+                ON business_creation_requests (business_id, created_at_utc)
+            """);
+
+    private static async Task ExecuteSchemaCommandAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture,
+        string sql)
+    {
+        await using var connection = new NpgsqlConnection(fixture.TestConnection);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static HealthCheckContext CreateContext(IHealthCheck check)
+    {
+        var registration = new HealthCheckRegistration(
+            "platform-schema",
+            _ => check,
+            HealthStatus.Unhealthy,
+            tags: null,
+            timeout: TimeSpan.FromSeconds(5));
+        return new HealthCheckContext { Registration = registration };
+    }
+}
+
+                )
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenRequestHashRegexIsAppliedToAConstant()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            """
+            ALTER TABLE business_creation_requests
+                DROP CONSTRAINT ck_business_creation_request_hash
+            """);
+        await ExecuteSchemaCommandAsync(fixture,
+            """
+            ALTER TABLE business_creation_requests
+                ADD CONSTRAINT ck_business_creation_request_hash
+                CHECK (
+                    request_fingerprint IS NOT NULL
+                    AND 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                        ~ '^[0-9a-f]{64}
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        var result = await CheckAsync(fixture);
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<HealthCheckResult> CheckAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
+    {
+        await using var context = fixture.CreateContext();
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        return await check.CheckHealthAsync(CreateContext(check));
+    }
+
+    private static async Task CreateBusinessLookupIndexAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture) =>
+        await ExecuteSchemaCommandAsync(fixture, """
+            CREATE INDEX ix_business_creation_requests_business
+                ON business_creation_requests (business_id, created_at_utc)
+            """);
+
+    private static async Task ExecuteSchemaCommandAsync(
+        BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture,
+        string sql)
+    {
+        await using var connection = new NpgsqlConnection(fixture.TestConnection);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static HealthCheckContext CreateContext(IHealthCheck check)
+    {
+        var registration = new HealthCheckRegistration(
+            "platform-schema",
+            _ => check,
+            HealthStatus.Unhealthy,
+            tags: null,
+            timeout: TimeSpan.FromSeconds(5));
+        return new HealthCheckContext { Registration = registration };
+    }
+}
+
+                )
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
     private static async Task AssertUnhealthyAsync(
         BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
     {
