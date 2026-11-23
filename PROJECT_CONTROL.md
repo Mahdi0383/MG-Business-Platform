@@ -894,7 +894,10 @@ The historical entries below remain as an audit trail; statements that the agent
 - Strengthened `PlatformSchemaReadinessHealthCheck` to verify the primary key definition, validated foreign/check constraints, expected SHA-256 CHECK expressions, and exact non-unique/non-partial/non-expression lookup-index keys/order plus PostgreSQL valid/ready state.
 - Added disposable-PostgreSQL failure-mode tests for a same-named primary key on the wrong column, weak creator/request hash checks, an unvalidated hash constraint, and a same-named index on the wrong key.
 - Updated the API contract to describe the exact catalog contract. No production schema was changed and no migration was applied to a live database.
-- Exact branch head and GitHub Actions results are pending. Do not treat PR #170's earlier 211-test evidence as validation of this new commit.
+- Exact code/test head `f320aff439c796f801dfc31ad32f5588ef5d0e3e` passed its own PR workflows:
+  - PostgreSQL 17 integration [run 45137598361](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45137598361): **216 passed, 0 failed, 0 skipped**.
+  - Backend/web [run 45137598355](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45137598355): backend **216 passed**, frontend **20 passed**, both Release builds **0 warnings / 0 errors**, npm audit **0 vulnerabilities**, Vite production bundle and artifact upload succeeded (artifact `14799919113`, SHA-256 `3bf356bfc754388de1a1c1f2842191a91b53459e18156ae0d114bcb69b8053a2`); Pages deployment was correctly skipped for a PR.
+  - These are disposable PostgreSQL/Vault CI results, not a production migration rollout or operational acceptance. The following ledger-only commit is a new exact head and must be revalidated; do not transfer results to it without checking.
 - Production blockers remain: controlled migration 006 deployment/rollback and checksum strategy; persistent Vault/process-kill/token/key-rotation and backup/restore; real OIDC/JWKS staging; deployed mTLS; monitoring/alerts; complete business workflows and real hardware/network/operator acceptance. Keep `Provisioning:WorkerEnabled=false`.
 
 ### Next continuation order
