@@ -938,3 +938,17 @@ The historical entries below remain as an audit trail; statements that the agent
 3. Obtain independent review of PR #172 and its parent #171/#170 stack; preserve Draft/unmerged state until all gates and parent-stack requirements are satisfied.
 4. Continue production-only gates that require authorized staging access: migration 006 deployment/rollback/checksum rehearsal, real OIDC/JWKS and emergency key-rotation drill, persistent Vault recovery/key rotation/backup, deployed mTLS lifecycle, monitoring/alerting and backup/restore with measured RPO/RTO.
 5. Keep `Provisioning:WorkerEnabled=false`; do not claim MG Business Web production readiness while identity, tenant isolation, business POS/accounting modules, operations and pilot acceptance remain incomplete.
+
+
+## 11.24 Adversarial rejection of extra predicates in migration 006 hash checks — 2026-11-24
+
+- Draft PR #173 adds two PostgreSQL regression tests to the exact-expression readiness hardening from PR #172:
+  - Creator hash CHECK: the expected `creator_identity_hash ~ '^[0-9a-f]{64}$'` expression combined with an additional `creator_identity_hash IS NOT NULL` predicate must report readiness Unhealthy.
+  - Request fingerprint CHECK: the equivalent extra-predicate expression for `request_fingerprint` must report readiness Unhealthy.
+- The change is test-only: `backend/tests/Mg.Platform.Api.Tests/PlatformSchemaReadinessHealthCheckTests.cs`, +26 lines, with no production code or migration modification. The reviewed PR patch contains exactly these two tests.
+- Exact code/test SHA `11ff53f7a75afe728ceab4e93401c37b267c0a65` passed both available exact-head workflows:
+  - PostgreSQL 17 tenant provisioning/schema integration run [45264611580](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45264611580): workflow and `postgres-integration` job completed successfully; PostgreSQL TLS setup, disposable Vault startup, integration test command and teardown all succeeded.
+  - MG Business Web backend/web run [45264611242](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45264611242): backend Release build, isolated provisioning-agent API build, backend unit tests, dependency audit, frontend unit tests, production bundle and artifact upload all succeeded. GitHub Pages deploy steps were skipped as expected for a pull request.
+- These results validate the two new regression tests and the available stacked backend/web + PostgreSQL workflows only. Windows installer/package CI, CodeQL, formatting and dedicated NuGet audit are not evidenced on this stacked candidate; PR #159 still requires independent human approval before its trigger correction can be integrated.
+- PR #173 remains Draft/open/unmerged and stacked on Draft PR #172. No production migration, deployment, merge or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`.
+- Next: obtain the required independent review for PR #159; after an authorized merge, synchronize the candidate stack non-destructively and rerun the wider quality gates on exact heads. Continue controlled migration 006 deployment/rollback/checksum rehearsal, persistent Vault recovery/key rotation/backup, real OIDC/JWKS staging, deployed mTLS, observability, backup/restore and end-to-end business workflow acceptance. Do not claim production readiness.
