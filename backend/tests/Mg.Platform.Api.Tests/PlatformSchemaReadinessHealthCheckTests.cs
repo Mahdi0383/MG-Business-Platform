@@ -230,7 +230,8 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
             timeout: TimeSpan.FromSeconds(5));
         return new HealthCheckContext { Registration = registration };
     }
-} AND creator_identity_hash IS NOT NULL)");
+}
+ AND creator_identity_hash IS NOT NULL)");
 
         await AssertUnhealthyAsync(fixture);
     }
@@ -286,7 +287,8 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
             timeout: TimeSpan.FromSeconds(5));
         return new HealthCheckContext { Registration = registration };
     }
-} AND request_fingerprint IS NOT NULL)");
+}
+ AND request_fingerprint IS NOT NULL)");
 
         await AssertUnhealthyAsync(fixture);
     }
