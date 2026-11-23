@@ -63,6 +63,8 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                         WHERE primary_key.conrelid = to_regclass('business_creation_requests')
                           AND primary_key.conname = 'pk_business_creation_requests'
                           AND primary_key.contype = 'p'
+                          AND primary_key.convalidated
+                          AND pg_get_constraintdef(primary_key.oid) = 'PRIMARY KEY (idempotency_key)'
                     )
                     AND EXISTS (
                         SELECT 1
@@ -81,6 +83,7 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                           AND foreign_key.conkey = ARRAY[source_column.attnum]::smallint[]
                           AND foreign_key.confkey = ARRAY[target_column.attnum]::smallint[]
                           AND foreign_key.confdeltype = 'r'
+                          AND foreign_key.convalidated
                     )
                     AND EXISTS (
                         SELECT 1
@@ -88,6 +91,10 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                         WHERE creator_hash_check.conrelid = to_regclass('business_creation_requests')
                           AND creator_hash_check.conname = 'ck_business_creation_creator_hash'
                           AND creator_hash_check.contype = 'c'
+                          AND creator_hash_check.convalidated
+                          AND position('creator_identity_hash' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
+                          AND position('~' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
+                          AND position('^[0-9a-f]{64}$' IN pg_get_constraintdef(creator_hash_check.oid)) > 0
                     )
                     AND EXISTS (
                         SELECT 1
@@ -95,6 +102,10 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                         WHERE request_hash_check.conrelid = to_regclass('business_creation_requests')
                           AND request_hash_check.conname = 'ck_business_creation_request_hash'
                           AND request_hash_check.contype = 'c'
+                          AND request_hash_check.convalidated
+                          AND position('request_fingerprint' IN pg_get_constraintdef(request_hash_check.oid)) > 0
+                          AND position('~' IN pg_get_constraintdef(request_hash_check.oid)) > 0
+                          AND position('^[0-9a-f]{64}$' IN pg_get_constraintdef(request_hash_check.oid)) > 0
                     )
                     AND EXISTS (
                         SELECT 1
@@ -104,6 +115,15 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                               to_regclass('ix_business_creation_requests_business')
                           AND business_lookup_index.indisvalid
                           AND business_lookup_index.indisready
+                          AND NOT business_lookup_index.indisunique
+                          AND business_lookup_index.indnkeyatts = 2
+                          AND business_lookup_index.indnatts = 2
+                          AND business_lookup_index.indpred IS NULL
+                          AND business_lookup_index.indexprs IS NULL
+                          AND position(
+                              '(business_id, created_at_utc)'
+                              IN pg_get_indexdef(business_lookup_index.indexrelid)
+                          ) > 0
                     )
                 """, connection);
 
