@@ -886,3 +886,24 @@ The historical entries below remain as an audit trail; statements that the agent
 2. Validate production-style least-privilege policy, short-lived token renewal/revocation, audit-device evidence, TLS rotation and Vault backup/restore in a controlled staging environment.
 3. Complete real OIDC/JWKS staging and emergency signing-key incident rehearsal, deployed mTLS issuance/revocation/rotation, monitoring/alerting, controlled migration 006 deployment/rollback and backup/restore with measured RPO/RTO.
 4. Keep the worker disabled and integration PR Draft until all required human review and production gates are complete.
+
+## 11.22 Exact PostgreSQL catalog validation for migration 006 readiness — 2026-11-23
+
+- Follow-up review of the current PR #170 readiness implementation found a fail-closed gap: it checked the names and types of the migration 006 primary key, hash checks and lookup index, but not their complete definitions. A same-named primary key on the wrong column, a weak same-named CHECK, or an index with the wrong key columns could therefore be reported Healthy.
+- Created Draft follow-up branch `fix/platform-schema-readiness-catalog-validation-20261123` from the exact PR #170 head `8d2f9716c3d18160330bfab49f2790397c618978`.
+- Strengthened `PlatformSchemaReadinessHealthCheck` to verify the primary key definition, validated foreign/check constraints, expected SHA-256 CHECK expressions, and exact non-unique/non-partial/non-expression lookup-index keys/order plus PostgreSQL valid/ready state.
+- Added disposable-PostgreSQL failure-mode tests for a same-named primary key on the wrong column, weak creator/request hash checks, an unvalidated hash constraint, and a same-named index on the wrong key.
+- Updated the API contract to describe the exact catalog contract. No production schema was changed and no migration was applied to a live database.
+- Exact code/test head `f320aff439c796f801dfc31ad32f5588ef5d0e3e` passed its own PR workflows:
+  - PostgreSQL 17 integration [run 45137598361](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45137598361): **216 passed, 0 failed, 0 skipped**.
+  - Backend/web [run 45137598355](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45137598355): backend **216 passed**, frontend **20 passed**, both Release builds **0 warnings / 0 errors**, npm audit **0 vulnerabilities**, Vite production bundle and artifact upload succeeded (artifact `14799919113`, SHA-256 `3bf356bfc754388de1a1c1f2842191a91b53459e18156ae0d114bcb69b8053a2`); Pages deployment was correctly skipped for a PR.
+  - These are disposable PostgreSQL/Vault CI results, not a production migration rollout or operational acceptance. The following ledger-only commit is a new exact head and must be revalidated; do not transfer results to it without checking.
+- Production blockers remain: controlled migration 006 deployment/rollback and checksum strategy; persistent Vault/process-kill/token/key-rotation and backup/restore; real OIDC/JWKS staging; deployed mTLS; monitoring/alerts; complete business workflows and real hardware/network/operator acceptance. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next continuation order
+
+1. Run PostgreSQL 17 integration and backend/web CI on this exact follow-up head; inspect any failing job logs before changing code.
+2. If green, verify the exact follow-up PR head and retain Draft status pending human review and the full release-gate chain.
+3. Define the controlled migration 006 deployment/rollback/checksum procedure without deleting durable idempotency records during rollback.
+4. Continue production Vault, OIDC/JWKS, mTLS, observability, backup/restore and end-to-end POS/accounting/cafe/game-net acceptance.
+

@@ -94,6 +94,71 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await AssertUnhealthyAsync(fixture);
     }
 
+    [Fact]
+    public async Task ReadinessFailsClosedWhenPrimaryKeyDoesNotBindIdempotencyKey()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT pk_business_creation_requests");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT pk_business_creation_requests PRIMARY KEY (business_id)");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenCreatorHashConstraintHasAWeakExpression()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT ck_business_creation_creator_hash");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT ck_business_creation_creator_hash CHECK (creator_identity_hash IS NOT NULL)");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenRequestHashConstraintHasAWeakExpression()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT ck_business_creation_request_hash");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT ck_business_creation_request_hash CHECK (request_fingerprint IS NOT NULL)");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenHashConstraintIsNotValidated()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT ck_business_creation_request_hash");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT ck_business_creation_request_hash CHECK (request_fingerprint ~ '^[0-9a-f]{64}$') NOT VALID");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessLookupIndexUsesTheWrongKeyColumns()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "DROP INDEX ix_business_creation_requests_business");
+        await ExecuteSchemaCommandAsync(fixture,
+            "CREATE INDEX ix_business_creation_requests_business ON business_creation_requests (created_at_utc)");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
     private static async Task AssertUnhealthyAsync(
         BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
     {
