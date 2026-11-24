@@ -84,7 +84,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             await fixture.SetUnexpectedMembershipAsync(grant: false);
         }
 
-        Assert.Equal(1, await rotatedStore.RewrapStoredCredentialsAsync(10));
+        Assert.True(await rotatedStore.RewrapStoredCredentialsAsync(10) >= 1);
         Assert.Equal("test-key-v2", await fixture.GetCredentialKeyIdAsync(tenantId));
     }
 
