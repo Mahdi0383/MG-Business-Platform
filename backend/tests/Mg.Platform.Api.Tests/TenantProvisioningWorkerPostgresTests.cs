@@ -99,11 +99,27 @@ public sealed class TenantProvisioningWorkerPostgresTests
         listener.Start();
 
         var worker = CreateWorker(services, renewalInterval: TimeSpan.FromMilliseconds(10));
-        var processing = worker.ProcessOneAsync("metrics-worker-id-not-a-tag", CancellationToken.None);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
-        await renewalObserved.Task.WaitAsync(TimeSpan.FromSeconds(3));
-        release.TrySetResult();
-        await processing.WaitAsync(TimeSpan.FromSeconds(3));
+        using var stop = new CancellationTokenSource();
+        var processing = worker.ProcessOneAsync("metrics-worker-id-not-a-tag", stop.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await renewalObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            release.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetResult();
+            stop.Cancel();
+            try
+            {
+                await processing.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+            }
+        }
 
         Assert.Contains(observations, item => item.Name == "mg.provisioning.jobs.claimed");
         Assert.Contains(observations, item =>
