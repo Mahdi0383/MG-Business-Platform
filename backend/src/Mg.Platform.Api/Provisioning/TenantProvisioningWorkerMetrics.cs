@@ -24,7 +24,7 @@ internal static class TenantProvisioningWorkerMetrics
 
     public static void RecordJobClaimed() => JobsClaimed.Add(1);
 
-    public static void RecordJobCompleted(string outcome, TimeSpan duration)
+    public static void RecordJobAttemptFinished(string outcome, TimeSpan duration)
     {
         JobsCompleted.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
         JobDuration.Record(
