@@ -1015,3 +1015,14 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - The corrected fixture creates temporary `business_tenants`, `tenant_provisioning_jobs`, and `business_creation_requests` relations. Its FK references the temporary tenant relation, so PostgreSQL's temporary-table FK restriction is respected. An explicit catalog-resolution assertion proves all four unqualified names (three tables and the lookup index) resolve to `pg_temp` before the health check runs.
 - Exact candidate head after the correction: `a2b1e7779c96cddb39a2e3a47452a6729c573477`. PostgreSQL 17 and backend/web CI are not yet evidenced for this SHA.
 - Keep the candidate Draft/unmerged. Do not treat the superseded malformed test-file revision or the failing parent runs as validation. No production code or migration changed.
+
+
+### Temporary-schema shadowing fix — exact parent-PR validation — 2026-11-24
+
+- Draft PR #175 current code head `74ff1235eb797558de09a72af1ae7f5b50b46205` was validated in the parent PR context after the corrected fixture was safely fast-forwarded from child PR #176; no force-push or history rewrite was used.
+- PostgreSQL 17 provisioning/schema workflow [45349468740](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45349468740): completed successfully. The PostgreSQL integration job, disposable Vault lifecycle and container cleanup all succeeded; the PR body records **223 passed, 0 failed, 0 skipped**.
+- MG Business Web workflow [45349468713](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45349468713): completed successfully. Backend tests **223 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API builds, dependency audit, frontend tests, production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- The regression explicitly confirms temporary tables/index shadow unqualified lookups in the same PostgreSQL session, while the readiness query requires durable objects in `current_schema()` and remains Unhealthy when the durable idempotency table is absent.
+- These results validate disposable CI only. Windows installer packaging, CodeQL, formatting and dedicated NuGet audit remain unevidenced on this stacked candidate; PR #159 still requires independent human approval. Production migration/rollback, backup/restore, Vault/key lifecycle, OIDC/JWKS, deployed mTLS, observability and operator acceptance remain open.
+- PR #175 remains Draft/open/unmerged. No production migration/deployment or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Next: continue with the highest-priority security gap in Issue #157 by creating a non-destructive integration candidate against the current parent stack; preserve PR #155's maintenance-lock, ACL and fault-injection protections. Do not rebase/force-push PR #158 or merge any candidate.
