@@ -1,6 +1,7 @@
 using Mg.Platform.Api.Contracts;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
+using Mg.Platform.Api.Health;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Xunit;
@@ -230,6 +231,14 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                         completed_at_utc timestamptz NULL,
                         last_error_code varchar(80) NULL
                     );
+                    CREATE TABLE platform_schema_migrations (
+                        migration_id varchar(160) NOT NULL,
+                        checksum_sha256 char(64) NOT NULL,
+                        applied_at_utc timestamptz NOT NULL,
+                        CONSTRAINT pk_platform_schema_migrations PRIMARY KEY (migration_id),
+                        CONSTRAINT ck_platform_schema_migrations_checksum
+                            CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$')
+                    );
                     CREATE TABLE business_creation_requests (
                         idempotency_key uuid NOT NULL,
                         creator_identity_hash char(64) NOT NULL,
@@ -244,6 +253,14 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                     );
                     """, connection);
                 await command.ExecuteNonQueryAsync();
+
+                await using var migrationRecord = new NpgsqlCommand("""
+                    INSERT INTO platform_schema_migrations (migration_id, checksum_sha256, applied_at_utc)
+                    VALUES (@migration_id, @checksum, clock_timestamp())
+                    """, connection);
+                migrationRecord.Parameters.AddWithValue("migration_id", PlatformMigrationChecksums.Migration006Id);
+                migrationRecord.Parameters.AddWithValue("checksum", PlatformMigrationChecksums.Migration006Sha256);
+                await migrationRecord.ExecuteNonQueryAsync();
             }
             catch
             {

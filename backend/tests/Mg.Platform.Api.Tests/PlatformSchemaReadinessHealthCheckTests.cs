@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Mg.Platform.Api.Health;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -8,6 +9,30 @@ namespace Mg.Platform.Api.Tests;
 
 public sealed class PlatformSchemaReadinessHealthCheckTests
 {
+    [Fact]
+    public async Task Migration006ChecksumManifestMatchesTheReviewedSqlArtifact()
+    {
+        var migrationPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "database",
+            "migrations",
+            "006_business_creation_idempotency.sql");
+        var checksumPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "database",
+            "migrations",
+            "006_business_creation_idempotency.sha256");
+
+        var migrationBytes = await File.ReadAllBytesAsync(migrationPath);
+        var actualChecksum = Convert.ToHexString(SHA256.HashData(migrationBytes)).ToLowerInvariant();
+        var manifest = (await File.ReadAllTextAsync(checksumPath)).Trim();
+
+        Assert.Equal(PlatformMigrationChecksums.Migration006Sha256, actualChecksum);
+        Assert.Equal(
+            $"{actualChecksum}  006_business_creation_idempotency.sql",
+            manifest);
+    }
+
     [Fact]
     public async Task ReadinessIsHealthyWhenBusinessRegistryOutboxAndIdempotencyMigrationExist()
     {
@@ -27,6 +52,84 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await fixture.DropIdempotencyTableAsync();
 
         await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigration006ChecksumRecordIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, """
+            DELETE FROM platform_schema_migrations
+            WHERE migration_id = '006_business_creation_idempotency'
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigration006ChecksumDoesNotMatchTheReviewedArtifact()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, """
+            UPDATE platform_schema_migrations
+            SET checksum_sha256 = repeat('0', 64)
+            WHERE migration_id = '006_business_creation_idempotency'
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigrationChecksumLedgerIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, "DROP TABLE platform_schema_migrations");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenTemporaryMigrationLedgerShadowsMissingDurableLedger()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, "DROP TABLE platform_schema_migrations");
+
+        await using var context = fixture.CreateContext();
+        await context.Database.OpenConnectionAsync();
+        var connection = (NpgsqlConnection)context.Database.GetDbConnection();
+        await using (var createShadow = new NpgsqlCommand("""
+            CREATE TEMP TABLE platform_schema_migrations (
+                migration_id varchar(160) NOT NULL PRIMARY KEY,
+                checksum_sha256 char(64) NOT NULL,
+                applied_at_utc timestamptz NOT NULL
+            )
+            """, connection))
+        {
+            await createShadow.ExecuteNonQueryAsync();
+        }
+
+        await using (var insertShadow = new NpgsqlCommand("""
+            INSERT INTO pg_temp.platform_schema_migrations
+                (migration_id, checksum_sha256, applied_at_utc)
+            VALUES (@migration_id, @checksum, clock_timestamp())
+            """, connection))
+        {
+            insertShadow.Parameters.AddWithValue("migration_id", PlatformMigrationChecksums.Migration006Id);
+            insertShadow.Parameters.AddWithValue("checksum", PlatformMigrationChecksums.Migration006Sha256);
+            await insertShadow.ExecuteNonQueryAsync();
+        }
+
+        await using (var shadowCheck = new NpgsqlCommand("""
+            SELECT to_regclass('platform_schema_migrations')
+                = to_regclass('pg_temp.platform_schema_migrations')
+            """, connection))
+        {
+            Assert.True((bool)(await shadowCheck.ExecuteScalarAsync())!);
+        }
+
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        var result = await check.CheckHealthAsync(CreateContext(check));
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
     }
 
     [Fact]
