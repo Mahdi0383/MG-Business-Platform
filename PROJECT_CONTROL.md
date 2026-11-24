@@ -1036,3 +1036,31 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - The run summary available from the workflow API does not expose test totals or artifact digest in this ledger entry; no numerical totals are inferred.
 - PR #175 remains Draft/open/unmerged. No production migration, deployment or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`.
 - Next: continue the open security work tracked by issue #157 from the live parent branch, preserving all existing readiness, ACL, maintenance-lock and fault-injection protections; then run exact-head PostgreSQL and backend/web CI on the combined candidate.
+
+
+## 11.18 Checksum-registered migration 006 rollout gate — 2026-11-24
+
+### Verified provisioning/idempotency integration stack
+- The current integration chain is non-destructive and remains Draft/unmerged: PR #168 (hard-kill recovery on the current security/lease parent) → PR #169 (worker heartbeat on #168) → PR #170 (Creator idempotency/OIDC/response-loss work on #169) → PRs #171–#175 (progressively exact migration 006 catalog/readiness hardening).
+- PR #168 exact HEAD `343a6397049fbb243d166f83169a1d02abed8c1f`: PostgreSQL run `45000864366` passed **161/161**; backend/web run `45000863625` passed backend **161/161**, frontend **20**, both Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, and production bundle. Pages deployment skipped for PR.
+- PR #169 exact HEAD `19958889c7b337c77a56e6fe8b84b72dc3c210b6`: PostgreSQL run `45001116162` passed **170/170**; backend/web run `45001116221` passed backend **170/170**, frontend **20**, both Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, and production bundle. Pages deployment skipped for PR.
+- PR #170 exact HEAD `8d2f9716c3d18160330bfab49f2790397c618978`: PostgreSQL run `45042895356` passed **211/211**; backend/web run `45042895351` passed backend **211/211**, frontend **20**, both Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, and production bundle. Pages deployment skipped for PR.
+- PRs #171–#175 then added progressively stronger migration 006 readiness semantics, exact hash expressions, adversarial extra-predicate rejection, exact foreign-key semantics and temporary-schema-shadow protection. Their latest exact-head workflows are green as recorded in the respective PRs. PR #175 exact HEAD `fd548d80947ca66cc8726df159f60493b525a6d2` passed PostgreSQL `45359326284` and backend/web `45359326129`.
+- PR #159 still has no independent approving human review. Windows packaging, CodeQL, formatting and dedicated NuGet audit must be run on a synchronized release candidate after authorized review; do not infer those checks from the stacked backend/web workflows.
+
+### New checksum gate candidate
+- Draft child branch `fix/platform-migration-006-checksum-gate-20261124` is based on the exact PR #175 HEAD above. It adds:
+  - `platform_schema_migrations` to migration 006, storing a migration ID, immutable SHA-256 checksum and application timestamp.
+  - A reviewed SHA-256 manifest and `backend/scripts/apply-platform-migration-006.sh`, which checks the exact SQL artifact before execution, requires PostgreSQL TLS `verify-full`, applies with stop-on-error, inserts only when no checksum row exists, and reads back without overwriting conflicts.
+  - A runtime checksum constant and readiness validation of the ledger table's exact columns, primary key and validated lowercase-hex constraint, plus the exact durable migration ID/checksum.
+  - A schema-qualified checksum read to prevent a session-local temporary relation from shadowing the durable ledger.
+  - PostgreSQL tests for the reviewed SQL/manifest hash, missing ledger, missing record, mismatched checksum and temporary-ledger shadowing. Existing catalog semantics tests remain in place.
+  - `backend/docs/PLATFORM_MIGRATION_RUNBOOK.md`, API contract/README updates, and ADR-010 documenting apply, verification and forward-only rollback behavior.
+- Current implementation HEAD `4ef12be81155f12e99885d41dc3fe58aee2429ad`. Exact-head PostgreSQL and backend/web workflows are pending; no test/build pass is claimed for this candidate yet.
+- API startup never applies migrations. Manual application without the runner's checksum registration leaves readiness Unhealthy. The runner does not overwrite an existing checksum; schema correction requires a separately reviewed forward migration. API rollback preserves migration 006 and all idempotency rows.
+- No production database was touched and no migration was applied. Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`.
+
+### Next
+1. Open/maintain a Draft child PR against PR #175 and run PostgreSQL 17 plus backend/web CI on the exact final PR HEAD; inspect logs for all new tests and build steps.
+2. If green, add Windows packaging, CodeQL, formatting and NuGet checks only after PR #159 is independently reviewed and the stack can be safely synchronized.
+3. Continue production OIDC/JWKS, real ingress/socket response-loss, Vault/key rotation/backup-restore, deployed mTLS, observability, tenant backup/restore and pilot acceptance. Do not mark production readiness until every release gate has evidence.
