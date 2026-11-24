@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Mg.Platform.Api.Endpoints;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -83,6 +84,7 @@ public sealed class TenantProvisioningWorker : BackgroundService
             }
             catch (Exception exception)
             {
+                TenantProvisioningWorkerMetrics.RecordIterationFailure();
                 logger.LogError("Provisioning worker iteration failed ({ExceptionType}).",
                     exception.GetType().Name);
                 await Task.Delay(pollInterval, stoppingToken);
@@ -105,6 +107,9 @@ public sealed class TenantProvisioningWorker : BackgroundService
             return;
         }
 
+        TenantProvisioningWorkerMetrics.RecordJobClaimed();
+        var startedAt = Stopwatch.GetTimestamp();
+        var outcome = "failed";
         var leaseToken = job.LeaseToken
             ?? throw new InvalidOperationException("Claimed provisioning job has no fencing token.");
         using var handlerCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -117,16 +122,21 @@ public sealed class TenantProvisioningWorker : BackgroundService
             await handler.ProvisionAsync(job, handlerCancellation.Token);
             heartbeatStop.Cancel();
             var leaseHealthy = await heartbeat;
-            if (leaseHealthy)
+            if (!leaseHealthy)
             {
-                var completed = await leases.MarkSucceededAsync(job.Id, workerId, leaseToken, stoppingToken);
-                if (!completed)
-                    logger.LogWarning("Provisioning job {JobId} lost its lease before completion.", job.Id);
+                outcome = stoppingToken.IsCancellationRequested ? "cancelled" : "lease_lost";
+                return;
             }
+
+            var completed = await leases.MarkSucceededAsync(job.Id, workerId, leaseToken, stoppingToken);
+            outcome = completed ? "succeeded" : "lease_lost";
+            if (!completed)
+                logger.LogWarning("Provisioning job {JobId} lost its lease before completion.", job.Id);
         }
         catch (OperationCanceledException) when (
             stoppingToken.IsCancellationRequested || handlerCancellation.IsCancellationRequested)
         {
+            outcome = stoppingToken.IsCancellationRequested ? "cancelled" : "lease_lost";
             heartbeatStop.Cancel();
             _ = await heartbeat;
         }
@@ -135,8 +145,17 @@ public sealed class TenantProvisioningWorker : BackgroundService
             heartbeatStop.Cancel();
             _ = await heartbeat;
             if (!stoppingToken.IsCancellationRequested && !handlerCancellation.IsCancellationRequested)
-                _ = await leases.MarkFailedAsync(job.Id, workerId, leaseToken, exception.SafeErrorCode,
-                    exception.Permanent, stoppingToken);
+            {
+                var markedFailed = await leases.MarkFailedAsync(job.Id, workerId, leaseToken,
+                    exception.SafeErrorCode, exception.Permanent, stoppingToken);
+                outcome = markedFailed
+                    ? exception.Permanent ? "permanent_failure" : "retryable_failure"
+                    : "lease_lost";
+            }
+            else
+            {
+                outcome = stoppingToken.IsCancellationRequested ? "cancelled" : "lease_lost";
+            }
         }
         catch (Exception exception)
         {
@@ -146,13 +165,21 @@ public sealed class TenantProvisioningWorker : BackgroundService
             {
                 logger.LogError("Provisioning job {JobId} failed ({ExceptionType}).",
                     job.Id, exception.GetType().Name);
-                _ = await leases.MarkFailedAsync(job.Id, workerId, leaseToken,
+                var markedFailed = await leases.MarkFailedAsync(job.Id, workerId, leaseToken,
                     "PROVISIONING_FAILED", permanent: false, stoppingToken);
+                outcome = markedFailed ? "failed" : "lease_lost";
+            }
+            else
+            {
+                outcome = stoppingToken.IsCancellationRequested ? "cancelled" : "lease_lost";
             }
         }
         finally
         {
             heartbeatStop.Cancel();
+            TenantProvisioningWorkerMetrics.RecordJobCompleted(
+                outcome,
+                Stopwatch.GetElapsedTime(startedAt));
         }
     }
 
@@ -176,9 +203,12 @@ public sealed class TenantProvisioningWorker : BackgroundService
                     .GetRequiredService<TenantProvisioningLeaseService>();
                 if (!await leases.RenewAsync(jobId, workerId, leaseToken, leaseDuration, linked.Token))
                 {
+                    TenantProvisioningWorkerMetrics.RecordLeaseRenewal("lost");
                     handlerCancellation.Cancel();
                     return false;
                 }
+
+                TenantProvisioningWorkerMetrics.RecordLeaseRenewal("succeeded");
             }
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
@@ -187,6 +217,7 @@ public sealed class TenantProvisioningWorker : BackgroundService
         }
         catch (Exception exception)
         {
+            TenantProvisioningWorkerMetrics.RecordLeaseRenewal("error");
             logger.LogError("Lease heartbeat failed ({ExceptionType}).", exception.GetType().Name);
             handlerCancellation.Cancel();
             return false;
