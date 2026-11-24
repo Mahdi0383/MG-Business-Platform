@@ -974,3 +974,65 @@ The historical entries below remain as an audit trail; statements that the agent
 - PR #174 remains Draft/open/unmerged. No production migration/deployment and no worker activation. Keep `Provisioning:WorkerEnabled=false`.
 - Remaining integration gates: PR #159 still needs required independent human approval for its workflow-trigger correction; stacked Windows packaging, CodeQL, formatting and dedicated NuGet audit are not evidenced on this candidate. Parent PRs #170–#173 remain part of the dependency/review chain.
 - Next: inspect the next highest-priority unblocked milestone in the live ledger and continue on a separate reviewable branch; do not merge this PR based only on the two green workflows.
+
+
+## 11.27 Prevent temporary-schema shadowing in migration 006 readiness — 2026-11-24
+
+- New Draft candidate branch `fix/platform-readiness-schema-qualified-catalog`, based on PR #174 ledger head `10592c0f1bf7eae4b906fbe870d09329d445369c`.
+- Security review found the readiness query resolved registry, outbox, idempotency table and lookup-index names with unqualified `to_regclass`. PostgreSQL implicitly searches the session's temporary schema before ordinary schemas for relation names. A same-named temporary relation can therefore shadow the permanent migration object during readiness evaluation.
+- The query now resolves each required object explicitly in `current_schema()`, preventing a session-local temporary table/index from satisfying migration readiness. The fixture's configured application schema remains supported; this does not hard-code `public`.
+- Added a PostgreSQL regression test that drops the durable idempotency table, creates a structurally matching temporary table and lookup index, and requires readiness to remain Unhealthy.
+- Validation is pending. No migration, production database, existing branch or main branch changed. PR #174's exact tested code head was `48e5be508b3b1712c4dedf2630b4f525fe04b598`; the later ledger-only head `10592c0f1bf7eae4b906fbe870d09329d445369c` has its own exact-head CI running. Do not transfer results between those commits.
+- Keep all PRs Draft/unmerged and `Provisioning:WorkerEnabled=false`. Next: run PostgreSQL 17 and backend/web CI on this exact branch head; if the test demonstrates the issue, inspect the SQL/catalog behavior and preserve fail-closed semantics.
+
+
+### Test-fixture session integrity note
+
+The temporary-shadow regression creates the fake temporary relation and invokes the readiness health check on the same open Npgsql connection. This is intentional: PostgreSQL temporary relations are session-scoped, so creating them through a separate short-lived connection would not exercise name shadowing in the health-check session. The test drops the durable idempotency table first and asserts readiness remains Unhealthy.
+
+
+### First exact-head CI failure and corrective commit — 2026-11-24
+
+- Initial candidate head `216a22c43da88c2d626124e9889dc4ef995995c1` failed both available workflows before executing tests. The exact compiler errors were CS1061 for `DatabaseFacade.OpenConnectionAsync` and `GetDbConnection` in the new regression test; the test file lacked the `Microsoft.EntityFrameworkCore` namespace import that exposes these extension methods.
+- Corrected by adding only `using Microsoft.EntityFrameworkCore;` to `PlatformSchemaReadinessHealthCheckTests.cs`.
+- Corrective commit: `cb5b590517cfb20b3c30fdcb46ee259131d6e158`. This does not change production behavior or weaken/remove tests.
+- The initial failed workflows are preserved as failure evidence: PostgreSQL 17 run `45332903219`; backend/web run `45332903556`. Do not report the candidate as validated until both workflows complete successfully on the corrective head.
+- Next: inspect exact-head CI for `cb5b590517cfb20b3c30fdcb46ee259131d6e158`; fetch logs and correct any remaining test/SQL issue. PR #175 stays Draft/unmerged; `Provisioning:WorkerEnabled=false`.
+
+### Temporary-schema shadow regression fixture correction — 2026-11-24
+
+- Exact PR #175 head `9e103705c5785dc8eab43df69d12a4fc6993ed3e` failed both configured workflows: PostgreSQL 17 run [45333098359](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45333098359) and backend/web run [45333098409](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45333098409).
+- Both failures reached the test suite and reported one failed test (`222 passed, 1 failed, 0 skipped`): `ReadinessFailsClosedWhenTemporaryTableShadowsMissingIdempotencyMigration`. PostgreSQL error `42P16: constraints on temporary tables may reference only temporary tables`.
+- Root cause is the test fixture, not the production readiness query: its temporary idempotency table attempted to define a foreign key to the permanent `business_tenants` table, which PostgreSQL forbids.
+- New non-destructive child branch `fix/platform-temp-shadow-test-fixture-20261124` starts from exact PR #175 head `9e103705c5785dc8eab43df69d12a4fc6993ed3e`. The corrected regression creates temporary shadow relations for `business_tenants`, `tenant_provisioning_jobs`, and `business_creation_requests`, with the temporary idempotency table referencing the temporary tenant table. It also explicitly asserts that unqualified relation/index lookup resolves to the `pg_temp` objects before running the readiness check.
+- The health check must still return Unhealthy because the durable idempotency table is absent from `current_schema()`. This preserves the intended regression: a fully matching session-local temporary schema must not satisfy durable migration readiness.
+- No production code, migration, production database, parent branch, or `main` was modified. No assertion was removed or weakened. Exact-head validation on the corrected candidate is pending; do not transfer results from earlier commits.
+- Keep PRs Draft/unmerged and `Provisioning:WorkerEnabled=false`. Next: open a focused stacked PR, run PostgreSQL 17 and backend/web workflows on its exact head, inspect complete logs, then continue toward the wider Windows installer, CodeQL, formatting and NuGet gates after the required independent review of PR #159 and safe stack synchronization.
+
+### Corrected temporary-schema fixture candidate — exact head pending CI — 2026-11-24
+
+- Follow-up commit `a2b1e7779c96cddb39a2e3a47452a6729c573477` reconstructs the test file from the verified PR #175 base and replaces only the invalid temporary-table fixture. The final file remains 20 tests and 336 lines; the earlier candidate file was not used for validation and is superseded.
+- The corrected fixture creates temporary `business_tenants`, `tenant_provisioning_jobs`, and `business_creation_requests` relations. Its FK references the temporary tenant relation, so PostgreSQL's temporary-table FK restriction is respected. An explicit catalog-resolution assertion proves all four unqualified names (three tables and the lookup index) resolve to `pg_temp` before the health check runs.
+- Exact candidate head after the correction: `a2b1e7779c96cddb39a2e3a47452a6729c573477`. PostgreSQL 17 and backend/web CI are not yet evidenced for this SHA.
+- Keep the candidate Draft/unmerged. Do not treat the superseded malformed test-file revision or the failing parent runs as validation. No production code or migration changed.
+
+
+### Temporary-schema shadowing fix — exact parent-PR validation — 2026-11-24
+
+- Draft PR #175 current code head `74ff1235eb797558de09a72af1ae7f5b50b46205` was validated in the parent PR context after the corrected fixture was safely fast-forwarded from child PR #176; no force-push or history rewrite was used.
+- PostgreSQL 17 provisioning/schema workflow [45349468740](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45349468740): completed successfully. The PostgreSQL integration job, disposable Vault lifecycle and container cleanup all succeeded; the PR body records **223 passed, 0 failed, 0 skipped**.
+- MG Business Web workflow [45349468713](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45349468713): completed successfully. Backend tests **223 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API builds, dependency audit, frontend tests, production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- The regression explicitly confirms temporary tables/index shadow unqualified lookups in the same PostgreSQL session, while the readiness query requires durable objects in `current_schema()` and remains Unhealthy when the durable idempotency table is absent.
+- These results validate disposable CI only. Windows installer packaging, CodeQL, formatting and dedicated NuGet audit remain unevidenced on this stacked candidate; PR #159 still requires independent human approval. Production migration/rollback, backup/restore, Vault/key lifecycle, OIDC/JWKS, deployed mTLS, observability and operator acceptance remain open.
+- PR #175 remains Draft/open/unmerged. No production migration/deployment or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Next: continue with the highest-priority security gap in Issue #157 by creating a non-destructive integration candidate against the current parent stack; preserve PR #155's maintenance-lock, ACL and fault-injection protections. Do not rebase/force-push PR #158 or merge any candidate.
+
+
+## 11.16 Exact-head validation — PR #175 — 2026-11-24
+
+- Draft PR #175 current implementation and documentation HEAD `9a891509517687f4e5d4a18fc1123112289bed72` was validated by both workflows on that exact SHA.
+- PostgreSQL 17 workflow `45358840912`: completed successfully; all jobs and steps passed.
+- Backend/web workflow `45358840918`: completed successfully. Backend Release build, isolated provisioning-agent API Release build, backend unit tests, frontend unit tests, dependency audit, Vite production bundle and artifact upload all passed. GitHub Pages deployment steps were skipped as expected for a pull request.
+- The run summary available from the workflow API does not expose test totals or artifact digest in this ledger entry; no numerical totals are inferred.
+- PR #175 remains Draft/open/unmerged. No production migration, deployment or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`.
+- Next: continue the open security work tracked by issue #157 from the live parent branch, preserving all existing readiness, ACL, maintenance-lock and fault-injection protections; then run exact-head PostgreSQL and backend/web CI on the combined candidate.

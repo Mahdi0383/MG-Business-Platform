@@ -1,4 +1,5 @@
 using Mg.Platform.Api.Health;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Xunit;
@@ -26,6 +27,62 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await fixture.DropIdempotencyTableAsync();
 
         await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenTemporaryRelationsShadowMissingIdempotencyMigration()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await fixture.DropIdempotencyTableAsync();
+
+        await using var context = fixture.CreateContext();
+        await context.Database.OpenConnectionAsync();
+        var connection = (NpgsqlConnection)context.Database.GetDbConnection();
+        await using (var command = new NpgsqlCommand("""
+            CREATE TEMP TABLE business_tenants (
+                id uuid NOT NULL,
+                CONSTRAINT pk_business_tenants PRIMARY KEY (id)
+            );
+            CREATE TEMP TABLE tenant_provisioning_jobs (
+                id uuid NOT NULL PRIMARY KEY
+            );
+            CREATE TEMP TABLE business_creation_requests (
+                idempotency_key uuid NOT NULL,
+                creator_identity_hash char(64) NOT NULL,
+                request_fingerprint char(64) NOT NULL,
+                business_id uuid NOT NULL,
+                created_at_utc timestamptz NOT NULL,
+                CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key),
+                CONSTRAINT business_creation_requests_business_id_fkey
+                    FOREIGN KEY (business_id) REFERENCES business_tenants(id) ON DELETE RESTRICT,
+                CONSTRAINT ck_business_creation_creator_hash
+                    CHECK (creator_identity_hash ~ '^[0-9a-f]{64}$'),
+                CONSTRAINT ck_business_creation_request_hash
+                    CHECK (request_fingerprint ~ '^[0-9a-f]{64}$')
+            );
+            CREATE INDEX ix_business_creation_requests_business
+                ON pg_temp.business_creation_requests (business_id, created_at_utc);
+            """, connection))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await using (var shadowCheck = new NpgsqlCommand("""
+            SELECT
+                to_regclass('business_tenants') = to_regclass('pg_temp.business_tenants')
+                AND to_regclass('tenant_provisioning_jobs') = to_regclass('pg_temp.tenant_provisioning_jobs')
+                AND to_regclass('business_creation_requests') = to_regclass('pg_temp.business_creation_requests')
+                AND to_regclass('ix_business_creation_requests_business')
+                    = to_regclass('pg_temp.ix_business_creation_requests_business')
+            """, connection))
+        {
+            Assert.True((bool)(await shadowCheck.ExecuteScalarAsync())!);
+        }
+
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        var result = await check.CheckHealthAsync(CreateContext(check));
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

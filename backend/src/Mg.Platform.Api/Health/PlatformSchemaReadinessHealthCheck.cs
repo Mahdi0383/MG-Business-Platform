@@ -28,9 +28,9 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
         {
             await using var command = new NpgsqlCommand("""
                 SELECT
-                    to_regclass('business_tenants') IS NOT NULL
-                    AND to_regclass('tenant_provisioning_jobs') IS NOT NULL
-                    AND to_regclass('business_creation_requests') IS NOT NULL
+                    to_regclass(format('%I.%I', current_schema(), 'business_tenants')) IS NOT NULL
+                    AND to_regclass(format('%I.%I', current_schema(), 'tenant_provisioning_jobs')) IS NOT NULL
+                    AND to_regclass(format('%I.%I', current_schema(), 'business_creation_requests')) IS NOT NULL
                     AND (
                         SELECT COUNT(*) = 5
                         FROM (VALUES
@@ -46,7 +46,7 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                               FROM pg_class table_relation
                               JOIN pg_namespace table_namespace
                                 ON table_namespace.oid = table_relation.relnamespace
-                              WHERE table_relation.oid = to_regclass('business_creation_requests')
+                              WHERE table_relation.oid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
                           )
                          AND actual.table_name = 'business_creation_requests'
                          AND actual.column_name = required.column_name
@@ -60,7 +60,7 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                     AND EXISTS (
                         SELECT 1
                         FROM pg_constraint primary_key
-                        WHERE primary_key.conrelid = to_regclass('business_creation_requests')
+                        WHERE primary_key.conrelid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
                           AND primary_key.conname = 'pk_business_creation_requests'
                           AND primary_key.contype = 'p'
                           AND primary_key.convalidated
@@ -77,8 +77,8 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                           ON target_column.attrelid = foreign_key.confrelid
                          AND target_column.attname = 'id'
                          AND NOT target_column.attisdropped
-                        WHERE foreign_key.conrelid = to_regclass('business_creation_requests')
-                          AND foreign_key.confrelid = to_regclass('business_tenants')
+                        WHERE foreign_key.conrelid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
+                          AND foreign_key.confrelid = to_regclass(format('%I.%I', current_schema(), 'business_tenants'))
                           AND foreign_key.contype = 'f'
                           AND foreign_key.conkey = ARRAY[source_column.attnum]::smallint[]
                           AND foreign_key.confkey = ARRAY[target_column.attnum]::smallint[]
@@ -92,7 +92,7 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                     AND EXISTS (
                         SELECT 1
                         FROM pg_constraint creator_hash_check
-                        WHERE creator_hash_check.conrelid = to_regclass('business_creation_requests')
+                        WHERE creator_hash_check.conrelid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
                           AND creator_hash_check.conname = 'ck_business_creation_creator_hash'
                           AND creator_hash_check.contype = 'c'
                           AND creator_hash_check.convalidated
@@ -109,7 +109,7 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                     AND EXISTS (
                         SELECT 1
                         FROM pg_constraint request_hash_check
-                        WHERE request_hash_check.conrelid = to_regclass('business_creation_requests')
+                        WHERE request_hash_check.conrelid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
                           AND request_hash_check.conname = 'ck_business_creation_request_hash'
                           AND request_hash_check.contype = 'c'
                           AND request_hash_check.convalidated
@@ -126,9 +126,9 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                     AND EXISTS (
                         SELECT 1
                         FROM pg_index business_lookup_index
-                        WHERE business_lookup_index.indrelid = to_regclass('business_creation_requests')
+                        WHERE business_lookup_index.indrelid = to_regclass(format('%I.%I', current_schema(), 'business_creation_requests'))
                           AND business_lookup_index.indexrelid =
-                              to_regclass('ix_business_creation_requests_business')
+                              to_regclass(format('%I.%I', current_schema(), 'ix_business_creation_requests_business'))
                           AND business_lookup_index.indisvalid
                           AND business_lookup_index.indisready
                           AND NOT business_lookup_index.indisunique
