@@ -12,7 +12,7 @@ public sealed class AgentProvisioningPostgresCollection { }
 public sealed class AgentProvisioningOperationStorePostgresTests
 {
     [Fact]
-    public async Task RefusesLedgerWritesWhenControlRoleBoundaryDriftsAfterInitialReadiness()
+    public async Task RefusesLedgerWritesWhenControlRoleMembershipDriftsAfterInitialReadiness()
     {
         await using var fixture = await Fixture.CreateAsync();
         var tenantId = Guid.NewGuid();
@@ -20,7 +20,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         var databaseName = $"mg_tenant_{tenantId:N}";
         var generated = Fixture.Credentials(databaseName, "boundary-test-secret");
 
-        await fixture.SetPublicAclAsync("database", "TEMPORARY", grant: true);
+        await fixture.SetUnexpectedMembershipAsync(grant: true);
         try
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -30,14 +30,14 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         }
         finally
         {
-            await fixture.SetPublicAclAsync("database", "TEMPORARY", grant: false);
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
         }
 
         await fixture.Store.GetOrCreatePreparedCredentialsAsync(
             tenantId, idempotencyKey, databaseName,
             _ => ValueTask.FromResult(generated));
 
-        await fixture.SetPublicAclAsync("database", "TEMPORARY", grant: true);
+        await fixture.SetUnexpectedMembershipAsync(grant: true);
         try
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -46,7 +46,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         }
         finally
         {
-            await fixture.SetPublicAclAsync("database", "TEMPORARY", grant: false);
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
         }
     }
 
@@ -573,6 +573,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
         private readonly AgentCredentialProtector protector;
         private readonly string adminConnectionString;
         private readonly string controlRoleName;
+        private readonly string unexpectedMembershipRoleName;
 
         private Fixture(
             NpgsqlDataSource dataSource,
@@ -588,6 +589,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             OriginalKeyMaterial = originalKeyMaterial;
             this.adminConnectionString = adminConnectionString;
             this.controlRoleName = controlRoleName;
+            unexpectedMembershipRoleName = controlRoleName + "_unexpected";
         }
 
         public AgentProvisioningOperationStore Store { get; }
@@ -656,6 +658,36 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             return new Fixture(dataSource, protector,
                 new AgentProvisioningOperationStore(dataSource, protector), keyMaterial,
                 builder.ConnectionString, controlRoleName);
+        }
+
+        public async Task SetUnexpectedMembershipAsync(bool grant)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            if (grant)
+            {
+                await using var createFormat = new NpgsqlCommand("SELECT format('CREATE ROLE %I NOLOGIN;', @role);", connection);
+                createFormat.Parameters.AddWithValue("role", unexpectedMembershipRoleName);
+                var createSql = (string)(await createFormat.ExecuteScalarAsync())!;
+                await using (var create = new NpgsqlCommand(createSql, connection))
+                    await create.ExecuteNonQueryAsync();
+
+                await using var grantFormat = new NpgsqlCommand("SELECT format('GRANT %I TO %I;', @granted, @member);", connection);
+                grantFormat.Parameters.AddWithValue("granted", unexpectedMembershipRoleName);
+                grantFormat.Parameters.AddWithValue("member", controlRoleName);
+                var grantSql = (string)(await grantFormat.ExecuteScalarAsync())!;
+                await using var applyGrant = new NpgsqlCommand(grantSql, connection);
+                await applyGrant.ExecuteNonQueryAsync();
+            }
+            else
+            {
+                await using var revokeFormat = new NpgsqlCommand("SELECT format('REVOKE %I FROM %I; DROP ROLE IF EXISTS %I;', @granted, @member, @granted);", connection);
+                revokeFormat.Parameters.AddWithValue("granted", unexpectedMembershipRoleName);
+                revokeFormat.Parameters.AddWithValue("member", controlRoleName);
+                var revokeSql = (string)(await revokeFormat.ExecuteScalarAsync())!;
+                await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
+                await applyRevoke.ExecuteNonQueryAsync();
+            }
         }
 
         public async Task SetPublicLedgerSelectAsync(bool grant)
