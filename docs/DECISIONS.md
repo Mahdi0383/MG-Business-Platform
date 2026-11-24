@@ -68,3 +68,19 @@ Select exact .NET SDK, desktop framework, database provider and package versions
 
 **Consequences:** Clients must generate and retain a UUID per logical create operation and reuse it after network failures. This is an API contract change and must be documented in OpenAPI/client integration. A key alone is not authorization; every replay still passes authentication and platform-role authorization. The platform must not return stored resource data to a different creator identity.
 
+
+## ADR-010 — Checksum-registered platform SQL migrations
+
+**Status:** Implemented in Draft PR; production deployment and restore rehearsal remain pending.
+
+**Context:** Catalog-shape checks prove that required objects exist, but cannot distinguish the reviewed migration artifact from a different SQL artifact that happens to produce the same shape. Applying migration 006 manually also provided no durable evidence that the reviewed file was the one applied.
+
+**Decision:**
+- Migration 006 creates a platform migration ledger with a unique migration ID, SHA-256 checksum and application timestamp.
+- A reviewed checksum manifest pins the exact SQL file. The deployment runner verifies the file hash before execution, requires PostgreSQL TLS `verify-full`, applies the SQL with stop-on-error behavior, and inserts the checksum only when no ledger row exists.
+- The runner never overwrites an existing checksum. It reads the record back and exits non-zero if the durable value differs.
+- The API readiness check requires the migration ledger, exact expected migration ID/checksum, and the existing exact PostgreSQL catalog contract for all migration 006 objects.
+- The API never applies or repairs migrations at startup. Missing, mismatched or structurally incomplete migration state is Unhealthy.
+- Migration 006 is additive and forward-only. API rollback leaves the schema and idempotency rows intact; schema correction requires a separately reviewed forward migration.
+
+**Consequences:** The migration artifact, manifest, runner and compiled readiness checksum must be reviewed together. A manually applied SQL file without checksum registration does not make the new API ready. The migration runner and readiness checks still require production backup/restore, privilege and deployment rehearsal.
