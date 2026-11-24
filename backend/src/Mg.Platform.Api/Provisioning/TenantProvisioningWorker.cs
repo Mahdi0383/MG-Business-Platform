@@ -177,7 +177,7 @@ public sealed class TenantProvisioningWorker : BackgroundService
         finally
         {
             heartbeatStop.Cancel();
-            TenantProvisioningWorkerMetrics.RecordJobCompleted(
+            TenantProvisioningWorkerMetrics.RecordJobAttemptFinished(
                 outcome,
                 Stopwatch.GetElapsedTime(startedAt));
         }
