@@ -984,3 +984,8 @@ The historical entries below remain as an audit trail; statements that the agent
 - Added a PostgreSQL regression test that drops the durable idempotency table, creates a structurally matching temporary table and lookup index, and requires readiness to remain Unhealthy.
 - Validation is pending. No migration, production database, existing branch or main branch changed. PR #174's exact tested code head was `48e5be508b3b1712c4dedf2630b4f525fe04b598`; the later ledger-only head `10592c0f1bf7eae4b906fbe870d09329d445369c` has its own exact-head CI running. Do not transfer results between those commits.
 - Keep all PRs Draft/unmerged and `Provisioning:WorkerEnabled=false`. Next: run PostgreSQL 17 and backend/web CI on this exact branch head; if the test demonstrates the issue, inspect the SQL/catalog behavior and preserve fail-closed semantics.
+
+
+### Test-fixture session integrity note
+
+The temporary-shadow regression creates the fake temporary relation and invokes the readiness health check on the same open Npgsql connection. This is intentional: PostgreSQL temporary relations are session-scoped, so creating them through a separate short-lived connection would not exercise name shadowing in the health-check session. The test drops the durable idempotency table first and asserts readiness remains Unhealthy.
