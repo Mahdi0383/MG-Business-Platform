@@ -41,7 +41,7 @@ SQL
 )"
 
 if [[ -n "$EXISTING_CHECKSUM" && "$EXISTING_CHECKSUM" != "$EXPECTED_CHECKSUM" ]]; then
-    printf '%s\\n' "Refusing migration: a different checksum is already recorded for migration 006." >&2
+    printf '%s\n' "Refusing migration: a different checksum is already recorded for migration 006." >&2
     exit 1
 fi
 
