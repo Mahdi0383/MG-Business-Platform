@@ -80,3 +80,12 @@ PostgreSQL integration regressions use a dedicated restricted control role and i
 
 
 A further PostgreSQL regression injects an unexpected membership edge immediately before credential rewrap. The update is refused and the stored key ID remains on the old key; after removing the drift, the same operation retries and rewraps exactly one record to the new key. This covers the credential-rotation write boundary without weakening the maintenance lock or retry behavior.
+
+
+### Exact-head validation including credential rewrap — 2026-11-24
+
+- Exact tested code/test SHA: `9be589fe9ffd14951a724cc9023abf28393a30b6`.
+- PostgreSQL 17 provisioning integration run `45361108452`: **135 passed, 0 failed, 0 skipped**.
+- Backend/web run `45361108582`: backend **135 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API Release builds each **0 warnings / 0 errors**; frontend **20 passed**; dependency audit found **0 vulnerabilities**; Vite production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- The membership-drift tests cover credential persistence, credential rewrap, phase advancement and initial tenant resource provisioning. Rewrap recovery verifies the target record's key ID advances from v1 to v2 after drift removal.
+- PR remains Draft/unmerged. These checks do not establish production secret-manager/key lifecycle, mTLS deployment, privileged DBA race elimination, or production staging acceptance.
