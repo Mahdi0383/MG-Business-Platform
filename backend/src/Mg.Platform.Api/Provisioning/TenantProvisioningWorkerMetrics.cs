@@ -14,7 +14,7 @@ internal static class TenantProvisioningWorkerMetrics
     private static readonly Counter<long> JobsClaimed =
         Meter.CreateCounter<long>("mg.provisioning.jobs.claimed");
     private static readonly Counter<long> JobAttempts =
-        Meter.CreateCounter<long>("mg.provisioning.jobs.completed");
+        Meter.CreateCounter<long>("mg.provisioning.jobs.attempts");
     private static readonly Counter<long> LeaseRenewals =
         Meter.CreateCounter<long>("mg.provisioning.lease.renewals");
     private static readonly Counter<long> IterationFailures =
