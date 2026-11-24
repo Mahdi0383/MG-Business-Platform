@@ -89,6 +89,50 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
     }
 
     [Fact]
+    public async Task ReadinessFailsClosedWhenTemporaryMigrationLedgerShadowsMissingDurableLedger()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, "DROP TABLE platform_schema_migrations");
+
+        await using var context = fixture.CreateContext();
+        await context.Database.OpenConnectionAsync();
+        var connection = (NpgsqlConnection)context.Database.GetDbConnection();
+        await using (var createShadow = new NpgsqlCommand("""
+            CREATE TEMP TABLE platform_schema_migrations (
+                migration_id varchar(160) NOT NULL PRIMARY KEY,
+                checksum_sha256 char(64) NOT NULL,
+                applied_at_utc timestamptz NOT NULL
+            )
+            """, connection))
+        {
+            await createShadow.ExecuteNonQueryAsync();
+        }
+
+        await using (var insertShadow = new NpgsqlCommand("""
+            INSERT INTO pg_temp.platform_schema_migrations
+                (migration_id, checksum_sha256, applied_at_utc)
+            VALUES (@migration_id, @checksum, clock_timestamp())
+            """, connection))
+        {
+            insertShadow.Parameters.AddWithValue("migration_id", PlatformMigrationChecksums.Migration006Id);
+            insertShadow.Parameters.AddWithValue("checksum", PlatformMigrationChecksums.Migration006Sha256);
+            await insertShadow.ExecuteNonQueryAsync();
+        }
+
+        await using (var shadowCheck = new NpgsqlCommand("""
+            SELECT to_regclass('platform_schema_migrations')
+                = to_regclass('pg_temp.platform_schema_migrations')
+            """, connection))
+        {
+            Assert.True((bool)(await shadowCheck.ExecuteScalarAsync())!);
+        }
+
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        var result = await check.CheckHealthAsync(CreateContext(check));
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    [Fact]
     public async Task ReadinessFailsClosedWhenTemporaryRelationsShadowMissingIdempotencyMigration()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
