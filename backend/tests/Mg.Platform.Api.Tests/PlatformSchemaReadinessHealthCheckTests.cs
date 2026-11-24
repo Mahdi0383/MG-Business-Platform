@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Mg.Platform.Api.Health;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -8,6 +9,30 @@ namespace Mg.Platform.Api.Tests;
 
 public sealed class PlatformSchemaReadinessHealthCheckTests
 {
+    [Fact]
+    public async Task Migration006ChecksumManifestMatchesTheReviewedSqlArtifact()
+    {
+        var migrationPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "database",
+            "migrations",
+            "006_business_creation_idempotency.sql");
+        var checksumPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "database",
+            "migrations",
+            "006_business_creation_idempotency.sha256");
+
+        var migrationBytes = await File.ReadAllBytesAsync(migrationPath);
+        var actualChecksum = Convert.ToHexString(SHA256.HashData(migrationBytes)).ToLowerInvariant();
+        var manifest = (await File.ReadAllTextAsync(checksumPath)).Trim();
+
+        Assert.Equal(PlatformMigrationChecksums.Migration006Sha256, actualChecksum);
+        Assert.Equal(
+            $"{actualChecksum}  006_business_creation_idempotency.sql",
+            manifest);
+    }
+
     [Fact]
     public async Task ReadinessIsHealthyWhenBusinessRegistryOutboxAndIdempotencyMigrationExist()
     {
@@ -25,6 +50,40 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
         await CreateBusinessLookupIndexAsync(fixture);
         await fixture.DropIdempotencyTableAsync();
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigration006ChecksumRecordIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, """
+            DELETE FROM platform_schema_migrations
+            WHERE migration_id = '006_business_creation_idempotency'
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigration006ChecksumDoesNotMatchTheReviewedArtifact()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, """
+            UPDATE platform_schema_migrations
+            SET checksum_sha256 = repeat('0', 64)
+            WHERE migration_id = '006_business_creation_idempotency'
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenMigrationChecksumLedgerIsMissing()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await ExecuteSchemaCommandAsync(fixture, "DROP TABLE platform_schema_migrations");
 
         await AssertUnhealthyAsync(fixture);
     }
