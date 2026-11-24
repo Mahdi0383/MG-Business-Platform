@@ -952,3 +952,13 @@ The historical entries below remain as an audit trail; statements that the agent
 - These results validate the two new regression tests and the available stacked backend/web + PostgreSQL workflows only. Windows installer/package CI, CodeQL, formatting and dedicated NuGet audit are not evidenced on this stacked candidate; PR #159 still requires independent human approval before its trigger correction can be integrated.
 - PR #173 remains Draft/open/unmerged and stacked on Draft PR #172. No production migration, deployment, merge or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`.
 - Next: obtain the required independent review for PR #159; after an authorized merge, synchronize the candidate stack non-destructively and rerun the wider quality gates on exact heads. Continue controlled migration 006 deployment/rollback/checksum rehearsal, persistent Vault recovery/key rotation/backup, real OIDC/JWKS staging, deployed mTLS, observability, backup/restore and end-to-end business workflow acceptance. Do not claim production readiness.
+
+
+## 11.25 Exact foreign-key semantics in migration 006 readiness — 2026-11-24
+
+- Follow-up to PR #173's adversarial CHECK-expression tests. Static catalog review found the readiness query verified the FK columns, target table and `ON DELETE RESTRICT`, but did not verify the migration's default `ON UPDATE NO ACTION`, `MATCH SIMPLE`, and non-deferrable semantics. A same-named FK with `ON UPDATE CASCADE` or deferred enforcement could therefore pass readiness despite differing from migration 006.
+- New Draft candidate branch `fix/platform-readiness-exact-fk-semantics`, based on exact PR #173 head `abac6998c4ffb3420b2d48efe0b0c13b7e6608af`.
+- The readiness catalog predicate now requires `confupdtype = 'a'`, `confmatchtype = 's'`, `condeferrable = false`, and `condeferred = false`, in addition to the existing exact FK column mapping, `ON DELETE RESTRICT`, and validation state.
+- Added two PostgreSQL adversarial tests: same-named FK with `ON UPDATE CASCADE`, and same-named FK declared `DEFERRABLE INITIALLY DEFERRED`; both must report readiness Unhealthy.
+- Validation is pending on the new candidate SHA. No test/build/CI result is claimed yet. No migration, production database, existing branch or main branch was changed. Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`.
+- Next: run PostgreSQL 17 and backend/web workflows on the exact candidate head; inspect any failures and correct only evidence-backed issues. Wider Windows packaging, CodeQL, formatting and dedicated NuGet audit remain gated by the independent human approval required for PR #159.
