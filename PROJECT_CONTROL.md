@@ -1008,3 +1008,10 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - The health check must still return Unhealthy because the durable idempotency table is absent from `current_schema()`. This preserves the intended regression: a fully matching session-local temporary schema must not satisfy durable migration readiness.
 - No production code, migration, production database, parent branch, or `main` was modified. No assertion was removed or weakened. Exact-head validation on the corrected candidate is pending; do not transfer results from earlier commits.
 - Keep PRs Draft/unmerged and `Provisioning:WorkerEnabled=false`. Next: open a focused stacked PR, run PostgreSQL 17 and backend/web workflows on its exact head, inspect complete logs, then continue toward the wider Windows installer, CodeQL, formatting and NuGet gates after the required independent review of PR #159 and safe stack synchronization.
+
+### Corrected temporary-schema fixture candidate — exact head pending CI — 2026-11-24
+
+- Follow-up commit `a2b1e7779c96cddb39a2e3a47452a6729c573477` reconstructs the test file from the verified PR #175 base and replaces only the invalid temporary-table fixture. The final file remains 20 tests and 336 lines; the earlier candidate file was not used for validation and is superseded.
+- The corrected fixture creates temporary `business_tenants`, `tenant_provisioning_jobs`, and `business_creation_requests` relations. Its FK references the temporary tenant relation, so PostgreSQL's temporary-table FK restriction is respected. An explicit catalog-resolution assertion proves all four unqualified names (three tables and the lookup index) resolve to `pg_temp` before the health check runs.
+- Exact candidate head after the correction: `a2b1e7779c96cddb39a2e3a47452a6729c573477`. PostgreSQL 17 and backend/web CI are not yet evidenced for this SHA.
+- Keep the candidate Draft/unmerged. Do not treat the superseded malformed test-file revision or the failing parent runs as validation. No production code or migration changed.
