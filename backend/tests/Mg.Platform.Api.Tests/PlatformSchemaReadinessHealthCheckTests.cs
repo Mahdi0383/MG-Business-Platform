@@ -205,6 +205,32 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
         await AssertUnhealthyAsync(fixture);
     }
 
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessReferenceForeignKeyAllowsUpdateCascade()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT business_creation_requests_business_id_fkey");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT business_creation_requests_business_id_fkey FOREIGN KEY (business_id) REFERENCES business_tenants(id) ON DELETE RESTRICT ON UPDATE CASCADE");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
+    public async Task ReadinessFailsClosedWhenBusinessReferenceForeignKeyIsDeferrable()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests DROP CONSTRAINT business_creation_requests_business_id_fkey");
+        await ExecuteSchemaCommandAsync(fixture,
+            "ALTER TABLE business_creation_requests ADD CONSTRAINT business_creation_requests_business_id_fkey FOREIGN KEY (business_id) REFERENCES business_tenants(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED");
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
     private static async Task AssertUnhealthyAsync(
         BusinessRegistryConcurrencyPostgresTests.DatabaseFixture fixture)
     {
