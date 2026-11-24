@@ -962,3 +962,15 @@ The historical entries below remain as an audit trail; statements that the agent
 - Added two PostgreSQL adversarial tests: same-named FK with `ON UPDATE CASCADE`, and same-named FK declared `DEFERRABLE INITIALLY DEFERRED`; both must report readiness Unhealthy.
 - Validation is pending on the new candidate SHA. No test/build/CI result is claimed yet. No migration, production database, existing branch or main branch was changed. Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`.
 - Next: run PostgreSQL 17 and backend/web workflows on the exact candidate head; inspect any failures and correct only evidence-backed issues. Wider Windows packaging, CodeQL, formatting and dedicated NuGet audit remain gated by the independent human approval required for PR #159.
+
+
+## 11.26 Exact-head CI passed for migration 006 foreign-key semantics — 2026-11-24
+
+- Draft PR #174 candidate head: `48e5be508b3b1712c4dedf2630b4f525fe04b598`, based on PR #173 exact head `abac6998c4ffb3420b2d48efe0b0c13b7e6608af`.
+- PostgreSQL 17 tenant provisioning/schema integration workflow [45332317439](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45332317439): completed successfully. The PostgreSQL integration job, disposable Vault setup/teardown and container cleanup all succeeded.
+- MG Business Web backend/web workflow [45332317380](https://github.com/Mahdi0383/MG-Business-Platform/actions/runs/45332317380): completed successfully. Backend Release build, isolated provisioning-agent API build, backend unit tests, dependency audit, frontend unit tests, production bundle and build artifact upload succeeded. GitHub Pages deploy/upload steps were skipped as expected for a pull request.
+- The tested change requires migration 006's FK semantics exactly: `ON DELETE RESTRICT`, default `ON UPDATE NO ACTION`, `MATCH SIMPLE`, validated and non-deferrable. Added PostgreSQL negative tests for `ON UPDATE CASCADE` and `DEFERRABLE INITIALLY DEFERRED`; both test cases are included in the successful PostgreSQL workflow.
+- These are disposable CI checks only. They do not prove production migration rollout/rollback, backup/restore, Vault operations, real OIDC/JWKS, deployed mTLS, monitoring or operator acceptance.
+- PR #174 remains Draft/open/unmerged. No production migration/deployment and no worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Remaining integration gates: PR #159 still needs required independent human approval for its workflow-trigger correction; stacked Windows packaging, CodeQL, formatting and dedicated NuGet audit are not evidenced on this candidate. Parent PRs #170–#173 remain part of the dependency/review chain.
+- Next: inspect the next highest-priority unblocked milestone in the live ledger and continue on a separate reviewable branch; do not merge this PR based only on the two green workflows.
