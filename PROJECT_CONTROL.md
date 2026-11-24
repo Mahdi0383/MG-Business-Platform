@@ -1064,3 +1064,22 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 1. Open/maintain a Draft child PR against PR #175 and run PostgreSQL 17 plus backend/web CI on the exact final PR HEAD; inspect logs for all new tests and build steps.
 2. If green, add Windows packaging, CodeQL, formatting and NuGet checks only after PR #159 is independently reviewed and the stack can be safely synchronized.
 3. Continue production OIDC/JWKS, real ingress/socket response-loss, Vault/key rotation/backup-restore, deployed mTLS, observability, tenant backup/restore and pilot acceptance. Do not mark production readiness until every release gate has evidence.
+
+
+## 11.19 Provisioning worker low-cardinality observability — 2026-11-24
+
+- Draft child branch `feat/provisioning-worker-observability-metrics-20261124` is based on exact PR #178 HEAD `196ecc3808224469bcbfc7440efcefd0df0ce1d4`; it must not merge independently of the migration-checksum/readiness stack.
+- Added `TenantProvisioningWorkerMetrics` using `System.Diagnostics.Metrics`, meter `MG.Platform.Provisioning` v1.0.0:
+  - counters: `mg.provisioning.jobs.claimed`, `mg.provisioning.jobs.attempts`, `mg.provisioning.lease.renewals`, `mg.provisioning.worker.iteration.failures`;
+  - histogram: `mg.provisioning.jobs.duration` in seconds;
+  - only bounded `outcome` tags are emitted. Tenant IDs, job IDs, worker IDs, exception messages, database names and credential data are not metric tags.
+- Worker claim, attempt outcome/duration, lease-renewal success/loss/error and worker-loop failure paths are instrumented. No business logic, lease fencing, retry policy or activation boundary is weakened.
+- Added a PostgreSQL-backed `MeterListener` regression that waits for an actual heartbeat metric, verifies claim/attempt/duration/renewal measurements and asserts the only tag key is `outcome`.
+- Added `backend/docs/PROVISIONING_WORKER_OBSERVABILITY.md` and updated the operations acceptance checklist. The API does not yet configure an exporter or expose a metrics endpoint; approved collector deployment, dashboard, alert delivery, on-call ownership and production-host/staging validation remain open.
+- Code/test HEAD `4c6f2288cf860c3d1d1a020721c539ddd461c439`; current docs HEAD `26d24f639db664fed8dd14dd5a7e7b6c580ddd26`. Exact-head PostgreSQL 17 and backend/web workflows are pending; no pass is claimed for this candidate yet.
+- Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`. Instrumentation is not approval to deploy or enable provisioning.
+
+### Next
+1. Open a Draft child PR against PR #178 and run exact-head PostgreSQL and backend/web CI; inspect the metrics regression and all prior stack tests.
+2. If green, add collector/exporter configuration only with an approved telemetry endpoint and credentials; then add staging alert-delivery and canary evidence.
+3. Continue the remaining Vault/key lifecycle, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and operator acceptance gates. No production-readiness claim until every gate is evidenced.
