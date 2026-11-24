@@ -61,3 +61,31 @@ Attach all of the following to the release record:
 7. Explicit approval from the platform owner.
 
 A green unit-test workflow alone is not production approval. A cancelled, skipped or stale workflow is not evidence of a passing release candidate. Until all gates are evidenced, keep automated provisioning disabled and do not mark tenants Active based only on registry creation.
+
+## Shared control-role readiness verifier — issue #157
+
+The agent now has one shared Agent Core verifier for the control database identity. The predicate is based on the latest reviewed parent resource-provisioner check and validates role attributes, permitted PostgreSQL 17 membership edges, database/schema/ledger ownership, effective privileges, and explicit PUBLIC ACLs.
+
+The API readiness endpoint and tenant resource provisioner use this same verifier. The operation store invokes it immediately before credential persistence, credential rewrap updates and phase advancement, while retaining the existing ACL-only read guard, transaction boundaries and control-plane maintenance advisory-lock behavior. Existing deterministic fault-injection seams remain in the provisioner.
+
+PostgreSQL integration regressions use a dedicated restricted control role and inject unexpected role-membership drift after initial readiness. They prove first credential persistence, phase advancement and the first resource-provisioning mutation fail closed; the durable phase remains unchanged and no tenant roles/database are created. Exact-head PostgreSQL and backend/web CI are still required before this candidate can be considered validated. This narrows the check-to-use interval; it does not claim to prevent a concurrently acting privileged database administrator from racing outside application-level advisory locks, nor does it replace process-kill recovery or production staging evidence.
+
+
+### Exact code/test-head validation — 2026-11-24
+
+- Exact tested code/test SHA: `183d04141975022b492a9b3af2e2771d2c30eb36`.
+- PostgreSQL 17 provisioning integration run `45360462539`: **134 passed, 0 failed, 0 skipped**.
+- Backend/web run `45360462595`: backend **134 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API Release builds each **0 warnings / 0 errors**; frontend **20 tests passed**; dependency audit found **0 vulnerabilities**; Vite production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- These checks validate the exact code/test SHA above. Any later documentation-only commit still requires exact-head CI before the PR can be marked fully validated.
+
+
+A further PostgreSQL regression injects an unexpected membership edge immediately before credential rewrap. The update is refused and the stored key ID remains on the old key; after removing the drift, the same operation retries and rewraps exactly one record to the new key. This covers the credential-rotation write boundary without weakening the maintenance lock or retry behavior.
+
+
+### Exact-head validation including credential rewrap — 2026-11-24
+
+- Exact tested code/test SHA: `9be589fe9ffd14951a724cc9023abf28393a30b6`.
+- PostgreSQL 17 provisioning integration run `45361108452`: **135 passed, 0 failed, 0 skipped**.
+- Backend/web run `45361108582`: backend **135 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API Release builds each **0 warnings / 0 errors**; frontend **20 passed**; dependency audit found **0 vulnerabilities**; Vite production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- The membership-drift tests cover credential persistence, credential rewrap, phase advancement and initial tenant resource provisioning. Rewrap recovery verifies the target record's key ID advances from v1 to v2 after drift removal.
+- PR remains Draft/unmerged. These checks do not establish production secret-manager/key lifecycle, mTLS deployment, privileged DBA race elimination, or production staging acceptance.

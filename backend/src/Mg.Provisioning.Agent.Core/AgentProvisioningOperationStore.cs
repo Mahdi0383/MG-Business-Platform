@@ -88,6 +88,7 @@ public sealed class AgentProvisioningOperationStore(
                     if (!string.Equals(encrypted.KeyId, credentialProtector.CurrentKeyId, StringComparison.Ordinal))
                     {
                         await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
+                        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
                         var rewrapped = credentialProtector.Protect(
                             stablePayload, tenantId, idempotencyKey, databaseName);
                         try
@@ -150,6 +151,7 @@ public sealed class AgentProvisioningOperationStore(
                 payload, tenantId, idempotencyKey, databaseName);
 
             await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
+            await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
             await using (var insert = new NpgsqlCommand(
                 """
                 INSERT INTO mg_agent.provisioning_operations
@@ -250,6 +252,7 @@ public sealed class AgentProvisioningOperationStore(
                 ValidateCredentials(credentials, row.TenantId, row.DatabaseName);
 
                 await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
+                await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
                 var newEnvelope = credentialProtector.Protect(
                     payload, row.TenantId, row.IdempotencyKey, row.DatabaseName);
                 try
@@ -389,6 +392,7 @@ public sealed class AgentProvisioningOperationStore(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         await VerifyLedgerBoundaryAsync(connection, transaction, cancellationToken);
+        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
         await using var command = new NpgsqlCommand(
             """
             UPDATE mg_agent.provisioning_operations

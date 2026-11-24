@@ -65,6 +65,31 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
     }
 
     [Fact]
+    public async Task RefusesResourceMutationWhenControlRoleMembershipDriftsAfterInitialReadiness()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+        await fixture.AddUnexpectedBootstrapMembershipAsync();
+
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Provisioner.EnsureDatabaseAndRolesAsync(
+                    fixture.TenantId, fixture.IdempotencyKey, fixture.DatabaseName,
+                    fixture.Credentials, CancellationToken.None));
+
+            Assert.False(await fixture.DatabaseExistsAsync());
+            Assert.False(await fixture.TenantRolesExistAsync());
+        }
+        finally
+        {
+            await fixture.RemoveUnexpectedBootstrapMembershipAsync();
+        }
+
+        await fixture.AssertAgentHandlerReadinessAsync(expected: true);
+    }
+
+    [Fact]
     public async Task RefusesProvisioningWhenControlDatabasePublicAclDriftsBeforeRoleCreation()
     {
         await using var fixture = await Fixture.CreateAsync();
