@@ -139,8 +139,19 @@ public sealed class NpgsqlAgentProvisioningHandler : IAgentProvisioningHandler, 
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await AgentControlRoleReadinessVerifier.IsReadyAsync(connection, cancellationToken);
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            return await AgentControlRoleReadinessVerifier.IsReadyAsync(connection, cancellationToken);
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     public void Dispose()
