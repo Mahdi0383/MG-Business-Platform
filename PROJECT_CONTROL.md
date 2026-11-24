@@ -774,3 +774,20 @@ The historical entries below remain as an audit trail; statements that the agent
 4. After #159 is merged by an authorized reviewer, synchronize stacked bases and require Windows packaging, CodeQL, formatting and NuGet audit on each release candidate.
 5. Refresh PR #121 with the #150 migration-test correction and rerun its exact-head full CI.
 6. Continue the highest-priority production gates above; keep worker disabled and do not claim release readiness until all section 10 gates are evidenced.
+
+
+## 11.16 Exact-head readiness shadowing fix — 2026-11-24
+
+- Draft PR #175 prevents session-local PostgreSQL temporary relations from satisfying the platform migration 006 readiness catalog checks. Current HEAD `fd548d80947ca66cc8726df159f60493b525a6d2` passed exact-head PostgreSQL workflow `45359326284` and backend/web workflow `45359326129`.
+- PostgreSQL integration and backend/web jobs completed successfully. Backend and isolated provisioning-agent API Release builds, backend/frontend tests, dependency audit, production bundle and artifact upload passed; Pages deployment was skipped as expected for a PR.
+- PR #175 remains Draft/unmerged. No production migration, deployment or worker activation occurred.
+
+
+## 11.17 Shared control-role readiness TOCTOU tranche — 2026-11-24
+
+- Draft PR #177, branch `security/agent-control-role-readiness-shared-verifier`, is stacked on current PR #155 HEAD `6282c3795b48a6d478457698cb8dbff395782d61`. It must remain dependent on that parent and must not merge independently.
+- A shared Agent Core verifier is derived from the latest parent #155 resource-provisioner predicate, retaining the exact role attributes, PostgreSQL 17 bootstrap ADMIN and tenant-owner SET-only membership constraints, ownership and ACL checks. It is used by agent readiness, resource provisioning mutation checks and explicit operation-store write boundaries.
+- Existing ACL-only read diagnostics, transaction boundaries, maintenance advisory locks and parent fault-injection seams are preserved. PostgreSQL tests inject unexpected role-membership drift after initial readiness and verify prepared-row insertion, phase advancement and first resource creation fail closed.
+- An initial run of the earlier candidate exposed that invoking the full verifier from a read-only ledger guard changed read behavior and existing ACL diagnostic assertions. The implementation was corrected to call the full verifier only immediately before mutations; the read guard remains ACL-only. This correction is part of the current candidate and requires exact-head revalidation.
+- Current PR #177 HEAD `183d04141975022b492a9b3af2e2771d2c30eb36`; PostgreSQL workflow `45360462539` and backend/web workflow `45360462595` are running. No pass is claimed until both complete on this exact SHA.
+- PR #177 remains Draft. The work narrows the application-level check-to-use interval but does not eliminate concurrent privileged-administrator races or replace process-kill recovery, Vault/key lifecycle, mTLS deployment and staging evidence. Keep `Provisioning:WorkerEnabled=false`.
