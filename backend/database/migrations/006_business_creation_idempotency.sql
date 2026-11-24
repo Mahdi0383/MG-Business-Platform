@@ -3,6 +3,15 @@
 -- The key is globally unique; raw OIDC issuer/subject and request payload are never stored.
 BEGIN;
 
+CREATE TABLE IF NOT EXISTS platform_schema_migrations (
+    migration_id varchar(160) NOT NULL,
+    checksum_sha256 char(64) NOT NULL,
+    applied_at_utc timestamptz NOT NULL,
+    CONSTRAINT pk_platform_schema_migrations PRIMARY KEY (migration_id),
+    CONSTRAINT ck_platform_schema_migrations_checksum
+        CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$')
+);
+
 CREATE TABLE IF NOT EXISTS business_creation_requests (
     idempotency_key uuid NOT NULL,
     creator_identity_hash char(64) NOT NULL,
