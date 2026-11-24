@@ -1026,3 +1026,13 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - These results validate disposable CI only. Windows installer packaging, CodeQL, formatting and dedicated NuGet audit remain unevidenced on this stacked candidate; PR #159 still requires independent human approval. Production migration/rollback, backup/restore, Vault/key lifecycle, OIDC/JWKS, deployed mTLS, observability and operator acceptance remain open.
 - PR #175 remains Draft/open/unmerged. No production migration/deployment or worker activation. Keep `Provisioning:WorkerEnabled=false`.
 - Next: continue with the highest-priority security gap in Issue #157 by creating a non-destructive integration candidate against the current parent stack; preserve PR #155's maintenance-lock, ACL and fault-injection protections. Do not rebase/force-push PR #158 or merge any candidate.
+
+
+## 11.16 Exact-head validation — PR #175 — 2026-11-24
+
+- Draft PR #175 current implementation and documentation HEAD `9a891509517687f4e5d4a18fc1123112289bed72` was validated by both workflows on that exact SHA.
+- PostgreSQL 17 workflow `45358840912`: completed successfully; all jobs and steps passed.
+- Backend/web workflow `45358840918`: completed successfully. Backend Release build, isolated provisioning-agent API Release build, backend unit tests, frontend unit tests, dependency audit, Vite production bundle and artifact upload all passed. GitHub Pages deployment steps were skipped as expected for a pull request.
+- The run summary available from the workflow API does not expose test totals or artifact digest in this ledger entry; no numerical totals are inferred.
+- PR #175 remains Draft/open/unmerged. No production migration, deployment or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`.
+- Next: continue the open security work tracked by issue #157 from the live parent branch, preserving all existing readiness, ACL, maintenance-lock and fault-injection protections; then run exact-head PostgreSQL and backend/web CI on the combined candidate.
