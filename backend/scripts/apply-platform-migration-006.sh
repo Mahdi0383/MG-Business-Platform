@@ -24,6 +24,27 @@ if [[ ! "$EXPECTED_CHECKSUM" =~ ^[0-9a-f]{64}$ || "$ACTUAL_CHECKSUM" != "$EXPECT
     exit 1
 fi
 
+EXISTING_CHECKSUM="$(
+    psql -X --set=ON_ERROR_STOP=1 \
+        --set=migration_id="$MIGRATION_ID" \
+        --tuples-only --no-align <<'SQL'
+SELECT CASE
+    WHEN to_regclass(format('%I.%I', current_schema(), 'platform_schema_migrations')) IS NULL
+        THEN 'SELECT NULL::text WHERE false'
+    ELSE format(
+        'SELECT btrim(checksum_sha256) FROM %I.platform_schema_migrations WHERE migration_id = %L',
+        current_schema(),
+        :'migration_id')
+END
+\gexec
+SQL
+)"
+
+if [[ -n "$EXISTING_CHECKSUM" && "$EXISTING_CHECKSUM" != "$EXPECTED_CHECKSUM" ]]; then
+    printf '%s\\n' "Refusing migration: a different checksum is already recorded for migration 006." >&2
+    exit 1
+fi
+
 export PGAPPNAME="mg-platform-migration-006"
 psql -X --set=ON_ERROR_STOP=1 --file="$MIGRATION_FILE"
 
@@ -39,9 +60,11 @@ RECORDED_CHECKSUM="$(
     psql -X --set=ON_ERROR_STOP=1 \
         --set=migration_id="$MIGRATION_ID" \
         --tuples-only --no-align <<'SQL'
-SELECT btrim(checksum_sha256)
-FROM platform_schema_migrations
-WHERE migration_id = :'migration_id';
+SELECT format(
+    'SELECT btrim(checksum_sha256) FROM %I.platform_schema_migrations WHERE migration_id = %L',
+    current_schema(),
+    :'migration_id')
+\gexec
 SQL
 )"
 
