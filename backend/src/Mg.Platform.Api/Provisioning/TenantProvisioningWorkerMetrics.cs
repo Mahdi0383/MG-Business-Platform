@@ -13,7 +13,7 @@ internal static class TenantProvisioningWorkerMetrics
     private static readonly Meter Meter = new(MeterName, "1.0.0");
     private static readonly Counter<long> JobsClaimed =
         Meter.CreateCounter<long>("mg.provisioning.jobs.claimed");
-    private static readonly Counter<long> JobsCompleted =
+    private static readonly Counter<long> JobAttempts =
         Meter.CreateCounter<long>("mg.provisioning.jobs.completed");
     private static readonly Counter<long> LeaseRenewals =
         Meter.CreateCounter<long>("mg.provisioning.lease.renewals");
