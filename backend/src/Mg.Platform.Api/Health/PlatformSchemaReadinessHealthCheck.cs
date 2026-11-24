@@ -21,11 +21,11 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
     {
         var connection = (NpgsqlConnection)db.Database.GetDbConnection();
         var closeConnection = connection.State != ConnectionState.Open;
-        if (closeConnection)
-            await db.Database.OpenConnectionAsync(cancellationToken);
 
         try
         {
+            if (closeConnection)
+                await db.Database.OpenConnectionAsync(cancellationToken);
             await using var command = new NpgsqlCommand("""
                 SELECT
                     to_regclass(format('%I.%I', current_schema(), 'platform_schema_migrations')) IS NOT NULL
@@ -198,14 +198,14 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
             if (!schemaIsReady)
                 return HealthCheckResult.Unhealthy(MissingSchemaDescription);
 
-            var schemaName = await new NpgsqlCommand("SELECT current_schema()", connection)
-                .ExecuteScalarAsync(cancellationToken) as string;
+            await using var schemaCommand = new NpgsqlCommand("SELECT current_schema()", connection);
+            var schemaName = await schemaCommand.ExecuteScalarAsync(cancellationToken) as string;
             if (string.IsNullOrWhiteSpace(schemaName))
                 return HealthCheckResult.Unhealthy(MissingSchemaDescription);
 
             // Qualify the data read explicitly: PostgreSQL resolves temporary relations
             // before ordinary schemas even when the temporary schema is absent from search_path.
-            var quotedSchema = NpgsqlCommandBuilder.QuoteIdentifier(schemaName);
+            var quotedSchema = new NpgsqlCommandBuilder().QuoteIdentifier(schemaName);
             await using var checksumCommand = new NpgsqlCommand(
                 $"SELECT EXISTS (SELECT 1 FROM {quotedSchema}.platform_schema_migrations WHERE migration_id = @migration_id AND btrim(checksum_sha256) = @migration_checksum)",
                 connection);
