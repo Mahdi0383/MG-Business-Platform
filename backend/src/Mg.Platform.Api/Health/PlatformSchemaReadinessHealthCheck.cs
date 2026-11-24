@@ -83,6 +83,10 @@ public sealed class PlatformSchemaReadinessHealthCheck(PlatformDbContext db) : I
                           AND foreign_key.conkey = ARRAY[source_column.attnum]::smallint[]
                           AND foreign_key.confkey = ARRAY[target_column.attnum]::smallint[]
                           AND foreign_key.confdeltype = 'r'
+                          AND foreign_key.confupdtype = 'a'
+                          AND foreign_key.confmatchtype = 's'
+                          AND NOT foreign_key.condeferrable
+                          AND NOT foreign_key.condeferred
                           AND foreign_key.convalidated
                     )
                     AND EXISTS (
