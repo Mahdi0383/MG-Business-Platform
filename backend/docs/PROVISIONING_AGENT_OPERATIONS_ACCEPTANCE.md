@@ -61,3 +61,11 @@ Attach all of the following to the release record:
 7. Explicit approval from the platform owner.
 
 A green unit-test workflow alone is not production approval. A cancelled, skipped or stale workflow is not evidence of a passing release candidate. Until all gates are evidenced, keep automated provisioning disabled and do not mark tenants Active based only on registry creation.
+
+## Shared control-role readiness verifier — issue #157
+
+The agent now has one shared Agent Core verifier for the control database identity. The predicate is based on the latest reviewed parent resource-provisioner check and validates role attributes, permitted PostgreSQL 17 membership edges, database/schema/ledger ownership, effective privileges, and explicit PUBLIC ACLs.
+
+The API readiness endpoint and tenant resource provisioner use this same verifier. The operation store invokes it from the existing ledger-boundary guard before its guarded durable operations, while retaining the existing transaction and control-plane maintenance advisory-lock behavior. Existing deterministic fault-injection seams remain in the provisioner.
+
+A PostgreSQL integration regression uses a dedicated restricted control role and injects PUBLIC TEMPORARY privilege drift. It proves first credential persistence and phase advancement fail closed, with the phase remaining unchanged. Exact-head PostgreSQL and backend/web CI are still required before this candidate can be considered validated. This narrows the check-to-use interval; it does not claim to prevent a concurrently acting privileged database administrator from racing outside application-level advisory locks, nor does it replace process-kill recovery or production staging evidence.
