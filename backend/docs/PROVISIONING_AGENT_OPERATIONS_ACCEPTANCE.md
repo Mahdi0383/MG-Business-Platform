@@ -69,3 +69,11 @@ The agent now has one shared Agent Core verifier for the control database identi
 The API readiness endpoint and tenant resource provisioner use this same verifier. The operation store invokes it immediately before credential persistence, credential rewrap updates and phase advancement, while retaining the existing ACL-only read guard, transaction boundaries and control-plane maintenance advisory-lock behavior. Existing deterministic fault-injection seams remain in the provisioner.
 
 PostgreSQL integration regressions use a dedicated restricted control role and inject unexpected role-membership drift after initial readiness. They prove first credential persistence, phase advancement and the first resource-provisioning mutation fail closed; the durable phase remains unchanged and no tenant roles/database are created. Exact-head PostgreSQL and backend/web CI are still required before this candidate can be considered validated. This narrows the check-to-use interval; it does not claim to prevent a concurrently acting privileged database administrator from racing outside application-level advisory locks, nor does it replace process-kill recovery or production staging evidence.
+
+
+### Exact code/test-head validation — 2026-11-24
+
+- Exact tested code/test SHA: `183d04141975022b492a9b3af2e2771d2c30eb36`.
+- PostgreSQL 17 provisioning integration run `45360462539`: **134 passed, 0 failed, 0 skipped**.
+- Backend/web run `45360462595`: backend **134 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API Release builds each **0 warnings / 0 errors**; frontend **20 tests passed**; dependency audit found **0 vulnerabilities**; Vite production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
+- These checks validate the exact code/test SHA above. Any later documentation-only commit still requires exact-head CI before the PR can be marked fully validated.
