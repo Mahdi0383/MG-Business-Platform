@@ -29,6 +29,34 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
     }
 
     [Fact]
+    public async Task ReadinessFailsClosedWhenTemporaryTableShadowsMissingIdempotencyMigration()
+    {
+        await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
+        await CreateBusinessLookupIndexAsync(fixture);
+        await fixture.DropIdempotencyTableAsync();
+        await ExecuteSchemaCommandAsync(fixture, """
+            CREATE TEMP TABLE business_creation_requests (
+                idempotency_key uuid NOT NULL,
+                creator_identity_hash char(64) NOT NULL,
+                request_fingerprint char(64) NOT NULL,
+                business_id uuid NOT NULL,
+                created_at_utc timestamptz NOT NULL,
+                CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key),
+                CONSTRAINT business_creation_requests_business_id_fkey
+                    FOREIGN KEY (business_id) REFERENCES business_tenants(id) ON DELETE RESTRICT,
+                CONSTRAINT ck_business_creation_creator_hash
+                    CHECK (creator_identity_hash ~ '^[0-9a-f]{64}$'),
+                CONSTRAINT ck_business_creation_request_hash
+                    CHECK (request_fingerprint ~ '^[0-9a-f]{64}$')
+            );
+            CREATE INDEX ix_business_creation_requests_business
+                ON pg_temp.business_creation_requests (business_id, created_at_utc);
+            """);
+
+        await AssertUnhealthyAsync(fixture);
+    }
+
+    [Fact]
     public async Task ReadinessFailsClosedWhenBusinessReferenceColumnIsMissing()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
