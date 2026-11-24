@@ -1076,7 +1076,7 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - Worker claim, attempt outcome/duration, lease-renewal success/loss/error and worker-loop failure paths are instrumented. No business logic, lease fencing, retry policy or activation boundary is weakened.
 - Added a PostgreSQL-backed `MeterListener` regression that waits for an actual heartbeat metric, verifies claim/attempt/duration/renewal measurements and asserts the only tag key is `outcome`.
 - Added `backend/docs/PROVISIONING_WORKER_OBSERVABILITY.md` and updated the operations acceptance checklist. The API does not yet configure an exporter or expose a metrics endpoint; approved collector deployment, dashboard, alert delivery, on-call ownership and production-host/staging validation remain open.
-- Code/test HEAD `4c6f2288cf860c3d1d1a020721c539ddd461c439`; current docs HEAD `26d24f639db664fed8dd14dd5a7e7b6c580ddd26`. Exact-head PostgreSQL 17 and backend/web workflows are pending; no pass is claimed for this candidate yet.
+- Code/test HEAD `4c6f2288cf860c3d1d1a020721c539ddd461c439`; exact current PR HEAD `f544dfeac0b42dd195e949dc3f510ba01ce37ac6` passed PostgreSQL workflow `45368452176` (**229 passed, 0 failed, 0 skipped**) and backend/web workflow `45368452137` (backend **229 passed**, frontend **20 passed**, backend and isolated agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, production bundle and artifact upload successful; Pages deployment skipped as expected for PR).
 - Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`. Instrumentation is not approval to deploy or enable provisioning.
 
 ### Next
