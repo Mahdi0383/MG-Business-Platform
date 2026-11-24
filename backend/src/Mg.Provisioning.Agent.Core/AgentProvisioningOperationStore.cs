@@ -449,6 +449,7 @@ public sealed class AgentProvisioningOperationStore(
         NpgsqlTransaction? transaction,
         CancellationToken cancellationToken)
     {
+        await AgentControlRoleReadinessVerifier.EnsureReadyAsync(connection, cancellationToken, transaction);
         await using var command = new NpgsqlCommand(
             """
             SELECT
