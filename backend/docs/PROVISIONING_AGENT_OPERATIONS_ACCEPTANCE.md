@@ -77,3 +77,6 @@ PostgreSQL integration regressions use a dedicated restricted control role and i
 - PostgreSQL 17 provisioning integration run `45360462539`: **134 passed, 0 failed, 0 skipped**.
 - Backend/web run `45360462595`: backend **134 passed, 0 failed, 0 skipped**; backend Release and isolated provisioning-agent API Release builds each **0 warnings / 0 errors**; frontend **20 tests passed**; dependency audit found **0 vulnerabilities**; Vite production bundle and artifact upload succeeded. Pages deployment was skipped as expected for a PR.
 - These checks validate the exact code/test SHA above. Any later documentation-only commit still requires exact-head CI before the PR can be marked fully validated.
+
+
+A further PostgreSQL regression injects an unexpected membership edge immediately before credential rewrap. The update is refused and the stored key ID remains on the old key; after removing the drift, the same operation retries and rewraps exactly one record to the new key. This covers the credential-rotation write boundary without weakening the maintenance lock or retry behavior.
