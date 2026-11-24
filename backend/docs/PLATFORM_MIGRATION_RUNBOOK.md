@@ -24,9 +24,10 @@ bash backend/scripts/apply-platform-migration-006.sh
 The runner:
 1. Computes the SHA-256 digest of the exact SQL file and compares it with the reviewed `.sha256` manifest.
 2. Refuses to run unless PostgreSQL TLS uses `verify-full` and a trusted root certificate is configured.
-3. Executes the migration with `psql` and `ON_ERROR_STOP`.
-4. Inserts the migration ID and reviewed checksum into `platform_schema_migrations` only when no record exists. It never overwrites an existing checksum.
-5. Reads the durable record back and exits non-zero if it is missing or differs from the reviewed checksum.
+3. Checks any existing ledger record before SQL execution and refuses immediately if the recorded checksum conflicts with the reviewed artifact.
+4. Executes the migration with `psql` and `ON_ERROR_STOP`.
+5. Inserts the migration ID and reviewed checksum into `platform_schema_migrations` only when no record exists. It never overwrites an existing checksum.
+6. Reads the durable record back and exits non-zero if it is missing or differs from the reviewed checksum.
 
 A repeated invocation is safe for the unchanged artifact: the SQL uses additive `IF NOT EXISTS` operations and the checksum registration uses `ON CONFLICT DO NOTHING`. A conflicting pre-existing checksum is a hard stop, not an instruction to update the record manually.
 
