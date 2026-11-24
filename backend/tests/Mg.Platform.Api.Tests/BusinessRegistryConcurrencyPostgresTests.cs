@@ -1,6 +1,7 @@
 using Mg.Platform.Api.Contracts;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
+using Mg.Platform.Api.Health;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Xunit;
@@ -230,6 +231,97 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                         completed_at_utc timestamptz NULL,
                         last_error_code varchar(80) NULL
                     );
+                    CREATE TABLE platform_schema_migrations (
+                        migration_id varchar(160) NOT NULL,
+                        checksum_sha256 char(64) NOT NULL,
+                        applied_at_utc timestamptz NOT NULL,
+                        CONSTRAINT pk_platform_schema_migrations PRIMARY KEY (migration_id),
+                        CONSTRAINT ck_platform_schema_migrations_checksum
+                            CHECK (checksum_sha256 ~ '^[0-9a-f]{64}
+            }
+            catch
+            {
+                await using var cleanup = new NpgsqlConnection(adminConnection);
+                await cleanup.OpenAsync();
+                await using var drop = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", cleanup);
+                await drop.ExecuteNonQueryAsync();
+                throw;
+            }
+
+            return new DatabaseFixture(adminConnection, schema, testConnection);
+        }
+
+        public string TestConnection => testConnection;
+
+        public PlatformDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
+
+        public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
+        public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
+        public Task<int> CountDistinctIdempotencyKeysAsync() =>
+            ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
+
+        public async Task<(Guid Id, string Slug, string Status, string DatabaseSecretReference)> ReadBusinessAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT id, slug, status, database_secret_reference
+                FROM business_tenants
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+        }
+
+        public async Task DropIdempotencyTableAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "DROP TABLE business_creation_requests CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RejectOutboxInsertsAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                CREATE FUNCTION reject_test_outbox_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'simulated outbox persistence failure';
+                END;
+                $$;
+                CREATE TRIGGER reject_test_outbox_insert
+                BEFORE INSERT ON tenant_provisioning_jobs
+                FOR EACH ROW EXECUTE FUNCTION reject_test_outbox_insert();
+                """, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<int> ScalarAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+}
+)
+                    );
                     CREATE TABLE business_creation_requests (
                         idempotency_key uuid NOT NULL,
                         creator_identity_hash char(64) NOT NULL,
@@ -238,12 +330,186 @@ public sealed class BusinessRegistryConcurrencyPostgresTests
                         created_at_utc timestamptz NOT NULL,
                         CONSTRAINT pk_business_creation_requests PRIMARY KEY (idempotency_key),
                         CONSTRAINT ck_business_creation_creator_hash
-                            CHECK (creator_identity_hash ~ '^[0-9a-f]{64}$'),
+                            CHECK (creator_identity_hash ~ '^[0-9a-f]{64}
+            }
+            catch
+            {
+                await using var cleanup = new NpgsqlConnection(adminConnection);
+                await cleanup.OpenAsync();
+                await using var drop = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", cleanup);
+                await drop.ExecuteNonQueryAsync();
+                throw;
+            }
+
+            return new DatabaseFixture(adminConnection, schema, testConnection);
+        }
+
+        public string TestConnection => testConnection;
+
+        public PlatformDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
+
+        public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
+        public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
+        public Task<int> CountDistinctIdempotencyKeysAsync() =>
+            ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
+
+        public async Task<(Guid Id, string Slug, string Status, string DatabaseSecretReference)> ReadBusinessAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT id, slug, status, database_secret_reference
+                FROM business_tenants
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+        }
+
+        public async Task DropIdempotencyTableAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "DROP TABLE business_creation_requests CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RejectOutboxInsertsAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                CREATE FUNCTION reject_test_outbox_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'simulated outbox persistence failure';
+                END;
+                $$;
+                CREATE TRIGGER reject_test_outbox_insert
+                BEFORE INSERT ON tenant_provisioning_jobs
+                FOR EACH ROW EXECUTE FUNCTION reject_test_outbox_insert();
+                """, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<int> ScalarAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+}
+),
                         CONSTRAINT ck_business_creation_request_hash
-                            CHECK (request_fingerprint ~ '^[0-9a-f]{64}$')
+                            CHECK (request_fingerprint ~ '^[0-9a-f]{64}
+            }
+            catch
+            {
+                await using var cleanup = new NpgsqlConnection(adminConnection);
+                await cleanup.OpenAsync();
+                await using var drop = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", cleanup);
+                await drop.ExecuteNonQueryAsync();
+                throw;
+            }
+
+            return new DatabaseFixture(adminConnection, schema, testConnection);
+        }
+
+        public string TestConnection => testConnection;
+
+        public PlatformDbContext CreateContext() =>
+            new(new DbContextOptionsBuilder<PlatformDbContext>().UseNpgsql(testConnection).Options);
+
+        public Task<int> CountBusinessesAsync() => ScalarAsync("SELECT count(*) FROM business_tenants");
+        public Task<int> CountJobsAsync() => ScalarAsync("SELECT count(*) FROM tenant_provisioning_jobs");
+        public Task<int> CountIdempotencyRecordsAsync() =>
+            ScalarAsync("SELECT count(*) FROM business_creation_requests");
+        public Task<int> CountDistinctIdempotencyKeysAsync() =>
+            ScalarAsync("SELECT count(DISTINCT idempotency_key) FROM tenant_provisioning_jobs");
+
+        public async Task<(Guid Id, string Slug, string Status, string DatabaseSecretReference)> ReadBusinessAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT id, slug, status, database_secret_reference
+                FROM business_tenants
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return (reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+        }
+
+        public async Task DropIdempotencyTableAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "DROP TABLE business_creation_requests CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        public async Task RejectOutboxInsertsAsync()
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                CREATE FUNCTION reject_test_outbox_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION 'simulated outbox persistence failure';
+                END;
+                $$;
+                CREATE TRIGGER reject_test_outbox_insert
+                BEFORE INSERT ON tenant_provisioning_jobs
+                FOR EACH ROW EXECUTE FUNCTION reject_test_outbox_insert();
+                """, connection);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private async Task<int> ScalarAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(testConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(sql, connection);
+            return Convert.ToInt32(await command.ExecuteScalarAsync());
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var connection = new NpgsqlConnection(adminConnection);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand($@"DROP SCHEMA IF EXISTS ""{schema}"" CASCADE", connection);
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+}
+)
                     );
                     """, connection);
                 await command.ExecuteNonQueryAsync();
+
+                await using var migrationRecord = new NpgsqlCommand("""
+                    INSERT INTO platform_schema_migrations (migration_id, checksum_sha256, applied_at_utc)
+                    VALUES (@migration_id, @checksum, clock_timestamp())
+                    """, connection);
+                migrationRecord.Parameters.AddWithValue("migration_id", PlatformMigrationChecksums.Migration006Id);
+                migrationRecord.Parameters.AddWithValue("checksum", PlatformMigrationChecksums.Migration006Sha256);
+                await migrationRecord.ExecuteNonQueryAsync();
             }
             catch
             {
