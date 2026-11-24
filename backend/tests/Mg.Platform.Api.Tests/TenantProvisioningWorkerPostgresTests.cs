@@ -71,6 +71,7 @@ public sealed class TenantProvisioningWorkerPostgresTests
         });
         using var services = CreateServices(fixture, handler);
         var observations = new ConcurrentBag<MetricObservation>();
+        var renewalObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var listener = new MeterListener
         {
             InstrumentPublished = (instrument, meterListener) =>
@@ -80,21 +81,27 @@ public sealed class TenantProvisioningWorkerPostgresTests
             }
         };
         listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
-            observations.Add(new MetricObservation(
-                instrument.Name,
-                measurement,
-                tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString()))));
+        {
+            var values = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+            observations.Add(new MetricObservation(instrument.Name, measurement, values));
+            if (instrument.Name == "mg.provisioning.lease.renewals"
+                && values.TryGetValue("outcome", out var outcome)
+                && outcome == "succeeded")
+            {
+                renewalObserved.TrySetResult();
+            }
+        });
         listener.SetMeasurementEventCallback<double>((instrument, measurement, tags, _) =>
-            observations.Add(new MetricObservation(
-                instrument.Name,
-                measurement,
-                tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString()))));
+        {
+            var values = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+            observations.Add(new MetricObservation(instrument.Name, measurement, values));
+        });
         listener.Start();
 
         var worker = CreateWorker(services, renewalInterval: TimeSpan.FromMilliseconds(10));
         var processing = worker.ProcessOneAsync("metrics-worker-id-not-a-tag", CancellationToken.None);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
-        await Task.Delay(TimeSpan.FromMilliseconds(35));
+        await renewalObserved.Task.WaitAsync(TimeSpan.FromSeconds(3));
         release.TrySetResult();
         await processing.WaitAsync(TimeSpan.FromSeconds(3));
 
