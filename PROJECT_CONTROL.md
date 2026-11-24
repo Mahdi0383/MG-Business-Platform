@@ -989,3 +989,12 @@ The historical entries below remain as an audit trail; statements that the agent
 ### Test-fixture session integrity note
 
 The temporary-shadow regression creates the fake temporary relation and invokes the readiness health check on the same open Npgsql connection. This is intentional: PostgreSQL temporary relations are session-scoped, so creating them through a separate short-lived connection would not exercise name shadowing in the health-check session. The test drops the durable idempotency table first and asserts readiness remains Unhealthy.
+
+
+### First exact-head CI failure and corrective commit — 2026-11-24
+
+- Initial candidate head `216a22c43da88c2d626124e9889dc4ef995995c1` failed both available workflows before executing tests. The exact compiler errors were CS1061 for `DatabaseFacade.OpenConnectionAsync` and `GetDbConnection` in the new regression test; the test file lacked the `Microsoft.EntityFrameworkCore` namespace import that exposes these extension methods.
+- Corrected by adding only `using Microsoft.EntityFrameworkCore;` to `PlatformSchemaReadinessHealthCheckTests.cs`.
+- Corrective commit: `cb5b590517cfb20b3c30fdcb46ee259131d6e158`. This does not change production behavior or weaken/remove tests.
+- The initial failed workflows are preserved as failure evidence: PostgreSQL 17 run `45332903219`; backend/web run `45332903556`. Do not report the candidate as validated until both workflows complete successfully on the corrective head.
+- Next: inspect exact-head CI for `cb5b590517cfb20b3c30fdcb46ee259131d6e158`; fetch logs and correct any remaining test/SQL issue. PR #175 stays Draft/unmerged; `Provisioning:WorkerEnabled=false`.
