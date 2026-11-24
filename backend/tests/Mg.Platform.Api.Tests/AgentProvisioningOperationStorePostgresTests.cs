@@ -51,6 +51,44 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     }
 
     [Fact]
+    public async Task RefusesCredentialRewrapWhenControlRoleMembershipDriftsBeforeUpdate()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "rewrap-boundary-secret")));
+
+        var keyBytes = RandomNumberGenerator.GetBytes(32);
+        var newKey = Convert.ToBase64String(keyBytes);
+        CryptographicOperations.ZeroMemory(keyBytes);
+        using var rotatedProtector = new AgentCredentialProtector(
+            "test-key-v2",
+            new Dictionary<string, string>
+            {
+                ["test-key-v1"] = fixture.OriginalKeyMaterial,
+                ["test-key-v2"] = newKey
+            });
+        var rotatedStore = fixture.CreateStore(rotatedProtector);
+
+        await fixture.SetUnexpectedMembershipAsync(grant: true);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rotatedStore.RewrapStoredCredentialsAsync(10));
+            Assert.Equal("test-key-v1", await fixture.GetCredentialKeyIdAsync(tenantId));
+        }
+        finally
+        {
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
+        }
+
+        Assert.Equal(1, await rotatedStore.RewrapStoredCredentialsAsync(10));
+        Assert.Equal("test-key-v2", await fixture.GetCredentialKeyIdAsync(tenantId));
+    }
+
+    [Fact]
     public async Task CoordinatorExecutesStagesAndReplaysVerifiedCredentialWithoutRepeatingSideEffects()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -688,6 +726,17 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
                 await applyRevoke.ExecuteNonQueryAsync();
             }
+        }
+
+        public async Task<string> GetCredentialKeyIdAsync(Guid tenantId)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT credential_key_id FROM mg_agent.provisioning_operations WHERE tenant_id = @tenant_id;",
+                connection);
+            command.Parameters.AddWithValue("tenant_id", tenantId);
+            return (string)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task SetPublicLedgerSelectAsync(bool grant)
