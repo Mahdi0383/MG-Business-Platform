@@ -1,4 +1,5 @@
 using Mg.Platform.Api.Health;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using Xunit;
