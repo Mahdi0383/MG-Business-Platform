@@ -32,9 +32,12 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
     public async Task ReadinessFailsClosedWhenTemporaryTableShadowsMissingIdempotencyMigration()
     {
         await using var fixture = await BusinessRegistryConcurrencyPostgresTests.DatabaseFixture.CreateAsync();
-        await CreateBusinessLookupIndexAsync(fixture);
         await fixture.DropIdempotencyTableAsync();
-        await ExecuteSchemaCommandAsync(fixture, """
+
+        await using var context = fixture.CreateContext();
+        await context.Database.OpenConnectionAsync();
+        var connection = (NpgsqlConnection)context.Database.GetDbConnection();
+        await using (var command = new NpgsqlCommand("""
             CREATE TEMP TABLE business_creation_requests (
                 idempotency_key uuid NOT NULL,
                 creator_identity_hash char(64) NOT NULL,
@@ -51,9 +54,15 @@ public sealed class PlatformSchemaReadinessHealthCheckTests
             );
             CREATE INDEX ix_business_creation_requests_business
                 ON pg_temp.business_creation_requests (business_id, created_at_utc);
-            """);
+            """, connection))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
 
-        await AssertUnhealthyAsync(fixture);
+        var check = new PlatformSchemaReadinessHealthCheck(context);
+        var result = await check.CheckHealthAsync(CreateContext(check));
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("schema is missing", result.Description, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
