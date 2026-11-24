@@ -1051,12 +1051,12 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 ### New checksum gate candidate
 - Draft child branch `fix/platform-migration-006-checksum-gate-20261124` is based on the exact PR #175 HEAD above. It adds:
   - `platform_schema_migrations` to migration 006, storing a migration ID, immutable SHA-256 checksum and application timestamp.
-  - A reviewed SHA-256 manifest and `backend/scripts/apply-platform-migration-006.sh`, which checks the exact SQL artifact before execution, requires PostgreSQL TLS `verify-full`, applies with stop-on-error, inserts only when no checksum row exists, and reads back without overwriting conflicts.
+  - A reviewed SHA-256 manifest and `backend/scripts/apply-platform-migration-006.sh`, which checks the exact SQL artifact before execution, requires PostgreSQL TLS `verify-full`, preflights and rejects a conflicting existing checksum before SQL, applies with stop-on-error, inserts only when no checksum row exists, and reads back without overwriting conflicts. The PostgreSQL workflow also runs `bash -n` against the migration runner.
   - A runtime checksum constant and readiness validation of the ledger table's exact columns, primary key and validated lowercase-hex constraint, plus the exact durable migration ID/checksum.
   - A schema-qualified checksum read to prevent a session-local temporary relation from shadowing the durable ledger.
   - PostgreSQL tests for the reviewed SQL/manifest hash, missing ledger, missing record, mismatched checksum and temporary-ledger shadowing. Existing catalog semantics tests remain in place.
   - `backend/docs/PLATFORM_MIGRATION_RUNBOOK.md`, API contract/README updates, and ADR-010 documenting apply, verification and forward-only rollback behavior.
-- Current implementation HEAD `4ef12be81155f12e99885d41dc3fe58aee2429ad`. Exact-head PostgreSQL and backend/web workflows are pending; no test/build pass is claimed for this candidate yet.
+- Code/test and workflow HEAD `25420542cec00a3a6a70234b4bd2ddc710b03b34` includes the checksum gate, PostgreSQL regressions and shell syntax CI. Acceptance/runbook documentation was updated afterward. The final PR HEAD still requires exact-head PostgreSQL and backend/web workflows; no test/build pass is claimed for this candidate yet.
 - API startup never applies migrations. Manual application without the runner's checksum registration leaves readiness Unhealthy. The runner does not overwrite an existing checksum; schema correction requires a separately reviewed forward migration. API rollback preserves migration 006 and all idempotency rows.
 - No production database was touched and no migration was applied. Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`.
 
