@@ -107,11 +107,11 @@ public sealed class TenantProvisioningWorker : BackgroundService
             return;
         }
 
+        var leaseToken = job.LeaseToken
+            ?? throw new InvalidOperationException("Claimed provisioning job has no fencing token.");
         TenantProvisioningWorkerMetrics.RecordJobClaimed();
         var startedAt = Stopwatch.GetTimestamp();
         var outcome = "failed";
-        var leaseToken = job.LeaseToken
-            ?? throw new InvalidOperationException("Claimed provisioning job has no fencing token.");
         using var handlerCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         using var heartbeatStop = new CancellationTokenSource();
         var heartbeat = MaintainLeaseAsync(job.Id, workerId, leaseToken, handlerCancellation,
