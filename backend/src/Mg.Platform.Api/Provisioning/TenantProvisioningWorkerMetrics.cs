@@ -19,8 +19,6 @@ internal static class TenantProvisioningWorkerMetrics
         Meter.CreateCounter<long>("mg.provisioning.lease.renewals");
     private static readonly Counter<long> IterationFailures =
         Meter.CreateCounter<long>("mg.provisioning.worker.iteration.failures");
-    private static readonly Counter<long> JobsDeadLettered =
-        Meter.CreateCounter<long>("mg.provisioning.jobs.dead_lettered");
     private static readonly Histogram<double> JobDuration =
         Meter.CreateHistogram<double>("mg.provisioning.jobs.duration", unit: "s");
 
@@ -38,10 +36,4 @@ internal static class TenantProvisioningWorkerMetrics
         LeaseRenewals.Add(1, new KeyValuePair<string, object?>("outcome", outcome));
 
     public static void RecordIterationFailure() => IterationFailures.Add(1);
-
-    public static void RecordJobsDeadLettered(int count)
-    {
-        if (count > 0)
-            JobsDeadLettered.Add(count);
-    }
 }
