@@ -100,7 +100,7 @@ public sealed class TenantProvisioningWorkerPostgresTests
 
         Assert.Contains(observations, item => item.Name == "mg.provisioning.jobs.claimed");
         Assert.Contains(observations, item =>
-            item.Name == "mg.provisioning.jobs.completed"
+            item.Name == "mg.provisioning.jobs.attempts"
             && item.Tags.TryGetValue("outcome", out var outcome)
             && outcome == "succeeded");
         Assert.Contains(observations, item =>
