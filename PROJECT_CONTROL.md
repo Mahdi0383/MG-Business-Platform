@@ -1129,3 +1129,10 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 1. Run both workflows on the documentation-updated exact PR #184 HEAD and record that evidence without claiming the old SHA's tests apply to a newer commit.
 2. Continue operational gates: approved metrics exporter/collector, dashboards/alert delivery/on-call, Vault token policy and key rotation, backup/restore, deployed mTLS, real ingress/socket response-loss and tenant restore/staging/pilot acceptance.
 3. Preserve the stacked Draft PR chain and human-review/branch-protection requirements. No merge or deployment without explicit authorization; worker remains disabled.
+
+
+## 11.23 Documentation-head CI confirmation for PR #184 — 2026-11-26
+
+- Documentation/ledger HEAD `577b18247c088f1eec92c8f7ef03fbd88b8a36b1` was validated after the section 11.22 evidence update. PostgreSQL workflow `45718094077` passed **232/232**; backend/web workflow `45718094255` passed backend **232/232**, frontend **20/20**, backend and isolated agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, production bundle and artifact upload; Pages deployment skipped as expected for a Draft PR.
+- This closes the exact-head documentation-validation follow-up recorded in section 11.22. PR #184 remains Draft/open/unmerged, based on PR #179 branch; no merge, deployment, migration or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+- Next engineering priority after human review of the security stack: complete approved operational observability (exporter/collector, protected scrape/telemetry path, dashboards, alert delivery, on-call ownership and staging evidence), then continue Vault/key lifecycle, backup/restore, deployed mTLS, ingress response-loss and tenant restore/pilot acceptance. Do not expose an unauthenticated metrics endpoint or enable the worker merely because instrumentation tests pass.
