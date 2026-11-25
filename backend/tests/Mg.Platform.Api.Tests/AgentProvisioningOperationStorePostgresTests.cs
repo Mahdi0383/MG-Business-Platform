@@ -822,13 +822,13 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 var revokeSql = (string?)await revokePublic.ExecuteScalarAsync()
                     ?? throw new InvalidOperationException("Could not construct the PUBLIC database ACL baseline.");
                 await using (var applyRevoke = new NpgsqlCommand(revokeSql, connection))
-                    await applyRevoke.ExecuteNonQuery();
+                    await applyRevoke.ExecuteNonQueryAsync();
 
                 var migrationPath = Path.Combine(
                     AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
                 var migrationSql = await File.ReadAllTextAsync(migrationPath);
                 await using (var migration = new NpgsqlCommand(migrationSql, connection))
-                    await migration.ExecuteNonQuery();
+                    await migration.ExecuteNonQueryAsync();
 
                 await using var createRoleFormat = new NpgsqlCommand(
                     "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L CREATEDB CREATEROLE NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS;', @role, @password);",
@@ -837,7 +837,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 createRoleFormat.Parameters.AddWithValue("password", controlPassword);
                 var createRoleSql = (string)(await createRoleFormat.ExecuteScalarAsync())!;
                 await using (var createRole = new NpgsqlCommand(createRoleSql, connection))
-                    await createRole.ExecuteNonQuery();
+                    await createRole.ExecuteNonQueryAsync();
 
                 await using var grantsFormat = new NpgsqlCommand(
                     """
@@ -848,7 +848,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 grantsFormat.Parameters.AddWithValue("role", controlRoleName);
                 var grantsSql = (string)(await grantsFormat.ExecuteScalarAsync())!;
                 await using var grants = new NpgsqlCommand(grantsSql, connection);
-                await grants.ExecuteNonQuery();
+                await grants.ExecuteNonQueryAsync();
             }
 
             var controlBuilder = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
@@ -878,7 +878,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 createFormat.Parameters.AddWithValue("role", unexpectedMembershipRoleName);
                 var createSql = (string)(await createFormat.ExecuteScalarAsync())!;
                 await using (var create = new NpgsqlCommand(createSql, connection))
-                    await create.ExecuteNonQuery();
+                    await create.ExecuteNonQueryAsync();
 
                 await using var grantFormat = new NpgsqlCommand(
                     "SELECT format('GRANT %I TO %I;', @granted, @member);", connection);
@@ -886,7 +886,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 grantFormat.Parameters.AddWithValue("member", controlRoleName);
                 var grantSql = (string)(await grantFormat.ExecuteScalarAsync())!;
                 await using var applyGrant = new NpgsqlCommand(grantSql, connection);
-                await applyGrant.ExecuteNonQuery();
+                await applyGrant.ExecuteNonQueryAsync();
                 unexpectedMembershipCreated = true;
             }
             else if (unexpectedMembershipCreated)
@@ -898,7 +898,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 revokeFormat.Parameters.AddWithValue("member", controlRoleName);
                 var revokeSql = (string)(await revokeFormat.ExecuteScalarAsync())!;
                 await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
-                await applyRevoke.ExecuteNonQuery();
+                await applyRevoke.ExecuteNonQueryAsync();
                 unexpectedMembershipCreated = false;
             }
         }
@@ -1029,7 +1029,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             cleanupFormat.Parameters.AddWithValue("role", controlRoleName);
             var cleanupSql = (string)(await cleanupFormat.ExecuteScalarAsync())!;
             await using var applyCleanup = new NpgsqlCommand(cleanupSql, connection);
-            await applyCleanup.ExecuteNonQuery();
+            await applyCleanup.ExecuteNonQueryAsync();
         }
     }
 }
