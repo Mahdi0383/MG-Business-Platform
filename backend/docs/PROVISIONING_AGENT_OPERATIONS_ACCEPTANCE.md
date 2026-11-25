@@ -189,11 +189,19 @@ The worker integration tests exercise the actual `TenantProvisioningWorker.Proce
 - generic handler exception text is not persisted; only `PROVISIONING_FAILED` is stored;
 - structured worker log messages include exception type but not secret-bearing exception text or connection details.
 
-The seven worker lifecycle checks above now have automated PostgreSQL test evidence on code/test SHA `1c87f546646dc71337e71ceb99ab773b4415568d`. Repeated success and lease-expiry races (eight iterations each) and sanitized log assertions passed. Production-host/staging exercise and a dedicated metrics assertion remain open. This is test evidence only; it does not authorize enabling the worker.
+The seven worker lifecycle checks above have automated PostgreSQL test evidence on code/test SHA `1c87f546646dc71337e71ceb99ab773b4415568d`. Repeated success and lease-expiry races (eight iterations each) and sanitized log assertions passed. Production-host/staging exercise remains open. This is test evidence only; it does not authorize enabling the worker.
+
+
+### Automated low-cardinality worker metrics (partial)
+
+The worker now emits the `MG.Platform.Provisioning` meter with counters for valid claims, completed processing attempts, lease-renewal outcomes and worker-loop failures, plus a job-duration histogram. Only bounded `outcome` tags are emitted; tenant IDs, job IDs, worker IDs, exception messages and credential data are excluded. A PostgreSQL-backed `MeterListener` regression asserts claim, successful attempt, duration and heartbeat measurements and rejects any tag key other than `outcome`.
+
+See `backend/docs/PROVISIONING_WORKER_OBSERVABILITY.md` for instrument names, outcome values and alert guidance. The API does not yet configure an exporter or expose a metrics endpoint. Collector deployment, dashboard, alert delivery, on-call ownership and production-host/staging evidence remain mandatory and open.
 
 
 ## 5. Platform worker rollout
 - [ ] Keep Provisioning:WorkerEnabled=false until all agent, database, secret-manager and fault-injection gates above pass.
+- [ ] Configure the approved OpenTelemetry collector to ingest `MG.Platform.Provisioning`; verify dashboard queries, alert delivery, data minimization and on-call ownership before any canary.
 - [ ] Verify the platform API uses only the mTLS agent client credential and has no PostgreSQL cluster-administration credential.
 - [ ] Enable the worker for one isolated canary tenant first. Confirm the tenant remains Pending until schema and runtime verification succeed.
 - [ ] Confirm permanent failures are dead-lettered, transient failures are retried with bounded attempts, and stale lease tokens cannot mutate jobs.

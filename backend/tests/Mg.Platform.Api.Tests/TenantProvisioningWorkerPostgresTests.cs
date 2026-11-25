@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using Mg.Platform.Api.Data;
 using Mg.Platform.Api.Endpoints;
 using Mg.Platform.Api.Models;
@@ -53,6 +55,86 @@ public sealed class TenantProvisioningWorkerPostgresTests
         Assert.Null(completed.LeaseExpiresAtUtc);
         Assert.Equal("Active", activated.Status);
         Assert.NotNull(activated.ActivatedAtUtc);
+    }
+
+    [Fact]
+    public async Task EmitsLowCardinalityMetricsForClaimCompletionAndLeaseRenewal()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.AddBusinessAndJobAsync("worker-metrics");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new DelegateHandler(async (_, token) =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(token);
+        });
+        using var services = CreateServices(fixture, handler);
+        var observations = new ConcurrentBag<MetricObservation>();
+        var renewalObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == TenantProvisioningWorkerMetrics.MeterName)
+                    meterListener.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
+        {
+            var values = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+            observations.Add(new MetricObservation(instrument.Name, measurement, values));
+            if (instrument.Name == "mg.provisioning.lease.renewals"
+                && values.TryGetValue("outcome", out var outcome)
+                && outcome == "succeeded")
+            {
+                renewalObserved.TrySetResult();
+            }
+        });
+        listener.SetMeasurementEventCallback<double>((instrument, measurement, tags, _) =>
+        {
+            var values = tags.ToArray().ToDictionary(tag => tag.Key, tag => tag.Value?.ToString());
+            observations.Add(new MetricObservation(instrument.Name, measurement, values));
+        });
+        listener.Start();
+
+        var worker = CreateWorker(services, renewalInterval: TimeSpan.FromMilliseconds(10));
+        using var stop = new CancellationTokenSource();
+        var processing = worker.ProcessOneAsync("metrics-worker-id-not-a-tag", stop.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await renewalObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            release.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetResult();
+            stop.Cancel();
+            try
+            {
+                await processing.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
+            }
+        }
+
+        Assert.Contains(observations, item => item.Name == "mg.provisioning.jobs.claimed");
+        Assert.Contains(observations, item =>
+            item.Name == "mg.provisioning.jobs.attempts"
+            && item.Tags.TryGetValue("outcome", out var outcome)
+            && outcome == "succeeded");
+        Assert.Contains(observations, item =>
+            item.Name == "mg.provisioning.lease.renewals"
+            && item.Tags.TryGetValue("outcome", out var outcome)
+            && outcome == "succeeded");
+        Assert.Contains(observations, item =>
+            item.Name == "mg.provisioning.jobs.duration"
+            && item.Tags.TryGetValue("outcome", out var outcome)
+            && outcome == "succeeded");
+        Assert.All(observations, item => Assert.All(item.Tags.Keys, key => Assert.Equal("outcome", key)));
     }
 
     [Fact]
@@ -393,6 +475,11 @@ public sealed class TenantProvisioningWorkerPostgresTests
             TimeSpan.FromMilliseconds(5),
             renewalInterval ?? TestRenewalInterval);
     }
+
+    private sealed record MetricObservation(
+        string Name,
+        double Value,
+        IReadOnlyDictionary<string, string?> Tags);
 
     private sealed class RecordingLogger<T> : ILogger<T>
     {

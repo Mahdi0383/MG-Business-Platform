@@ -1064,3 +1064,38 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 1. Open/maintain a Draft child PR against PR #175 and run PostgreSQL 17 plus backend/web CI on the exact final PR HEAD; inspect logs for all new tests and build steps.
 2. If green, add Windows packaging, CodeQL, formatting and NuGet checks only after PR #159 is independently reviewed and the stack can be safely synchronized.
 3. Continue production OIDC/JWKS, real ingress/socket response-loss, Vault/key rotation/backup-restore, deployed mTLS, observability, tenant backup/restore and pilot acceptance. Do not mark production readiness until every release gate has evidence.
+
+
+## 11.19 Provisioning worker low-cardinality observability — 2026-11-24
+
+- Draft child branch `feat/provisioning-worker-observability-metrics-20261124` is based on exact PR #178 HEAD `196ecc3808224469bcbfc7440efcefd0df0ce1d4`; it must not merge independently of the migration-checksum/readiness stack.
+- Added `TenantProvisioningWorkerMetrics` using `System.Diagnostics.Metrics`, meter `MG.Platform.Provisioning` v1.0.0:
+  - counters: `mg.provisioning.jobs.claimed`, `mg.provisioning.jobs.attempts`, `mg.provisioning.lease.renewals`, `mg.provisioning.worker.iteration.failures`;
+  - histogram: `mg.provisioning.jobs.duration` in seconds;
+  - only bounded `outcome` tags are emitted. Tenant IDs, job IDs, worker IDs, exception messages, database names and credential data are not metric tags.
+- Worker claim, attempt outcome/duration, lease-renewal success/loss/error and worker-loop failure paths are instrumented. No business logic, lease fencing, retry policy or activation boundary is weakened.
+- Added a PostgreSQL-backed `MeterListener` regression that waits for an actual heartbeat metric, verifies claim/attempt/duration/renewal measurements and asserts the only tag key is `outcome`.
+- Added `backend/docs/PROVISIONING_WORKER_OBSERVABILITY.md` and updated the operations acceptance checklist. The API does not yet configure an exporter or expose a metrics endpoint; approved collector deployment, dashboard, alert delivery, on-call ownership and production-host/staging validation remain open.
+- Code/test HEAD `4c6f2288cf860c3d1d1a020721c539ddd461c439`; exact current PR HEAD `f544dfeac0b42dd195e949dc3f510ba01ce37ac6` passed PostgreSQL workflow `45368452176` (**229 passed, 0 failed, 0 skipped**) and backend/web workflow `45368452137` (backend **229 passed**, frontend **20 passed**, backend and isolated agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, production bundle and artifact upload successful; Pages deployment skipped as expected for PR).
+- Keep PR Draft/unmerged and `Provisioning:WorkerEnabled=false`. Instrumentation is not approval to deploy or enable provisioning.
+
+### Next
+1. Open a Draft child PR against PR #178 and run exact-head PostgreSQL and backend/web CI; inspect the metrics regression and all prior stack tests.
+2. If green, add collector/exporter configuration only with an approved telemetry endpoint and credentials; then add staging alert-delivery and canary evidence.
+3. Continue the remaining Vault/key lifecycle, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and operator acceptance gates. No production-readiness claim until every gate is evidenced.
+
+
+## 11.20 Exact-head revalidation and security integration handoff — 2026-11-26
+
+- Re-fetched the live open-PR list and exact heads. PR #178 remains Draft/open/unmerged at `196ecc3808224469bcbfc7440efcefd0df0ce1d4`; PR #179 remains Draft/open/unmerged at `49681ccdd092b7b9736b258a6314d18780586b26`; PR #177 remains Draft/open/unmerged at `6fc2542c754f5c1d158f0d7fe8626c7860412ab7`. PR #179 is stacked on #178; #177 is separately stacked on #155.
+- Live exact-head workflow API recheck: PR #178 PostgreSQL run `45366992992` and backend/web run `45366993127` both completed successfully on SHA `196ecc3808224469bcbfc7440efcefd0df0ce1d4`. PR #179 PostgreSQL run `45369242535` and backend/web run `45369242662` both completed successfully on SHA `49681ccdd092b7b9736b258a6314d18780586b26`. PR #177 PostgreSQL run `45361418780` and backend/web run `45361418776` both completed successfully on SHA `6fc2542c754f5c1d158f0d7fe8626c7860412ab7`. These are workflow-level success checks; do not infer Windows packaging, production deployment or staging acceptance from them.
+- PR #179's final test-fixture cleanup commit is included in its current exact-head green result. Earlier ledger evidence for #179 at `f544dfeac0b42dd195e949dc3f510ba01ce37ac6` is superseded by current SHA `49681ccdd092b7b9736b258a6314d18780586b26`.
+- Security handoff: PR #177's shared verifier is green on its own #155-based stack, but must not be copied wholesale over the newer #179 tree. The live #179 branch has newer provisioning handler/resource/store code. Next implementation must be a new non-destructive child branch based on current #179 HEAD, port the verifier into the current method boundaries, preserve all newer handler behavior, ACL/read-only diagnostics, transaction and maintenance-lock semantics, fault-injection seams, worker metrics and migration checksum gate, then add current-parent PostgreSQL regressions and run both workflows on the exact combined HEAD. Do not retarget, rebase, force-push or merge the existing #177/#179 branches.
+- No merge, production migration, deployment or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`; release status remains NOT VERIFIED.
+
+### Next
+1. Create a child integration branch from exact current PR #179 HEAD and inspect the current source/diff before making any edits; selectively port #177's shared verifier rather than replacing current files with its older snapshots.
+2. Add tests against current parent behavior for membership drift at credential persistence, rewrap, phase advancement and tenant-resource mutation; preserve maintenance-lock and fault-injection coverage.
+3. Run PostgreSQL 17 and backend/web workflows on the exact final integration SHA; inspect failures and record evidence in the same PR.
+4. Continue operational blockers: approved metrics exporter/collector, dashboards/alerts/on-call, Vault token policy and key rotation, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and staging/pilot acceptance.
+5. Keep `Provisioning:WorkerEnabled=false`; no merge or deployment without explicit authorization and required human review.
