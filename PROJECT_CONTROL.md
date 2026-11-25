@@ -1083,3 +1083,19 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 1. Open a Draft child PR against PR #178 and run exact-head PostgreSQL and backend/web CI; inspect the metrics regression and all prior stack tests.
 2. If green, add collector/exporter configuration only with an approved telemetry endpoint and credentials; then add staging alert-delivery and canary evidence.
 3. Continue the remaining Vault/key lifecycle, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and operator acceptance gates. No production-readiness claim until every gate is evidenced.
+
+
+## 11.20 Exact-head revalidation and security integration handoff — 2026-11-26
+
+- Re-fetched the live open-PR list and exact heads. PR #178 remains Draft/open/unmerged at `196ecc3808224469bcbfc7440efcefd0df0ce1d4`; PR #179 remains Draft/open/unmerged at `49681ccdd092b7b9736b258a6314d18780586b26`; PR #177 remains Draft/open/unmerged at `6fc2542c754f5c1d158f0d7fe8626c7860412ab7`. PR #179 is stacked on #178; #177 is separately stacked on #155.
+- Live exact-head workflow API recheck: PR #178 PostgreSQL run `45366992992` and backend/web run `45366993127` both completed successfully on SHA `196ecc3808224469bcbfc7440efcefd0df0ce1d4`. PR #179 PostgreSQL run `45369242535` and backend/web run `45369242662` both completed successfully on SHA `49681ccdd092b7b9736b258a6314d18780586b26`. PR #177 PostgreSQL run `45361418780` and backend/web run `45361418776` both completed successfully on SHA `6fc2542c754f5c1d158f0d7fe8626c7860412ab7`. These are workflow-level success checks; do not infer Windows packaging, production deployment or staging acceptance from them.
+- PR #179's final test-fixture cleanup commit is included in its current exact-head green result. Earlier ledger evidence for #179 at `f544dfeac0b42dd195e949dc3f510ba01ce37ac6` is superseded by current SHA `49681ccdd092b7b9736b258a6314d18780586b26`.
+- Security handoff: PR #177's shared verifier is green on its own #155-based stack, but must not be copied wholesale over the newer #179 tree. The live #179 branch has newer provisioning handler/resource/store code. Next implementation must be a new non-destructive child branch based on current #179 HEAD, port the verifier into the current method boundaries, preserve all newer handler behavior, ACL/read-only diagnostics, transaction and maintenance-lock semantics, fault-injection seams, worker metrics and migration checksum gate, then add current-parent PostgreSQL regressions and run both workflows on the exact combined HEAD. Do not retarget, rebase, force-push or merge the existing #177/#179 branches.
+- No merge, production migration, deployment or worker activation occurred. Keep `Provisioning:WorkerEnabled=false`; release status remains NOT VERIFIED.
+
+### Next
+1. Create a child integration branch from exact current PR #179 HEAD and inspect the current source/diff before making any edits; selectively port #177's shared verifier rather than replacing current files with its older snapshots.
+2. Add tests against current parent behavior for membership drift at credential persistence, rewrap, phase advancement and tenant-resource mutation; preserve maintenance-lock and fault-injection coverage.
+3. Run PostgreSQL 17 and backend/web workflows on the exact final integration SHA; inspect failures and record evidence in the same PR.
+4. Continue operational blockers: approved metrics exporter/collector, dashboards/alerts/on-call, Vault token policy and key rotation, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and staging/pilot acceptance.
+5. Keep `Provisioning:WorkerEnabled=false`; no merge or deployment without explicit authorization and required human review.
