@@ -1027,7 +1027,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             await using var connection = new NpgsqlConnection(adminConnectionString);
             await connection.OpenAsync();
             await using var cleanupFormat = new NpgsqlCommand(
-                "SELECT format('REVOKE ALL ON SCHEMA mg_agent FROM %I; REVOKE ALL ON TABLE mg_agent.provisioning_operations FROM %I; REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I; DROP ROLE IF EXISTS %I; GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', @role, @role, current_database(), @role, @role, current_database());",
+                "SELECT format('DROP OWNED BY %I; DROP ROLE IF EXISTS %I; GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', @role, @role, current_database());",
                 connection);
             cleanupFormat.Parameters.AddWithValue("role", controlRoleName);
             var cleanupSql = (string)(await cleanupFormat.ExecuteScalarAsync())!;
