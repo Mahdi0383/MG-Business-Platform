@@ -1115,3 +1115,17 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 2. Check PR #184 exact-head workflows when they appear; inspect full logs and correct any failure without weakening assertions.
 3. Add exact-head CI evidence to PR #184 and the ledger; retain Draft/unmerged status.
 4. Continue production metrics collector/alerts, Vault policy/key lifecycle, backup/restore, deployed mTLS, real ingress response-loss and staging/pilot acceptance. Keep worker disabled.
+
+
+## 11.22 Current-stack control-role drift regression coverage — 2026-11-26
+
+- Draft child PR #184 integrates the shared `AgentControlRoleReadinessVerifier` into the current provisioning stack without replacing newer code with PR #177 snapshots. The current API readiness endpoint delegates to the shared verifier; the tenant resource provisioner uses it at its existing mutation gate; operation-store mutations revalidate immediately before prepared credential insertion, credential rewrap, batch key rewrap and phase advancement.
+- Rebuilt the operation-store PostgreSQL fixture from the clean PR #179 parent snapshot after an intermediate edit accidentally duplicated source. The fixture now uses a dedicated restricted control role (with the production-relevant role attributes and narrow ledger grants), and uses the administrative test connection only for fixture setup, drift injection and assertions. Fixture cleanup uses `DROP OWNED BY` before dropping the unique control role and restores PUBLIC CONNECT/TEMPORARY defaults.
+- Added PostgreSQL regressions: inject unexpected role membership from inside the credential factory and assert no prepared row persists; inject membership before phase advancement and assert the phase remains `Prepared`; inject membership before credential key rewrap and assert the row remains on key v1, then revoke drift and verify retry rotates it to key v2. Existing current-parent ACL/read diagnostics, maintenance-lock and fault-injection tests remain in the file.
+- Exact code/test SHA `52e1ea7fa3b12da00255c445c11403834b1f5e1f` passed PostgreSQL workflow `45717712068`: **232 passed, 0 failed, 0 skipped**. Backend/web workflow `45717712090` passed: backend **232 passed**, frontend **20 passed**, backend and isolated agent API Release builds **0 warnings / 0 errors**, dependency audit **0 vulnerabilities**, production bundle and artifact upload succeeded; GitHub Pages deployment was skipped as expected for a PR. These results apply to this exact code/test SHA, not a later documentation commit.
+- PR #184 remains Draft/open/unmerged and is stacked on PR #179. The application-level verifier narrows check-to-use intervals but does not eliminate concurrent privileged-administrator races or replace production process-kill recovery, Vault/key lifecycle, deployed mTLS, observability collector/alerts and staging/pilot acceptance. Keep `Provisioning:WorkerEnabled=false`; no migration, deployment or release activation.
+
+### Next
+1. Run both workflows on the documentation-updated exact PR #184 HEAD and record that evidence without claiming the old SHA's tests apply to a newer commit.
+2. Continue operational gates: approved metrics exporter/collector, dashboards/alert delivery/on-call, Vault token policy and key rotation, backup/restore, deployed mTLS, real ingress/socket response-loss and tenant restore/staging/pilot acceptance.
+3. Preserve the stacked Draft PR chain and human-review/branch-protection requirements. No merge or deployment without explicit authorization; worker remains disabled.
