@@ -1099,3 +1099,19 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 3. Run PostgreSQL 17 and backend/web workflows on the exact final integration SHA; inspect failures and record evidence in the same PR.
 4. Continue operational blockers: approved metrics exporter/collector, dashboards/alerts/on-call, Vault token policy and key rotation, backup/restore, deployed mTLS, real ingress response-loss, tenant restore and staging/pilot acceptance.
 5. Keep `Provisioning:WorkerEnabled=false`; no merge or deployment without explicit authorization and required human review.
+
+
+## 11.21 Shared control-role verifier on the current provisioning stack — 2026-11-26
+
+- Draft child PR #184, branch `integration/agent-shared-readiness-current-stack-20261126`, is based on PR #179 branch HEAD `e76673f85029ed467233f2166e1654848dd4d596`. It selectively ports the shared verifier from #177; no older source file was copied over the current stack wholesale.
+- Added `AgentControlRoleReadinessVerifier` in Agent Core. The current API readiness method now delegates to it; the current tenant resource provisioner delegates its mutation-boundary role check to it; the operation store invokes the full verifier before credential persistence, credential rewrap, batch key rewrap and phase advancement.
+- Preserved current handler/coordinator and provisioning code, current resource mutation flow, the provisioner's transaction and fault-injection seams, and the operation store's existing ACL read diagnostics and maintenance lock. Added a current-parent PostgreSQL regression that injects unexpected role membership after readiness and proves initial tenant resource mutation is refused with no database/tenant roles created.
+- Current PR #184 implementation HEAD at initial PR creation: `7489e7759ab460190887a66115e1ce8827294b2e`. PostgreSQL 17 and backend/web workflows have not appeared for this head in the live Actions API yet; exact-head validation is PENDING. Do not claim this integration is green.
+- Test coverage still needs explicit current-parent operation-store regressions for membership drift at credential persistence, credential rewrap and phase advancement; the production guards are added, but the #177 restricted-role fixture must be safely ported without replacing newer current-stack tests. Treat these as an active acceptance gap.
+- No merge, deployment, migration or worker activation. Keep `Provisioning:WorkerEnabled=false`.
+
+### Next
+1. Port the restricted control-role test fixture and drift regressions into current `AgentProvisioningOperationStorePostgresTests` without discarding newer tests; verify cleanup of injected role membership on every failure path.
+2. Check PR #184 exact-head workflows when they appear; inspect full logs and correct any failure without weakening assertions.
+3. Add exact-head CI evidence to PR #184 and the ledger; retain Draft/unmerged status.
+4. Continue production metrics collector/alerts, Vault policy/key lifecycle, backup/restore, deployed mTLS, real ingress response-loss and staging/pilot acceptance. Keep worker disabled.
