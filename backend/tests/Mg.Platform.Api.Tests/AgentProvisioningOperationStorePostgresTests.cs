@@ -30,7 +30,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                         await fixture.SetUnexpectedMembershipAsync(grant: true);
                         return credentials;
                     }));
-            Assert.Contains("readiness", insertFailure.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("boundary", insertFailure.Message, StringComparison.OrdinalIgnoreCase);
             Assert.False(await fixture.HasOperationAsync(tenantId));
 
             await fixture.SetUnexpectedMembershipAsync(grant: false);
@@ -42,7 +42,7 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             var phaseFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 fixture.Store.AdvancePhaseAsync(
                     tenantId, idempotencyKey, "Prepared", "DatabaseCreated"));
-            Assert.Contains("readiness", phaseFailure.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("boundary", phaseFailure.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("Prepared", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
         }
         finally
