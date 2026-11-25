@@ -39,10 +39,10 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/init@bed9c837cf3ee3c3114274787a1f2172d3d46956 # v4.39.5
         with:
           languages: csharp
           build-mode: autobuild
 
       - name: Analyze
-        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/analyze@bed9c837cf3ee3c3114274787a1f2172d3d46956 # v4.39.5
