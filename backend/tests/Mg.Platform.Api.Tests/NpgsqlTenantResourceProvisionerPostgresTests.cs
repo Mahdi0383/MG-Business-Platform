@@ -674,6 +674,7 @@ public sealed class NpgsqlTenantResourceProvisionerPostgresTests
                 fixture.Credentials, CancellationToken.None));
     }
 
+    [Fact]
     public async Task RefusesResourceMutationWhenControlRoleMembershipDriftsAfterInitialReadiness()
     {
         await using var fixture = await Fixture.CreateAsync();
