@@ -12,6 +12,85 @@ public sealed class AgentProvisioningPostgresCollection { }
 public sealed class AgentProvisioningOperationStorePostgresTests
 {
     [Fact]
+    public async Task RefusesPreparedCredentialInsertAndPhaseAdvanceWhenControlRoleMembershipDrifts()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        var credentials = Fixture.Credentials(databaseName, "membership-drift-secret");
+
+        try
+        {
+            var insertFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                    tenantId, idempotencyKey, databaseName,
+                    async _ =>
+                    {
+                        await fixture.SetUnexpectedMembershipAsync(grant: true);
+                        return credentials;
+                    }));
+            Assert.Contains("boundary", insertFailure.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(await fixture.HasOperationAsync(tenantId));
+
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
+            await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+                tenantId, idempotencyKey, databaseName,
+                _ => ValueTask.FromResult(credentials));
+
+            await fixture.SetUnexpectedMembershipAsync(grant: true);
+            var phaseFailure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                fixture.Store.AdvancePhaseAsync(
+                    tenantId, idempotencyKey, "Prepared", "DatabaseCreated"));
+            Assert.Contains("boundary", phaseFailure.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("Prepared", await fixture.Store.GetPhaseAsync(tenantId, idempotencyKey));
+        }
+        finally
+        {
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
+        }
+    }
+
+    [Fact]
+    public async Task RefusesCredentialRewrapWhenControlRoleMembershipDriftsAndRecoversAfterRevoke()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tenantId = Guid.NewGuid();
+        var idempotencyKey = Guid.NewGuid();
+        var databaseName = $"mg_tenant_{tenantId:N}";
+        await fixture.Store.GetOrCreatePreparedCredentialsAsync(
+            tenantId, idempotencyKey, databaseName,
+            _ => ValueTask.FromResult(Fixture.Credentials(databaseName, "rewrap-membership-secret")));
+
+        var keyBytes = RandomNumberGenerator.GetBytes(32);
+        var newKey = Convert.ToBase64String(keyBytes);
+        CryptographicOperations.ZeroMemory(keyBytes);
+        using var rotatedProtector = new AgentCredentialProtector(
+            "test-key-v2",
+            new Dictionary<string, string>
+            {
+                ["test-key-v1"] = fixture.OriginalKeyMaterial,
+                ["test-key-v2"] = newKey
+            });
+        var rotatedStore = fixture.CreateStore(rotatedProtector);
+
+        await fixture.SetUnexpectedMembershipAsync(grant: true);
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                rotatedStore.RewrapStoredCredentialsAsync(10));
+            Assert.Equal("test-key-v1", await fixture.GetCredentialKeyIdAsync(tenantId));
+        }
+        finally
+        {
+            await fixture.SetUnexpectedMembershipAsync(grant: false);
+        }
+
+        Assert.True(await rotatedStore.RewrapStoredCredentialsAsync(10) >= 1);
+        Assert.Equal("test-key-v2", await fixture.GetCredentialKeyIdAsync(tenantId));
+    }
+
+    [Fact]
     public async Task CoordinatorExecutesStagesAndReplaysVerifiedCredentialWithoutRepeatingSideEffects()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -698,17 +777,26 @@ public sealed class AgentProvisioningOperationStorePostgresTests
     {
         private readonly NpgsqlDataSource dataSource;
         private readonly AgentCredentialProtector protector;
+        private readonly string adminConnectionString;
+        private readonly string controlRoleName;
+        private readonly string unexpectedMembershipRoleName;
+        private bool unexpectedMembershipCreated;
 
         private Fixture(
             NpgsqlDataSource dataSource,
             AgentCredentialProtector protector,
             AgentProvisioningOperationStore store,
-            string originalKeyMaterial)
+            string originalKeyMaterial,
+            string adminConnectionString,
+            string controlRoleName)
         {
             this.dataSource = dataSource;
             this.protector = protector;
             Store = store;
             OriginalKeyMaterial = originalKeyMaterial;
+            this.adminConnectionString = adminConnectionString;
+            this.controlRoleName = controlRoleName;
+            unexpectedMembershipRoleName = controlRoleName + "_unexpected";
         }
 
         public AgentProvisioningOperationStore Store { get; }
@@ -722,49 +810,125 @@ public sealed class AgentProvisioningOperationStorePostgresTests
             if (string.IsNullOrWhiteSpace(configured))
                 throw new InvalidOperationException("MG_TEST_POSTGRES must point to a disposable PostgreSQL test database.");
 
-            var builder = new NpgsqlConnectionStringBuilder(configured);
-            builder.Pooling = false;
+            var builder = new NpgsqlConnectionStringBuilder(configured) { Pooling = false };
+            var controlRoleName = "mg_agent_store_" + Guid.NewGuid().ToString("N")[..12];
+            var controlPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             await using (var connection = new NpgsqlConnection(builder.ConnectionString))
             {
                 await connection.OpenAsync();
-
-                // PostgreSQL grants CONNECT and TEMP to PUBLIC by default when the
-                // database ACL is NULL. The production agent database explicitly
-                // revokes these defaults, so mirror that security baseline here.
-                await using (var revokePublicDatabaseAccess = new NpgsqlCommand(
-                    """
-                    SELECT format(
-                        'REVOKE CONNECT, CREATE, TEMP ON DATABASE %I FROM PUBLIC;',
-                        current_database());
-                    """, connection))
-                {
-                    var revokeSql = (string?)await revokePublicDatabaseAccess.ExecuteScalarAsync()
-                        ?? throw new InvalidOperationException("Could not construct the PUBLIC database ACL baseline.");
-                    await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
+                await using var revokePublic = new NpgsqlCommand(
+                    "SELECT format('REVOKE CONNECT, CREATE, TEMP ON DATABASE %I FROM PUBLIC;', current_database());",
+                    connection);
+                var revokeSql = (string?)await revokePublic.ExecuteScalarAsync()
+                    ?? throw new InvalidOperationException("Could not construct the PUBLIC database ACL baseline.");
+                await using (var applyRevoke = new NpgsqlCommand(revokeSql, connection))
                     await applyRevoke.ExecuteNonQueryAsync();
-                }
 
                 var migrationPath = Path.Combine(
                     AppContext.BaseDirectory, "agent-database", "migrations", "001_agent_provisioning_ledger.sql");
                 var migrationSql = await File.ReadAllTextAsync(migrationPath);
-                await using var command = new NpgsqlCommand(migrationSql, connection);
-                await command.ExecuteNonQueryAsync();
+                await using (var migration = new NpgsqlCommand(migrationSql, connection))
+                    await migration.ExecuteNonQueryAsync();
+
+                await using var createRoleFormat = new NpgsqlCommand(
+                    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L CREATEDB CREATEROLE NOINHERIT NOSUPERUSER NOREPLICATION NOBYPASSRLS;', @role, @password);",
+                    connection);
+                createRoleFormat.Parameters.AddWithValue("role", controlRoleName);
+                createRoleFormat.Parameters.AddWithValue("password", controlPassword);
+                var createRoleSql = (string)(await createRoleFormat.ExecuteScalarAsync())!;
+                await using (var createRole = new NpgsqlCommand(createRoleSql, connection))
+                    await createRole.ExecuteNonQueryAsync();
+
+                await using var grantsFormat = new NpgsqlCommand(
+                    """
+                    SELECT format(
+                        'GRANT CONNECT ON DATABASE %I TO %I; GRANT USAGE ON SCHEMA mg_agent TO %I; GRANT SELECT, INSERT, UPDATE ON TABLE mg_agent.provisioning_operations TO %I;',
+                        current_database(), @role, @role, @role);
+                    """, connection);
+                grantsFormat.Parameters.AddWithValue("role", controlRoleName);
+                var grantsSql = (string)(await grantsFormat.ExecuteScalarAsync())!;
+                await using var grants = new NpgsqlCommand(grantsSql, connection);
+                await grants.ExecuteNonQueryAsync();
             }
 
-            // All tests share the same stable key ID/material because the disposable
-            // integration database retains operation rows between test cases.
+            var controlBuilder = new NpgsqlConnectionStringBuilder(builder.ConnectionString)
+            {
+                Username = controlRoleName,
+                Password = controlPassword,
+                Pooling = false
+            };
             const string keyMaterial = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
             var protector = new AgentCredentialProtector(
                 "test-key-v1",
                 new Dictionary<string, string> { ["test-key-v1"] = keyMaterial });
-            var dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
+            var dataSource = NpgsqlDataSource.Create(controlBuilder.ConnectionString);
             return new Fixture(dataSource, protector,
-                new AgentProvisioningOperationStore(dataSource, protector), keyMaterial);
+                new AgentProvisioningOperationStore(dataSource, protector), keyMaterial,
+                builder.ConnectionString, controlRoleName);
+        }
+
+        public async Task SetUnexpectedMembershipAsync(bool grant)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            if (grant)
+            {
+                await using var createFormat = new NpgsqlCommand(
+                    "SELECT format('CREATE ROLE %I NOLOGIN;', @role);", connection);
+                createFormat.Parameters.AddWithValue("role", unexpectedMembershipRoleName);
+                var createSql = (string)(await createFormat.ExecuteScalarAsync())!;
+                await using (var create = new NpgsqlCommand(createSql, connection))
+                    await create.ExecuteNonQueryAsync();
+
+                await using var grantFormat = new NpgsqlCommand(
+                    "SELECT format('GRANT %I TO %I;', @granted, @member);", connection);
+                grantFormat.Parameters.AddWithValue("granted", unexpectedMembershipRoleName);
+                grantFormat.Parameters.AddWithValue("member", controlRoleName);
+                var grantSql = (string)(await grantFormat.ExecuteScalarAsync())!;
+                await using var applyGrant = new NpgsqlCommand(grantSql, connection);
+                await applyGrant.ExecuteNonQueryAsync();
+                unexpectedMembershipCreated = true;
+            }
+            else if (unexpectedMembershipCreated)
+            {
+                await using var revokeFormat = new NpgsqlCommand(
+                    "SELECT format('REVOKE %I FROM %I; DROP ROLE IF EXISTS %I;', @granted, @member, @granted);",
+                    connection);
+                revokeFormat.Parameters.AddWithValue("granted", unexpectedMembershipRoleName);
+                revokeFormat.Parameters.AddWithValue("member", controlRoleName);
+                var revokeSql = (string)(await revokeFormat.ExecuteScalarAsync())!;
+                await using var applyRevoke = new NpgsqlCommand(revokeSql, connection);
+                await applyRevoke.ExecuteNonQueryAsync();
+                unexpectedMembershipCreated = false;
+            }
+        }
+
+        public async Task<bool> HasOperationAsync(Guid tenantId)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM mg_agent.provisioning_operations WHERE tenant_id = @tenant_id);",
+                connection);
+            command.Parameters.AddWithValue("tenant_id", tenantId);
+            return (bool)(await command.ExecuteScalarAsync() ?? false);
+        }
+
+        public async Task<string> GetCredentialKeyIdAsync(Guid tenantId)
+        {
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "SELECT credential_key_id FROM mg_agent.provisioning_operations WHERE tenant_id = @tenant_id;",
+                connection);
+            command.Parameters.AddWithValue("tenant_id", tenantId);
+            return (string)(await command.ExecuteScalarAsync())!;
         }
 
         public async Task SetPublicLedgerSelectAsync(bool grant)
         {
-            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
             await using var command = new NpgsqlCommand(
                 grant
                     ? "GRANT SELECT ON TABLE mg_agent.provisioning_operations TO PUBLIC;"
@@ -804,7 +968,8 @@ public sealed class AgentProvisioningOperationStorePostgresTests
                 _ => throw new ArgumentOutOfRangeException(nameof(privilege), "Unsupported PUBLIC ACL test privilege.")
             };
 
-            await using var connection = await dataSource.OpenConnectionAsync();
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
             var sql = template;
             if (scope == "database")
             {
@@ -852,9 +1017,19 @@ public sealed class AgentProvisioningOperationStorePostgresTests
 
         public async ValueTask DisposeAsync()
         {
-            // The test database is disposable; use globally unique tenant/idempotency IDs.
+            if (unexpectedMembershipCreated)
+                await SetUnexpectedMembershipAsync(grant: false);
             await dataSource.DisposeAsync();
             protector.Dispose();
+            await using var connection = new NpgsqlConnection(adminConnectionString);
+            await connection.OpenAsync();
+            await using var cleanupFormat = new NpgsqlCommand(
+                "SELECT format('DROP OWNED BY %I; DROP ROLE IF EXISTS %I; GRANT CONNECT, TEMPORARY ON DATABASE %I TO PUBLIC;', @role, @role, current_database());",
+                connection);
+            cleanupFormat.Parameters.AddWithValue("role", controlRoleName);
+            var cleanupSql = (string)(await cleanupFormat.ExecuteScalarAsync())!;
+            await using var applyCleanup = new NpgsqlCommand(cleanupSql, connection);
+            await applyCleanup.ExecuteNonQueryAsync();
         }
     }
 }
