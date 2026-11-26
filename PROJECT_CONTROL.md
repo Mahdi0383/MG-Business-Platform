@@ -1146,3 +1146,16 @@ The temporary-shadow regression creates the fake temporary relation and invokes 
 - Exact code/test HEAD `94594b2a451085b35e2f1f25bd331b9f58181927`: PostgreSQL workflow `45718406150` passed **232 passed, 0 failed, 0 skipped**. Backend/web workflow `45718406089` passed: backend **232 passed**, frontend **20 passed**, both backend and isolated agent API Release builds succeeded with **0 errors**, dependency audit reported **0 vulnerabilities**, production web bundle and artifact upload succeeded (artifact `15070478025`, SHA-256 `12d10d5580a6df165b4d9efdc7b3f8e90d30dd3f7d7d7599e2fc30e47ac77c51`); Pages deploy skipped as expected for a Draft PR.
 - Earlier failures on heads `87e8aeb...`, `ee50c1c...` and `062bc6d...` were investigated and corrected: xUnit `[Fact]` omission/assertion mismatch; restricted-role fixture ACL cleanup and membership-edge setup. Do not count those failed runs as current evidence.
 - The ledger update itself will change HEAD and requires a fresh exact-head CI run; the above evidence is valid only for code/test SHA `94594b2...`. PR #184 remains Draft/unmerged and stacked on #179/#178/#155. No production migration/deployment; keep `Provisioning:WorkerEnabled=false`.
+
+
+## 11.24 PR #184 current exact-head validation — 2026-11-26
+
+- Current PR #184 HEAD before this ledger entry: `60c8a909694b06231d8be787a685b4cdb93cd7b2` (documentation-only evidence update after code/test SHA `94594b2a451085b35e2f1f25bd331b9f58181927`).
+- Exact-head PostgreSQL safety workflow `45734241922`: completed **success** on SHA `60c8a909694b06231d8be787a685b4cdb93cd7b2`.
+- Exact-head backend/web workflow `45734241763`: completed **success** on the same SHA. Pages deployment remains skipped for the Draft PR as expected.
+- These results close the ledger's exact-head CI follow-up for the pre-entry SHA only. This ledger commit will change PR HEAD and trigger fresh CI; do not report the new SHA green until both workflows finish.
+- PR #184 remains Draft/open/unmerged and stacked on #179. No production migration/deployment, no worker activation; keep `Provisioning:WorkerEnabled=false`.
+
+### Next engineering task
+
+Implement the next approved operational observability slice without exposing an unauthenticated metrics endpoint: define the exporter/collector boundary, protect scrape/telemetry access, add dashboard/alert configuration and a testable alert-delivery path, then document staging/on-call evidence requirements. Keep secrets and tenant labels out of metric dimensions; use low-cardinality dimensions only. Do not activate the provisioning worker or claim production monitoring until deployment and alert delivery are verified.
